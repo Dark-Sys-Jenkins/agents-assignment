@@ -4,7 +4,6 @@ from typing import Literal
 
 TextTransforms = Literal["filter_markdown", "filter_emoji"]
 
-
 def apply_text_transforms(
     text: AsyncIterable[str], transforms: Sequence[TextTransforms]
 ) -> AsyncIterable[str]:

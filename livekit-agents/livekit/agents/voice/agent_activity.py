@@ -126,6 +126,10 @@ class AgentActivity(RecognitionHooks):
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
 
+        # for intelligent interruption handling (two-phase: VAD -> STT commit)
+        self._pending_interruption: bool = False
+        self._pending_interruption_time: float | None = None
+
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
         self._q_updated = asyncio.Event()
@@ -1166,6 +1170,160 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
+    def _classify_utterance(self, text: str) -> str:
+        """Classify user utterance as 'backchannel', 'interrupt', or 'normal'.
+        
+        Returns:
+            'backchannel' - filler words only (yeah, ok, hmm) - ignore when agent speaking
+            'interrupt' - contains interrupt command (stop, wait, no) - always interrupt
+            'normal' - regular speech - interrupt if agent speaking
+        """
+        if not text:
+            return "normal"
+        
+        # Normalize text: lowercase, strip punctuation
+        import re
+        normalized = re.sub(r'[^\w\s]', '', text.lower().strip())
+        
+        if not normalized:
+            return "normal"
+        
+        opt = self._session.options
+        
+        # Check for interrupt commands FIRST (semantic awareness)
+        # "Yeah, but wait" should interrupt because it contains "wait"
+        for word in opt.interrupt_words:
+            if word.lower() in normalized:
+                return "interrupt"
+        
+        # Check if the entire utterance is just backchannel words
+        # Split into words and check if ALL words are backchannels
+        words = normalized.split()
+        backchannel_set = {w.lower() for w in opt.backchannel_words}
+        
+        # Also check multi-word backchannels
+        is_backchannel = False
+        for bc in opt.backchannel_words:
+            bc_normalized = re.sub(r'[^\w\s]', '', bc.lower().strip())
+            if normalized == bc_normalized:
+                is_backchannel = True
+                break
+        
+        # Or if all individual words are backchannel words
+        if not is_backchannel and words:
+            is_backchannel = all(w in backchannel_set for w in words)
+        
+        if is_backchannel:
+            return "backchannel"
+        
+        return "normal"
+
+    def _should_defer_interim_interruption(self, text: str) -> bool:
+        """Heuristic to avoid committing interruptions on partial interim transcripts.
+
+        Some STT engines emit partial tokens first (e.g. "ye" then "yeah"). If we treat
+        the early partial as "normal" speech, we may briefly pause playout and then
+        continue once the final transcript resolves to a backchannel. This method
+        defers committing until we have a more stable signal.
+        """
+        import re
+
+        normalized = re.sub(r"[^\w\s]", "", (text or "").lower().strip())
+        if not normalized:
+            return True
+
+        words = normalized.split()
+        # Multi-word interim is usually already meaningful.
+        if len(words) >= 2:
+            return False
+
+        token = words[0] if words else normalized
+
+        # Very short tokens are almost always unstable.
+        if len(token) < 3:
+            return True
+
+        # If the interim token is a prefix of a known backchannel ("ye"/"yea" -> "yeah"),
+        # defer and wait for more characters/final transcript.
+        for bc in self._session.options.backchannel_words:
+            bc_norm = re.sub(r"[^\w\s]", "", bc.lower().strip())
+            if bc_norm and bc_norm.startswith(token):
+                return True
+
+        return False
+
+    def _is_interim_interrupt_prefix(self, text: str) -> bool:
+        """Fast-path for interruption commands on interim text.
+
+        We keep this conservative (>=3 chars) to avoid false positives like "st" in "story".
+        """
+        import re
+
+        normalized = re.sub(r"[^\w\s]", "", (text or "").lower().strip())
+        if not normalized:
+            return False
+
+        # Only consider single-token prefixes.
+        token = normalized.split()[0]
+        if len(token) < 3:
+            return False
+
+        for w in self._session.options.interrupt_words:
+            w_norm = re.sub(r"[^\w\s]", "", w.lower().strip())
+            if w_norm and w_norm.startswith(token):
+                return True
+
+        return False
+
+    def _is_agent_speaking(self) -> bool:
+        """Check if the agent has an active speech handle that can be interrupted.
+
+        Note: relying solely on `session.agent_state == "speaking"` can be too strict,
+        because the state may momentarily be "thinking"/"listening" while audio playout
+        is still ongoing. If we mis-detect that case, VAD will take the legacy
+        false-interruption path (pause+resume), which sounds like a brief hiccup on
+        backchannel utterances.
+        """
+        return (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        )
+
+    def _commit_pending_interruption(self) -> None:
+        """Commit a pending interruption - actually pause/stop the agent speech."""
+        self._pending_interruption = False
+        self._pending_interruption_time = None
+        
+        opt = self._session.options
+        use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
+        
+        if (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        ):
+            self._paused_speech = self._current_speech
+
+            # reset the false interruption timer
+            if self._false_interruption_timer:
+                self._false_interruption_timer.cancel()
+                self._false_interruption_timer = None
+
+            if use_pause and self._session.output.audio and self._session.output.audio.can_pause:
+                self._session.output.audio.pause()
+                self._session._update_agent_state("listening")
+            else:
+                if self._rt_session is not None:
+                    self._rt_session.interrupt()
+
+                self._current_speech.interrupt()
+
+    def _cancel_pending_interruption(self) -> None:
+        """Cancel a pending interruption - agent continues speaking seamlessly."""
+        self._pending_interruption = False
+        self._pending_interruption_time = None
+
     def _interrupt_by_audio_activity(self) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
@@ -1228,6 +1386,19 @@ class AgentActivity(RecognitionHooks):
             last_speaking_time=speech_end_time,
         )
 
+        # If we had a pending interruption but speech ended without meaningful transcript,
+        # cancel the pending interruption (agent continues seamlessly)
+        if self._pending_interruption:
+            # Check if we have any transcript - if not, it was likely noise
+            current_transcript = ""
+            if self._audio_recognition is not None:
+                current_transcript = self._audio_recognition.current_transcript or ""
+            
+            if not current_transcript.strip():
+                # No transcript received - cancel pending interruption
+                logger.debug("Speech ended with no transcript - canceling pending interruption")
+                self._cancel_pending_interruption()
+
         if (
             self._paused_speech
             and (timeout := self._session.options.false_interruption_timeout) is not None
@@ -1241,7 +1412,15 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
-            self._interrupt_by_audio_activity()
+            # Two-phase interruption: if agent is speaking, set pending and wait for STT
+            if self._is_agent_speaking():
+                import time
+                self._pending_interruption = True
+                self._pending_interruption_time = time.time()
+                logger.debug("VAD detected speech while agent speaking - pending interruption set")
+            else:
+                # Agent is not speaking, proceed with normal interruption flow
+                self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
@@ -1257,11 +1436,46 @@ class AgentActivity(RecognitionHooks):
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
+        transcript_text = ev.alternatives[0].text
+        if transcript_text and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # Intelligent interruption handling
+            if self._pending_interruption or self._is_agent_speaking():
+                # Fast-path: if interim looks like an interrupt command prefix (e.g. "sto" -> "stop"),
+                # commit immediately.
+                if self._is_interim_interrupt_prefix(transcript_text):
+                    logger.debug(
+                        f"Interim interrupt prefix detected: '{transcript_text}' - committing interruption"
+                    )
+                    self._commit_pending_interruption()
+                    utterance_type = "interrupt"
+                else:
+                    utterance_type = self._classify_utterance(transcript_text)
+                
+                if utterance_type == "interrupt":
+                    # Contains interrupt command - commit interruption immediately
+                    logger.debug(f"Interrupt command detected: '{transcript_text}' - committing interruption")
+                    self._commit_pending_interruption()
+                elif utterance_type == "backchannel":
+                    # Backchannel only - cancel pending interruption, agent continues
+                    logger.debug(f"Backchannel detected: '{transcript_text}' - ignoring, agent continues")
+                    self._cancel_pending_interruption()
+                else:
+                    # Normal speech while agent speaking - but avoid committing on unstable interim partials.
+                    if self._should_defer_interim_interruption(transcript_text):
+                        logger.debug(
+                            f"Deferring interim interruption decision for: '{transcript_text}'"
+                        )
+                    else:
+                        logger.debug(
+                            f"Normal speech detected: '{transcript_text}' - committing interruption"
+                        )
+                        self._commit_pending_interruption()
+            else:
+                # Agent not speaking, normal flow
+                self._interrupt_by_audio_activity()
 
             if (
                 speaking is False
@@ -1288,11 +1502,30 @@ class AgentActivity(RecognitionHooks):
         # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
         # which will also be immediately interrupted
 
+        transcript_text = ev.alternatives[0].text
         if self._audio_recognition and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # Intelligent interruption handling on final transcript
+            if self._pending_interruption or self._is_agent_speaking():
+                utterance_type = self._classify_utterance(transcript_text)
+                
+                if utterance_type == "interrupt":
+                    # Contains interrupt command - commit interruption
+                    logger.debug(f"Final transcript interrupt command: '{transcript_text}' - committing")
+                    self._commit_pending_interruption()
+                elif utterance_type == "backchannel":
+                    # Backchannel only - cancel pending, agent continues
+                    logger.debug(f"Final transcript backchannel: '{transcript_text}' - ignoring")
+                    self._cancel_pending_interruption()
+                else:
+                    # Normal speech - commit interruption
+                    logger.debug(f"Final transcript normal speech: '{transcript_text}' - committing")
+                    self._commit_pending_interruption()
+            else:
+                # Agent not speaking, normal flow
+                self._interrupt_by_audio_activity()
 
             if (
                 speaking is False
@@ -1364,6 +1597,19 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(theomonnom): should we "forward" this new turn to the next agent/activity?
             return True
+
+        # Intelligent interruption: Skip turn entirely if it's a pure backchannel during agent speaking
+        if (
+            self._is_agent_speaking()
+            and self._classify_utterance(info.new_transcript) == "backchannel"
+        ):
+            self._cancel_preemptive_generation()
+            logger.debug(
+                "Skipping user turn - pure backchannel during agent speaking",
+                extra={"user_input": info.new_transcript},
+            )
+            # Do NOT add to chat context, do NOT trigger LLM response
+            return False
 
         if (
             self.stt is not None
