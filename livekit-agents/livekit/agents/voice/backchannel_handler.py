@@ -45,6 +45,13 @@ DEFAULT_INTERRUPT_COMMANDS: list[str] = [
     "question",
 ]
 
+DEFAULT_QUESTION_RESPONSE_WORDS: list[str] = [
+    "yes",
+    "yeah",
+    "yep",
+    "yup"
+]
+
 
 @dataclass
 class FilterDecision:
@@ -59,6 +66,7 @@ class BackchannelHandler:
         self,
         backchannel_words: list[str] | None = None,
         interrupt_commands: list[str] | None = None,
+        question_response_words: list[str] | None = None,
     ) -> None:
         self._backchannel_words = set(
             w.lower() for w in (backchannel_words or DEFAULT_BACKCHANNEL_WORDS)
@@ -66,11 +74,17 @@ class BackchannelHandler:
         self._interrupt_commands = set(
             w.lower() for w in (interrupt_commands or DEFAULT_INTERRUPT_COMMANDS)
         )
+        self._question_response_words = set(
+            w.lower() for w in (question_response_words or DEFAULT_QUESTION_RESPONSE_WORDS)
+        )
         self._backchannel_phrases = [
             w for w in self._backchannel_words if " " in w
         ]
         self._interrupt_phrases = [
             w for w in self._interrupt_commands if " " in w
+        ]
+        self._question_response_phrases = [
+            w for w in self._question_response_words if " " in w
         ]
 
     def _normalize_text(self, text: str) -> str:
@@ -100,6 +114,7 @@ class BackchannelHandler:
         self,
         transcript: str,
         agent_is_speaking: bool,
+        agent_asked_question: bool = False,
     ) -> FilterDecision:
         if not transcript or not transcript.strip():
             return FilterDecision(
@@ -137,6 +152,18 @@ class BackchannelHandler:
                 should_interrupt=True,
                 reason="agent_silent",
             )
+
+        if agent_asked_question:
+            response_phrases = self._contains_phrase(normalized, self._question_response_phrases)
+            response_words = self._contains_words(tokens, self._question_response_words)
+
+            if response_phrases or response_words:
+                detected_responses = response_phrases + response_words
+                return FilterDecision(
+                    should_interrupt=True,
+                    reason="question_response_detected",
+                    detected_commands=detected_responses,
+                )
 
         backchannel_phrases = self._contains_phrase(normalized, self._backchannel_phrases)
         backchannel_words = self._contains_words(tokens, self._backchannel_words)

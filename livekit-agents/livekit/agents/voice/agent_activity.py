@@ -132,6 +132,7 @@ class AgentActivity(RecognitionHooks):
             interrupt_commands=sess.options.interrupt_commands,
         )
         self._pending_vad_event: vad.VADEvent | None = None
+        self._agent_asked_question: bool = False
 
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
@@ -1274,6 +1275,7 @@ class AgentActivity(RecognitionHooks):
                 decision = self._backchannel_handler.should_interrupt(
                     transcript=ev.alternatives[0].text,
                     agent_is_speaking=(self._session.agent_state == "speaking"),
+                    agent_asked_question=self._agent_asked_question,
                 )
                 if not decision.should_interrupt:
                     return
@@ -1301,10 +1303,14 @@ class AgentActivity(RecognitionHooks):
             decision = self._backchannel_handler.should_interrupt(
                 transcript=ev.alternatives[0].text,
                 agent_is_speaking=(self._session.agent_state == "speaking"),
+                agent_asked_question=self._agent_asked_question,
             )
 
             if not decision.should_interrupt:
                 return False
+
+            if decision.reason == "question_response_detected":
+                self._agent_asked_question = False
 
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
@@ -1741,6 +1747,8 @@ class AgentActivity(RecognitionHooks):
     ) -> None:
         from .agent import ModelSettings
 
+        self._agent_asked_question = False
+
         current_span = trace.get_current_span()
         current_span.set_attribute(trace_types.ATTR_SPEECH_ID, speech_handle.id)
         if instructions is not None:
@@ -1842,6 +1850,9 @@ class AgentActivity(RecognitionHooks):
             async for chunk in llm_output:
                 if isinstance(chunk, FlushSentinel):
                     continue
+                #TODO:For Now I only did a simple check to see if the output is a question, but we can make it better by also looking for words like "Do you, Would you, Should I"
+                if "?" in chunk:
+                    self._agent_asked_question = True
                 yield chunk
 
         tr_node = self._agent.transcription_node(_read_text(tr_input), model_settings)
@@ -2147,6 +2158,8 @@ class AgentActivity(RecognitionHooks):
         model_settings: ModelSettings,
         instructions: str | None = None,
     ) -> None:
+        self._agent_asked_question = False
+
         current_span = trace.get_current_span()
         current_span.set_attribute(trace_types.ATTR_SPEECH_ID, speech_handle.id)
 
