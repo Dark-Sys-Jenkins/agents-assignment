@@ -39,7 +39,6 @@ for _rel in (
     if _p.exists():
         sys.path.insert(0, str(_p))
 
-# Also add the parent directories for proper package resolution
 for _rel in (
     "livekit-agents",
     "livekit-plugins/livekit-plugins-openai",
@@ -57,7 +56,6 @@ from livekit.plugins import openai, silero
 
 load_dotenv()
 
-# Configure logging to see the intelligent interruption decisions
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("intelligent_interrupt_demo")
 
@@ -112,12 +110,6 @@ async def entrypoint(ctx: JobContext):
     logger.info(f"  {DEFAULT_INTERRUPT_WORDS}")
     logger.info("=" * 50)
     
-    # Create session with default intelligent interruption settings
-    # You can customize the word lists:
-    #   backchannel_words=["yeah", "ok", "uh-huh", "right"],
-    #   interrupt_words=["stop", "wait", "hold on", "pause"],
-    # OpenAI model IDs should be plain model names (e.g., "gpt-4o-mini").
-    # The previous value "openai/gpt-4o-mini" is not a valid OpenAI model ID.
     llm_model = os.getenv("OPENAI_LLM_MODEL", "gpt-4o-mini")
 
     session = AgentSession(
@@ -125,9 +117,6 @@ async def entrypoint(ctx: JobContext):
         stt=openai.STT(),  # Uses Whisper - only needs OPENAI_API_KEY
         llm=openai.LLM(model=llm_model),
         tts=openai.TTS(voice="alloy"),
-        # Intelligent interruption is enabled by default with these settings:
-        # backchannel_words=DEFAULT_BACKCHANNEL_WORDS,
-        # interrupt_words=DEFAULT_INTERRUPT_WORDS,
     )
     
     # Log state changes to observe the behavior
@@ -145,8 +134,7 @@ async def entrypoint(ctx: JobContext):
     
     agent = StoryTellerAgent()
     await session.start(agent=agent, room=ctx.room)
-    
-    # Start with a greeting that prompts the user to ask for a story
+
     await session.generate_reply(
     instructions="Greet the user warmly and introduce yourself as their AI assistant. "
     "Ask how you can help them today. Briefly mention that while you're responding, "
