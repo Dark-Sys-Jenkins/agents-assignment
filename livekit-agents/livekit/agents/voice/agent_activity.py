@@ -16,6 +16,7 @@ from livekit.agents.llm.realtime import MessageGeneration
 from livekit.agents.metrics.base import Metadata
 
 from .. import llm, stt, tts, utils, vad
+from .interruption_classifier import InterruptionClassifier, InterruptionDecision, get_default_classifier
 from ..llm.tool_context import (
     StopResponse,
     ToolFlag,
@@ -141,6 +142,10 @@ class AgentActivity(RecognitionHooks):
 
         self._on_enter_task: asyncio.Task | None = None
         self._on_exit_task: asyncio.Task | None = None
+
+        # Backchanneling handler for ignoring filler words while speaking
+        self._interruption_classifier = get_default_classifier()
+        self._pending_vad_interruption = False  # Track if VAD wants to interrupt but waiting for STT
 
         if (
             isinstance(self.llm, llm.RealtimeModel)
@@ -309,6 +314,15 @@ class AgentActivity(RecognitionHooks):
         )
 
         return use_aligned_transcript is True
+
+    @property
+    def interruption_classifier(self) -> InterruptionClassifier:
+        """Classifier for backchanneling detection."""
+        return self._interruption_classifier
+
+    def set_interruption_classifier(self, classifier: InterruptionClassifier) -> None:
+        """Replace the default interruption classifier with a custom one."""
+        self._interruption_classifier = classifier
 
     async def update_instructions(self, instructions: str) -> None:
         self._agent._instructions = instructions
@@ -1185,6 +1199,19 @@ class AgentActivity(RecognitionHooks):
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
                 return
 
+        # Backchanneling detection: ignore filler words ("yeah", "ok") while speaking
+        if self._audio_recognition is not None:
+            transcript = self._audio_recognition.current_transcript
+            is_speaking = self._session.agent_state == "speaking"
+            decision = self._interruption_classifier.classify(transcript, is_speaking)
+
+            if decision == InterruptionDecision.IGNORE:
+                logger.debug(f"Ignoring backchannel while speaking: '{transcript}'")
+                return
+
+            if is_speaking:
+                logger.debug(f"Interrupting due to: '{transcript}')")
+
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
 
@@ -1228,6 +1255,9 @@ class AgentActivity(RecognitionHooks):
             last_speaking_time=speech_end_time,
         )
 
+        # Clear pending VAD interruption when user stops speaking
+        self._pending_vad_interruption = False
+
         if (
             self._paused_speech
             and (timeout := self._session.options.false_interruption_timeout) is not None
@@ -1241,7 +1271,13 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
-            self._interrupt_by_audio_activity()
+            # If agent is speaking, defer interruption until STT provides transcript
+            # This prevents interrupting on backchannels like "yeah" before we know what was said
+            if self._session.agent_state == "speaking":
+                self._pending_vad_interruption = True
+                logger.debug("VAD detected speech while agent speaking - deferring to STT")
+            else:
+                self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
@@ -1257,10 +1293,23 @@ class AgentActivity(RecognitionHooks):
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
-            "manual",
-            "realtime_llm",
-        ):
+        transcript = ev.alternatives[0].text
+        if transcript and self._turn_detection not in ("manual", "realtime_llm"):
+            # Handle pending VAD interruption with proper classification
+            if self._pending_vad_interruption:
+                is_speaking = self._session.agent_state == "speaking"
+                decision = self._interruption_classifier.classify(transcript, is_speaking)
+
+                if decision == InterruptionDecision.IGNORE:
+                    # Backchannel detected - cancel the pending interruption
+                    self._pending_vad_interruption = False
+                    logger.debug(f"Cancelled VAD interruption - backchannel: '{transcript}'")
+                    return
+                else:
+                    # Real interruption - proceed
+                    self._pending_vad_interruption = False
+                    logger.debug(f"Confirmed VAD interruption: '{transcript}'")
+
             self._interrupt_by_audio_activity()
 
             if (
@@ -1284,9 +1333,20 @@ class AgentActivity(RecognitionHooks):
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
-        # agent speech might not be interrupted if VAD failed and a final transcript is received
-        # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
-        # which will also be immediately interrupted
+
+        transcript = ev.alternatives[0].text
+        # Final transcript - make definitive decision on pending VAD interruption
+        if self._pending_vad_interruption and transcript:
+            is_speaking = self._session.agent_state == "speaking"
+            decision = self._interruption_classifier.classify(transcript, is_speaking)
+
+            if decision == InterruptionDecision.IGNORE:
+                self._pending_vad_interruption = False
+                logger.debug(f"Final: ignoring backchannel '{transcript}'")
+                return
+            else:
+                self._pending_vad_interruption = False
+                logger.debug(f"Final: interrupting for '{transcript}'")
 
         if self._audio_recognition and self._turn_detection not in (
             "manual",
