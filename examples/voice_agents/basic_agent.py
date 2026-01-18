@@ -1,23 +1,30 @@
 import logging
-
+import sys
+from pathlib import Path
 from dotenv import load_dotenv
 
 from livekit.agents import (
     Agent,
     AgentServer,
     AgentSession,
+    AgentStateChangedEvent,
     JobContext,
     JobProcess,
     MetricsCollectedEvent,
     RunContext,
+    UserInputTranscribedEvent,
     cli,
     metrics,
     room_io,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import silero
+from livekit.plugins import silero, groq
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
+
+# Add current directory to path for salescode_interrupt_handler import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from salescode_interrupt_handler.controllers import Decision, InterruptionController
 # uncomment to enable Krisp background voice/noise cancellation
 # from livekit.plugins import noise_cancellation
 
@@ -79,13 +86,17 @@ async def entrypoint(ctx: JobContext):
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
+
+    # Initialize the intelligent interrupt controller
+    interrupt_controller = InterruptionController()
+    logger.info("[START] InterruptionController initialized")
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
         stt="deepgram/nova-3",
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
-        llm="openai/gpt-4.1-mini",
+        llm=groq.LLM(model="llama-3.3-70b-versatile"),
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
@@ -98,9 +109,74 @@ async def entrypoint(ctx: JobContext):
         preemptive_generation=True,
         # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
         # when it's detected, you may resume the agent's speech
-        resume_false_interruption=True,
-        false_interruption_timeout=1.0,
+        min_interruption_words=2,
+        min_interruption_duration=0.6,
+        false_interruption_timeout=None,
+        resume_false_interruption=False,
     )
+    logger.info("✓ AgentSession configured with intelligent interrupt handling")
+
+    # ============================================================
+    # EVENT HANDLERS FOR LAYER 2 & 3: Semantic Filtering
+    # ============================================================
+
+    @session.on("agent_state_changed")
+    def _on_agent_state_changed(ev: AgentStateChangedEvent):
+        """Track agent state for context-aware interrupt decisions."""
+        interrupt_controller.update_agent_state(ev.new_state)
+        logger.debug(f"Agent state: {ev.old_state} → {ev.new_state}")
+
+    @session.on("user_input_transcribed")
+    def _on_user_input_transcribed(ev: UserInputTranscribedEvent):
+        """
+        Process user transcripts through the intelligent interrupt controller.
+        
+        LAYER 2: Semantic analysis of transcript content
+        LAYER 3: Dispatch appropriate action based on decision
+        
+        Fix #5: Efficient interim processing - only check for interrupt commands
+        in interim transcripts, skip full analysis for likely fillers.
+        """
+        transcript = ev.transcript.strip()
+        if not transcript:
+            return
+
+        # Fix #5: OPTIMIZATION - Fast path for interim transcripts
+        # Only process interim if it might be an interrupt command
+        # Filler words can wait for final transcript (saves CPU)
+        if not ev.is_final:
+            # Quick lowercase + hyphen normalization for fast check
+            quick_norm = transcript.lower().replace('-', ' ')
+
+            # Fast check: Does it contain obvious interrupt words?
+            interrupt_hints = {"stop", "wait", "no", "pause", "hold", "but", "actually", "what", "huh"}
+            has_interrupt = any(word in quick_norm for word in interrupt_hints)
+
+            if not has_interrupt:
+                # Likely filler, skip interim processing entirely
+                logger.debug(f"[SKIP] (interim, likely filler): '{transcript}'")
+                return
+
+        # Full decision for final transcripts OR interim with interrupt hints
+        decision = interrupt_controller.decide(transcript, ev.is_final)
+
+        # Dispatch action based on decision
+        if decision == Decision.IGNORE:
+            # Only clear on final transcripts to avoid redundant calls
+            if ev.is_final:
+                session.clear_user_turn()
+                logger.info(f"[CLEARED] '{transcript}' (backchannel ignored)")
+        elif decision == Decision.INTERRUPT:
+            # Stop agent immediately - user wants the floor
+            session.interrupt()
+            session.clear_user_turn()
+            if ev.is_final:
+                logger.info(f"INTERRUPTED: '{transcript}' (command detected)")
+        # Decision.NO_DECISION: Let framework handle normally (agent is silent)
+
+    # ============================================================
+    # METRICS AND USAGE LOGGING
+    # ============================================================
 
     # log metrics as they are emitted, and total usage after session is over
     usage_collector = metrics.UsageCollector()
@@ -112,7 +188,7 @@ async def entrypoint(ctx: JobContext):
 
     async def log_usage():
         summary = usage_collector.get_summary()
-        logger.info(f"Usage: {summary}")
+        logger.info(f"Session ended. Usage: {summary}")
 
     # shutdown callbacks are triggered when the session is over
     ctx.add_shutdown_callback(log_usage)

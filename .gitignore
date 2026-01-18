@@ -8,6 +8,10 @@ __pycache__/
 
 # C extensions
 *.so
+# Environment variables
+.env
+.env.*
+*.env.examples
 
 # Distribution / packaging
 .Python
