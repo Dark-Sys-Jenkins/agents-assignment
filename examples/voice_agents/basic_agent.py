@@ -17,6 +17,11 @@ from livekit.agents import (
 from livekit.agents.llm import function_tool
 from livekit.plugins import silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
+from livekit.agents.voice.agent_session import (
+    DEFAULT_BACKCHANNEL_IGNORE_WORDS,
+    DEFAULT_INTERRUPTION_KEYWORDS,
+)
+
 
 # uncomment to enable Krisp background voice/noise cancellation
 # from livekit.plugins import noise_cancellation
@@ -80,6 +85,17 @@ async def entrypoint(ctx: JobContext):
         "room": ctx.room.name,
     }
     session = AgentSession(
+        allow_interruptions=True,
+        backchannel_ignore_words=DEFAULT_BACKCHANNEL_IGNORE_WORDS + (
+            "yes", "sure",
+            "mhmm", "mmhmm", "mhm", "mm-hmm",
+            "hmm", "hm",
+            "ok", "okay",
+            "right",
+        ),
+        interruption_keywords=DEFAULT_INTERRUPTION_KEYWORDS,
+        min_interruption_words=1,
+
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
         stt="deepgram/nova-3",
