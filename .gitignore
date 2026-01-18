@@ -177,3 +177,9 @@ docs/
 
 # Examples for development
 examples/dev/*
+
+# Claude Code
+.claude/
+
+# Assignment PDF
+*.pdf
