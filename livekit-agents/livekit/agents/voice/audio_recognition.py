@@ -84,8 +84,8 @@ class RecognitionHooks(Protocol):
     def on_start_of_speech(self, ev: vad.VADEvent | None) -> None: ...
     def on_vad_inference_done(self, ev: vad.VADEvent) -> None: ...
     def on_end_of_speech(self, ev: vad.VADEvent | None) -> None: ...
-    def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None: ...
-    def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> None: ...
+    def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> bool: ...
+    def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> bool: ...
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool: ...
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None: ...
 
@@ -356,10 +356,11 @@ class AudioRecognition:
             if not transcript:
                 return
 
-            self._hooks.on_final_transcript(
+            if not self._hooks.on_final_transcript(
                 ev,
                 speaking=self._speaking if self._vad else None,
-            )
+            ):
+                return
             extra: dict[str, Any] = {"user_transcript": transcript, "language": self._last_language}
             if self._last_speaking_time:
                 extra["transcript_delay"] = time.time() - self._last_speaking_time
@@ -441,7 +442,8 @@ class AudioRecognition:
                 )
 
         elif ev.type == stt.SpeechEventType.INTERIM_TRANSCRIPT:
-            self._hooks.on_interim_transcript(ev, speaking=self._speaking if self._vad else None)
+            if not self._hooks.on_interim_transcript(ev,speaking=self._speaking if self._vad else None):
+                return
             self._audio_interim_transcript = ev.alternatives[0].text
 
         elif ev.type == stt.SpeechEventType.END_OF_SPEECH and self._turn_detection_mode == "stt":
