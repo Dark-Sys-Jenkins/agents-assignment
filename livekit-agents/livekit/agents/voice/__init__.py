@@ -1,6 +1,13 @@
 from . import io, run_result
 from .agent import Agent, AgentTask, ModelSettings
 from .agent_session import AgentSession, VoiceActivityVideoSampler
+from .interruption_classifier import (
+    InterruptionClassifier,
+    InterruptionConfig,
+    InterruptionDecision,
+    get_default_classifier,
+    set_default_classifier,
+)
 from .events import (
     AgentEvent,
     AgentFalseInterruptionEvent,
@@ -51,6 +58,12 @@ __all__ = [
     "_ParticipantAudioOutput",
     "_ParticipantTranscriptionOutput",
     "_ParticipantStreamTranscriptionOutput",
+    # Intelligent interruption handling
+    "InterruptionClassifier",
+    "InterruptionConfig",
+    "InterruptionDecision",
+    "get_default_classifier",
+    "set_default_classifier",
 ]
 
 # Cleanup docs of unexported modules
