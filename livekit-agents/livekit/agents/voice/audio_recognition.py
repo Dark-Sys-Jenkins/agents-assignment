@@ -85,7 +85,7 @@ class RecognitionHooks(Protocol):
     def on_vad_inference_done(self, ev: vad.VADEvent) -> None: ...
     def on_end_of_speech(self, ev: vad.VADEvent | None) -> None: ...
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None: ...
-    def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> None: ...
+    def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> bool: ...
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool: ...
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None: ...
 
@@ -356,7 +356,8 @@ class AudioRecognition:
             if not transcript:
                 return
 
-            self._hooks.on_final_transcript(
+            # Call on_final_transcript and check if we should add to buffer
+            should_add_to_buffer = self._hooks.on_final_transcript(
                 ev,
                 speaking=self._speaking if self._vad else None,
             )
@@ -364,6 +365,11 @@ class AudioRecognition:
             if self._last_speaking_time:
                 extra["transcript_delay"] = time.time() - self._last_speaking_time
             logger.debug("received user transcript", extra=extra)
+
+            # If soft acknowledgment was detected, skip adding to transcript buffer
+            if not should_add_to_buffer:
+                logger.debug("skipping transcript buffer update (soft acknowledgment)")
+                return
 
             self._last_final_transcript_time = time.time()
             self._audio_transcript += f" {transcript}"
