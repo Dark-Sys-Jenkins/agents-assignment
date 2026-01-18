@@ -1185,6 +1185,51 @@ class AgentActivity(RecognitionHooks):
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
                 return
 
+        # Intelligent backchannel filtering: ignore filler words when agent is speaking
+        # This prevents the agent from pausing/stopping when user says "yeah", "ok", etc.
+        # while still allowing real interruptions like "stop", "wait", etc.
+        agent_is_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        )
+
+        # Intelligent backchannel filtering: only filter when we have a transcript to analyze.
+        # If no transcript is available, proceed with normal VAD-based interruption.
+        if agent_is_speaking and self._audio_recognition is not None:
+            transcript = self._audio_recognition.current_transcript
+
+            # Only apply backchannel filtering if we have a transcript to analyze
+            if transcript:
+                filter_result = self._session.interruption_filter.should_interrupt(
+                    transcript,
+                    agent_is_speaking=True,
+                )
+
+                if not filter_result.should_interrupt:
+                    # User said only backchannel words while agent is speaking
+                    # Do NOT interrupt - let agent continue seamlessly
+                    logger.debug(
+                        "Ignoring backchannel while agent speaking",
+                        extra={
+                            "transcript": transcript,
+                            "reason": filter_result.reason,
+                            "backchannel_words": filter_result.backchannel_words_found,
+                        },
+                    )
+                    return
+                else:
+                    # Meaningful content detected - proceed with interruption
+                    logger.debug(
+                        "Allowing interruption - meaningful content detected",
+                        extra={
+                            "transcript": transcript,
+                            "reason": filter_result.reason,
+                            "meaningful_words": filter_result.meaningful_words,
+                        },
+                    )
+            # If no transcript yet, proceed with normal VAD-based interruption
+
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
 

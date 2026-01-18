@@ -1,0 +1,121 @@
+======================================================================
+INTELLIGENT INTERRUPTION FILTER DEMONSTRATION
+======================================================================
+
+----------------------------------------------------------------------
+TEST RESULTS
+----------------------------------------------------------------------
+
+[SPEAKING] Input: "yeah"
+  Description: Agent speaking, user says 'yeah'
+  Decision: IGNORE
+  Reason: Only backchannel words while agent speaking: ['yeah']
+  Backchannel words found: ['yeah']
+
+[SPEAKING] Input: "ok"
+  Description: Agent speaking, user says 'ok'
+  Decision: IGNORE
+  Reason: Only backchannel words while agent speaking: ['ok']
+  Backchannel words found: ['ok']
+
+[SPEAKING] Input: "uh-huh"
+  Description: Agent speaking, user says 'uh-huh'
+  Decision: IGNORE
+  Reason: Only backchannel words while agent speaking: ['uhhuh']
+  Backchannel words found: ['uhhuh']
+
+[SPEAKING] Input: "hmm"
+  Description: Agent speaking, user says 'hmm'
+  Decision: IGNORE
+  Reason: Only backchannel words while agent speaking: ['hmm']
+  Backchannel words found: ['hmm']
+
+[SPEAKING] Input: "sure"
+  Description: Agent speaking, user says 'sure'
+  Decision: IGNORE
+  Reason: Only backchannel words while agent speaking: ['sure']
+  Backchannel words found: ['sure']
+
+[SILENT] Input: "yeah"
+  Description: Agent silent, user says 'yeah'
+  Decision: INTERRUPT
+  Reason: Agent is silent - processing all user input
+
+[SILENT] Input: "ok"
+  Description: Agent silent, user says 'ok'
+  Decision: INTERRUPT
+  Reason: Agent is silent - processing all user input
+
+[SPEAKING] Input: "stop"
+  Description: Agent speaking, user says 'stop'
+  Decision: INTERRUPT
+  Reason: Contains interrupt word(s): ['stop']
+  Meaningful words: ['stop']
+
+[SPEAKING] Input: "wait"
+  Description: Agent speaking, user says 'wait'
+  Decision: INTERRUPT
+  Reason: Contains interrupt word(s): ['wait']
+  Meaningful words: ['wait']
+
+[SPEAKING] Input: "no"
+  Description: Agent speaking, user says 'no'
+  Decision: INTERRUPT
+  Reason: Contains interrupt word(s): ['no']
+  Meaningful words: ['no']
+
+[SPEAKING] Input: "what"
+  Description: Agent speaking, user says 'what'
+  Decision: INTERRUPT
+  Reason: Contains interrupt word(s): ['what']
+  Meaningful words: ['what']
+
+[SPEAKING] Input: "help"
+  Description: Agent speaking, user says 'help'
+  Decision: INTERRUPT
+  Reason: Contains interrupt word(s): ['help']
+  Meaningful words: ['help']
+
+[SPEAKING] Input: "yeah but wait"
+  Description: Agent speaking, user says 'yeah but wait'
+  Decision: INTERRUPT
+  Reason: Contains interrupt word(s): ['but', 'wait']
+  Backchannel words found: ['yeah']
+  Meaningful words: ['but', 'wait']
+
+[SPEAKING] Input: "ok stop"
+  Description: Agent speaking, user says 'ok stop'
+  Decision: INTERRUPT
+  Reason: Contains interrupt word(s): ['stop']
+  Backchannel words found: ['ok']
+  Meaningful words: ['stop']
+
+[SPEAKING] Input: "hmm what was that"
+  Description: Agent speaking, user says 'hmm what was that'
+  Decision: INTERRUPT
+  Reason: Contains interrupt word(s): ['what', 'was', 'that']
+  Backchannel words found: ['hmm']
+  Meaningful words: ['what', 'was', 'that']
+
+======================================================================
+SUMMARY OF KEY BEHAVIORS
+======================================================================
+
+1. AGENT IGNORING 'yeah' WHILE TALKING:
+   Input: 'yeah' | Agent State: SPEAKING
+   Result: IGNORE - Agent continues
+   Reason: Only backchannel words while agent speaking: ['yeah']
+
+2. AGENT RESPONDING TO 'yeah' WHEN SILENT:
+   Input: 'yeah' | Agent State: SILENT
+   Result: RESPOND - Process as input
+   Reason: Agent is silent - processing all user input
+
+3. AGENT STOPPING FOR 'stop':
+   Input: 'stop' | Agent State: SPEAKING
+   Result: INTERRUPT - Agent stops
+   Reason: Contains interrupt word(s): ['stop']
+
+======================================================================
+DEMONSTRATION COMPLETE
+======================================================================

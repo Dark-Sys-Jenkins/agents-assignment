@@ -56,6 +56,12 @@ from .ivr import IVRActivity
 from .recorder_io import RecorderIO
 from .run_result import RunResult
 from .speech_handle import SpeechHandle
+from .interruption_filter import (
+    InterruptionFilter,
+    InterruptionFilterConfig,
+    DEFAULT_BACKCHANNEL_WORDS,
+    DEFAULT_INTERRUPT_WORDS,
+)
 
 if TYPE_CHECKING:
     from ..inference import LLMModels, STTModels, TTSModels
@@ -89,6 +95,10 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    # Backchannel/filler word filtering options
+    backchannel_filter_enabled: bool
+    backchannel_words: frozenset[str] | None
+    interrupt_words: frozenset[str] | None
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -161,6 +171,10 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         ivr_detection: bool = False,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
+        # Backchannel/filler word filtering options
+        backchannel_filter_enabled: bool = True,
+        backchannel_words: NotGivenOr[frozenset[str] | None] = NOT_GIVEN,
+        interrupt_words: NotGivenOr[frozenset[str] | None] = NOT_GIVEN,
         # deprecated
         agent_false_interruption_timeout: NotGivenOr[float | None] = NOT_GIVEN,
     ) -> None:
@@ -288,7 +302,25 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            # Backchannel filtering options
+            backchannel_filter_enabled=backchannel_filter_enabled,
+            backchannel_words=backchannel_words if is_given(backchannel_words) else None,
+            interrupt_words=interrupt_words if is_given(interrupt_words) else None,
         )
+
+        # Initialize the interruption filter with custom configuration if provided
+        filter_config = InterruptionFilterConfig(
+            enabled=backchannel_filter_enabled,
+            backchannel_words=(
+                backchannel_words if is_given(backchannel_words) and backchannel_words
+                else DEFAULT_BACKCHANNEL_WORDS
+            ),
+            interrupt_words=(
+                interrupt_words if is_given(interrupt_words) and interrupt_words
+                else DEFAULT_INTERRUPT_WORDS
+            ),
+        )
+        self._interruption_filter = InterruptionFilter(filter_config)
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False
         self._turn_detection = turn_detection or None
@@ -423,6 +455,11 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
     @property
     def tools(self) -> list[llm.FunctionTool | llm.RawFunctionTool]:
         return self._tools
+
+    @property
+    def interruption_filter(self) -> InterruptionFilter:
+        """Get the interruption filter for backchannel word handling."""
+        return self._interruption_filter
 
     def run(self, *, user_input: str, output_type: type[Run_T] | None = None) -> RunResult[Run_T]:
         if self._global_run_state is not None and not self._global_run_state.done():
