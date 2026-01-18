@@ -53,6 +53,7 @@ from .audio_recognition import (
     _EndOfTurnInfo,
     _PreemptiveGenerationInfo,
 )
+from .interruption_filter import InterruptionFilter
 from .events import (
     AgentFalseInterruptionEvent,
     ErrorEvent,
@@ -163,6 +164,13 @@ class AgentActivity(RecognitionHooks):
 
         # speeches that audio playout finished but not done because of tool calls
         self._background_speeches: set[SpeechHandle] = set()
+
+        # Intelligent interruption classifier: distinguishes backchannels
+        # ("yeah", "ok", "hmm"...) from active interruptions ("stop", "wait", "no"...).
+        self._interrupt_filter = InterruptionFilter(
+            backchannel_words=self._session.options.backchannel_words,
+            hard_interrupt_words=self._session.options.hard_interrupt_words,
+        )
 
     def _validate_turn_detection(
         self, turn_detection: TurnDetectionMode | None
@@ -1166,18 +1174,37 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
-    def _interrupt_by_audio_activity(self) -> None:
+    def _interrupt_by_audio_activity(self, *, force: bool = False) -> None:
         opt = self._session.options
-        use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
             # ignore if realtime model has turn detection enabled
             return
 
+        # If we have a transcript, use the classifier to decide whether this is a
+        # backchannel (ignore) or a real interruption (stop/wait/...).
+        transcript = ""
+        if self._audio_recognition is not None:
+            transcript = self._audio_recognition.current_transcript or ""
+
+        if transcript:
+            decision = self._interrupt_filter.classify(transcript)
+            if decision.is_backchannel and not force:
+                return
+            if decision.has_hard_command:
+                force = True
+
+        use_pause = (
+            opt.resume_false_interruption
+            and opt.false_interruption_timeout is not None
+            and not force
+        )
+
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
             and self._audio_recognition is not None
+            and not force
         ):
             text = self._audio_recognition.current_transcript
 
@@ -1241,6 +1268,19 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
+            # VAD triggers faster than STT. When the agent is currently speaking,
+            # we avoid interrupting on VAD alone to prevent "false start" interruptions
+            # from backchanneling ("yeah", "ok", ...). We wait for transcript-based
+            # confirmation instead.
+            if (
+                self._session.stt is not None
+                and self._session.options.backchannel_words
+                and self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            ):
+                return
+
             self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
@@ -1261,7 +1301,27 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            transcript = ev.alternatives[0].text
+
+            # If the agent is currently speaking, treat backchannels as
+            # non-interrupting; everything else can interrupt (semantic handling).
+            if (
+                self._session.options.backchannel_words
+                and self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            ):
+                decision = self._interrupt_filter.classify(transcript)
+                if decision.is_backchannel:
+                    logger.debug(
+                        "Ignoring backchannel while agent is speaking: %r",
+                        transcript,
+                    )
+                else:
+                    # Only bypass min word/duration thresholds for explicit commands.
+                    self._interrupt_by_audio_activity(force=decision.has_hard_command)
+            else:
+                self._interrupt_by_audio_activity()
 
             if (
                 speaking is False
@@ -1292,7 +1352,27 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            transcript = ev.alternatives[0].text
+
+            if (
+                transcript
+                and self._session.options.backchannel_words
+                and self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            ):
+                decision = self._interrupt_filter.classify(transcript)
+                if decision.is_backchannel:
+                    logger.debug(
+                        "Ignoring backchannel while agent is speaking: %r",
+                        transcript,
+                    )
+                else:
+                    # Only *force* for explicit stop/wait commands. For other user speech,
+                    # let normal interruption thresholds (duration/word-count) apply.
+                    self._interrupt_by_audio_activity(force=decision.has_hard_command)
+            else:
+                self._interrupt_by_audio_activity()
 
             if (
                 speaking is False
@@ -1365,6 +1445,21 @@ class AgentActivity(RecognitionHooks):
             # TODO(theomonnom): should we "forward" this new turn to the next agent/activity?
             return True
 
+        # Backchannel swallow: while the agent is speaking, acknowledgements
+        # like "yeah/ok/hmm" are not treated as a real turn. We still
+        # return True so AudioRecognition clears the transcript buffer.
+        if (
+            info.new_transcript
+            and self._session.options.backchannel_words
+            and self._current_speech is not None
+            and self._current_speech.allow_interruptions
+            and not self._current_speech.interrupted
+        ):
+            decision = self._interrupt_filter.classify(info.new_transcript)
+            if decision.is_backchannel:
+                self._cancel_preemptive_generation()
+                return True
+
         if (
             self.stt is not None
             and self._turn_detection != "manual"
@@ -1377,7 +1472,11 @@ class AgentActivity(RecognitionHooks):
         ):
             self._cancel_preemptive_generation()
             # avoid interruption if the new_transcript is too short
-            return False
+            # but always allow explicit interruption keywords (e.g. "stop", "wait").
+            if self._interrupt_filter.classify(info.new_transcript).has_hard_command:
+                pass
+            else:
+                return False
 
         old_task = self._user_turn_completed_atask
         self._user_turn_completed_atask = self._create_speech_task(
