@@ -279,9 +279,11 @@ async def test_interruption_options() -> None:
     actions.add_user_speech(0.5, 2.5, "Tell me a story.")
     actions.add_llm("Here is a long story for you ... the end.")
     actions.add_tts(5.0)  # playout starts at 3.5s
-    actions.add_user_speech(5.0, 6.0, "Stop!")
-    actions.add_user_speech(6.5, 7.5, "ok, stop!", stt_delay=0.0)
-    # it should interrupt at 7.5s after stt, playback position is 4.0s
+    # Use non-hard, non-backchannel phrases so this test continues to validate
+    # min_interruption_words (hard commands like "stop" always interrupt).
+    actions.add_user_speech(5.0, 6.0, "Hello")
+    actions.add_user_speech(6.5, 7.5, "please excuse me", stt_delay=0.0)
+    # it should interrupt at 7.5s after final transcript, playback position is 4.0s
 
     # test min_interruption_words
     session = create_session(

@@ -40,6 +40,10 @@ from ._utils import _set_participant_attributes
 from .agent import Agent
 from .agent_activity import AgentActivity
 from .audio_recognition import TurnDetectionMode
+from .interruption_filter import (
+    load_default_backchannel_words,
+    load_default_hard_interrupt_words,
+)
 from .events import (
     AgentEvent,
     AgentState,
@@ -89,6 +93,10 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+
+    # Intelligent interruption handling
+    backchannel_words: Sequence[str]
+    hard_interrupt_words: Sequence[str]
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -147,6 +155,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         discard_audio_if_uninterruptible: bool = True,
         min_interruption_duration: float = 0.5,
         min_interruption_words: int = 0,
+        backchannel_words: NotGivenOr[Sequence[str] | None] = NOT_GIVEN,
+        hard_interrupt_words: NotGivenOr[Sequence[str] | None] = NOT_GIVEN,
         min_endpointing_delay: float = 0.5,
         max_endpointing_delay: float = 3.0,
         max_tool_steps: int = 3,
@@ -206,6 +216,20 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                 register as an interruption. Default ``0.5`` s.
             min_interruption_words (int): Minimum number of words to consider
                 an interruption, only used if stt enabled. Default ``0``.
+            backchannel_words (Sequence[str] | None, optional): Words that should be
+                treated as *passive acknowledgements* ("yeah", "ok", "hmm", ...)
+                and ignored **only while the agent is speaking**.
+
+                If *NOT_GIVEN*, uses env ``LK_BACKCHANNEL_WORDS`` (comma-separated)
+                when set, otherwise a built-in default list.
+                Set to ``None`` or an empty sequence to disable backchannel filtering.
+            hard_interrupt_words (Sequence[str] | None, optional): Words that should
+                always count as an active interruption while the agent is speaking
+                ("stop", "wait", "no", ...).
+
+                If *NOT_GIVEN*, uses env ``LK_HARD_INTERRUPT_WORDS`` (comma-separated)
+                when set, otherwise a built-in default list.
+                Set to ``None`` or an empty sequence to use the built-in defaults.
             min_endpointing_delay (float): Minimum time-in-seconds the agent
                 must wait after a potential end-of-utterance signal (from VAD
                 or an EOU model) before it declares the user’s turn complete.
@@ -264,6 +288,18 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
 
         self._video_sampler = video_sampler
 
+        # Intelligent interruption defaults / env overrides
+        if is_given(backchannel_words):
+            _backchannel_words = tuple(backchannel_words or ())
+        else:
+            _backchannel_words = load_default_backchannel_words()
+
+        if is_given(hard_interrupt_words):
+            # If explicitly provided as None/empty, fall back to defaults.
+            _hard_interrupt_words = tuple(hard_interrupt_words or load_default_hard_interrupt_words())
+        else:
+            _hard_interrupt_words = load_default_hard_interrupt_words()
+
         # This is the "global" chat_context, it holds the entire conversation history
         self._chat_ctx = ChatContext.empty()
         self._opts = AgentSessionOptions(
@@ -288,6 +324,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            backchannel_words=_backchannel_words,
+            hard_interrupt_words=_hard_interrupt_words,
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False

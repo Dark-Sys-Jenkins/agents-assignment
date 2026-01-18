@@ -30,6 +30,55 @@ agents that can see, hear, and understand.
 
 <!--END_DESCRIPTION-->
 
+## Assignment: Intelligent interruption handling (backchannel-aware)
+
+This fork includes an **interruption filtering layer** that prevents "backchannel" words
+like **"yeah" / "ok" / "hmm" / "uh-huh"** from interrupting the agent **while it is
+speaking**, without modifying the low-level VAD implementation.
+
+### Behavior matrix
+
+| User utterance | Agent state | Behavior |
+|---|---|---|
+| "yeah / ok / hmm" | Speaking | **IGNORE** (agent continues speaking seamlessly) |
+| "wait / stop / no" | Speaking | **INTERRUPT** (stop speaking and listen) |
+| "yeah / ok / hmm" | Silent | **RESPOND** (treated as valid user input) |
+| "start / hello" | Silent | **RESPOND** |
+
+### How it works
+
+- A **configurable backchannel list** is checked only when the agent is currently speaking.
+- When the agent is speaking, we **do not cut audio on VAD alone**. Instead, we use the
+  STT transcript to validate the interruption:
+  - If the transcript is *only* backchannel words, the user input is discarded.
+  - If the transcript contains any **hard command** ("stop", "wait", ...), we force an
+    interruption immediately.
+  - Otherwise, normal interruption thresholds still apply.
+- Implementation lives in:
+  - `livekit-agents/livekit/agents/voice/interruption_filter.py`
+  - `livekit-agents/livekit/agents/voice/agent_activity.py`
+
+### Configuration
+
+You can override the default word lists using environment variables:
+
+```bash
+# Comma-separated (case-insensitive)
+export LK_BACKCHANNEL_WORDS="yeah,ok,hmm,right,uh-huh"
+export LK_HARD_INTERRUPT_WORDS="stop,wait,no,hold on,cancel"
+```
+
+### Demo
+
+Use the included demo agent:
+
+```bash
+python examples/voice_agents/interruption_demo_agent.py start
+```
+
+While the agent is speaking, say "yeah" / "ok" / "hmm" to verify it **does not pause**.
+Say "stop" or "wait" to verify it **interrupts**.
+
 ## Features
 
 - **Flexible integrations**: A comprehensive ecosystem to mix and match the right STT, LLM, TTS, and Realtime API to suit your use case.
