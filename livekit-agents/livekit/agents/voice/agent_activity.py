@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+from email.mime import text
 import heapq
 import json
+import os
+import re
 import time
 from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
@@ -125,6 +128,8 @@ class AgentActivity(RecognitionHooks):
         self._paused_speech: SpeechHandle | None = None
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
+        self._pending_interruption_timer: asyncio.TimerHandle | None = None
+
 
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
@@ -1165,8 +1170,35 @@ class AgentActivity(RecognitionHooks):
             name="AgentActivity.realtime_generation",
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
+    def _normalize_user_text(self, text: str) -> str:
+        return ''.join(ch.lower() if ch.isalnum() or ch.isspace() else ' ' for ch in text).strip()
 
-    def _interrupt_by_audio_activity(self) -> None:
+    def _tokenize_user_text(self, text: str) -> list[str]:
+        norm = self._normalize_user_text(text)
+        return [t for t in norm.split() if t]
+
+    def _is_backchannel_only(self, text: str) -> bool:
+        tokens = self._tokenize_user_text(text)
+        if not tokens:
+            return False
+        ignore = set(self._session.options.backchannel_ignore_words)
+        keywords = set(self._session.options.interruption_keywords)
+        if any(t in keywords for t in tokens):
+            return False
+        return all(t in ignore for t in tokens)
+
+    def _should_interrupt_on_text(self, text: str) -> bool:
+        tokens = self._tokenize_user_text(text)
+        if not tokens:
+            return False
+        keywords = set(self._session.options.interruption_keywords)
+        ignore = set(self._session.options.backchannel_ignore_words)
+        if any(t in keywords for t in tokens):
+            return True
+        if all(t in ignore for t in tokens):
+            return False
+        return True
+    def _interrupt_by_audio_activity(self, *, transcript: str | None = None) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
@@ -1175,7 +1207,8 @@ class AgentActivity(RecognitionHooks):
             return
 
         if (
-            self.stt is not None
+            transcript is None
+            and self.stt is not None
             and opt.min_interruption_words > 0
             and self._audio_recognition is not None
         ):
@@ -1187,12 +1220,66 @@ class AgentActivity(RecognitionHooks):
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
+        # -----------------------------
+        # Backchannel STT validation gate
+        # -----------------------------
+        if (
+            transcript is None
+            and self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+            and self.stt is not None
+        ):
+            delay = float(getattr(opt, "backchannel_validation_delay", 0.25) or 0.25)
+
+            def _fire() -> None:
+                self._pending_interruption_timer = None
+                ar = self._audio_recognition
+                txt = ar.current_transcript if ar is not None else ""
+                if not txt:
+                    return
+                self._interrupt_by_audio_activity(transcript=txt)
+
+            if self._pending_interruption_timer is not None:
+                self._pending_interruption_timer.cancel()
+
+            self._pending_interruption_timer = self._session._loop.call_later(delay, _fire)
+            return
+        # -----------------------------
+        # Transcript-based decision (after STT arrives)
+        # -----------------------------
+        if transcript is not None and transcript not in ("", "__vad__"):
+            # 1) Backchannel-only while agent is speaking -> ignore completely
+            if (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+                and self._is_backchannel_only(transcript)
+            ):
+                if self._pending_interruption_timer is not None:
+                    self._pending_interruption_timer.cancel()
+                    self._pending_interruption_timer = None
+                return
+
+            # 2) Not backchannel: if policy says "do not interrupt", return
+            if not self._should_interrupt_on_text(transcript):
+                return
+
+            # 3) Real speech: cancel any pending timer
+            if self._pending_interruption_timer is not None:
+                self._pending_interruption_timer.cancel()
+                self._pending_interruption_timer = None
+
 
         if (
             self._current_speech is not None
             and not self._current_speech.interrupted
             and self._current_speech.allow_interruptions
         ):
+            if self._pending_interruption_timer is not None:
+                self._pending_interruption_timer.cancel()
+                self._pending_interruption_timer = None
+
             self._paused_speech = self._current_speech
 
             # reset the false interruption timer
@@ -1210,6 +1297,28 @@ class AgentActivity(RecognitionHooks):
                 self._current_speech.interrupt()
 
     # region recognition hooks
+    # region recognition hooks
+    def should_ignore_transcript(self, text: str, *, is_final: bool) -> bool:
+        """
+        Return True to completely drop a user utterance (no interrupt, no turn commit).
+
+        IMPORTANT:
+        - While the agent is SPEAKING, drop backchannel-only utterances ("yeah/ok/mhm") so we don't interrupt.
+        - While the agent is SILENT, do NOT drop them (Scenario 2 requires we respond to "Yeah.").
+        """
+        is_agent_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        )
+
+        if is_agent_speaking and self._is_backchannel_only(text):
+            return True
+
+        return False
+
+
+
 
     def on_start_of_speech(self, ev: vad.VADEvent | None) -> None:
         self._session._update_user_state("speaking")
@@ -1241,7 +1350,7 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
-            self._interrupt_by_audio_activity()
+            self._interrupt_by_audio_activity(transcript=None)
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
@@ -1261,7 +1370,8 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            self._interrupt_by_audio_activity(transcript=ev.alternatives[0].text)
+
 
             if (
                 speaking is False
@@ -1292,7 +1402,8 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            self._interrupt_by_audio_activity(transcript=ev.alternatives[0].text)
+
 
             if (
                 speaking is False

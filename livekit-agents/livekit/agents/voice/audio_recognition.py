@@ -25,6 +25,25 @@ if TYPE_CHECKING:
     from .agent_session import AgentSession
 
 MIN_LANGUAGE_DETECTION_LENGTH = 5
+import re
+
+_BACKCHANNELS = {
+    "mhm", "mhmm", "mmhmm", "hmm", "hm",
+    "yeah", "yep", "yup",
+    "yes", "right",
+    "ok", "okay", "k",
+}
+
+def _normalize_text(t: str) -> str:
+    # keep only letters/numbers/spaces, collapse whitespace
+    t = re.sub(r"[^a-z0-9\s]+", "", (t or "").lower())
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+def _is_backchannel_only(t: str) -> bool:
+    nt = _normalize_text(t)
+    return nt in _BACKCHANNELS
+
 
 
 @dataclass
@@ -90,6 +109,8 @@ class RecognitionHooks(Protocol):
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None: ...
 
     def retrieve_chat_ctx(self) -> llm.ChatContext: ...
+    def should_ignore_transcript(self, text: str, *, is_final: bool) -> bool: ...
+
 
 
 class AudioRecognition:
@@ -328,6 +349,60 @@ class AudioRecognition:
         if self._audio_interim_transcript:
             return self._audio_transcript + " " + self._audio_interim_transcript
         return self._audio_transcript
+    def _normalize_short_utterance(self, text: str) -> str:
+        # Normalize for backchannel/interruption keyword matching.
+        # Keep hyphens because defaults include forms like "mm-hmm" / "uh-huh".
+        t = text.lower().strip()
+        cleaned = []
+        for ch in t:
+            if ch.isalnum() or ch.isspace() or ch == "-":
+                cleaned.append(ch)
+            else:
+                cleaned.append(" ")
+        return " ".join("".join(cleaned).split())
+
+    def _is_backchannel_only(self, text: str) -> bool:
+        t = self._normalize_short_utterance(text)
+        if not t:
+            return False
+        return t in self._session.options.backchannel_ignore_words
+
+    def _contains_interruption_keyword(self, text: str) -> bool:
+        t = self._normalize_short_utterance(text)
+        if not t:
+            return False
+        words = set(t.split())
+        return any(k in words for k in self._session.options.interruption_keywords)
+
+    def _last_assistant_looks_like_question(self) -> bool:
+        # Heuristic: if the last assistant message ends with a question mark,
+        # treat a short "yes" as a valid answer rather than a "continue" signal.
+        try:
+            items = list(self._hooks.retrieve_chat_ctx().items)
+        except Exception:
+            return False
+
+        for msg in reversed(items):
+            if getattr(msg, "role", None) != "assistant":
+                continue
+            content = getattr(msg, "content", None)
+            text = ""
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                # content is typically list[str] or list[ChatContent]
+                parts: list[str] = []
+                for c in content:
+                    if isinstance(c, str):
+                        parts.append(c)
+                    else:
+                        parts.append(str(c))
+                text = "".join(parts)
+            else:
+                text = str(content) if content is not None else ""
+            return text.strip().endswith("?")
+
+        return False
 
     async def _on_stt_event(self, ev: stt.SpeechEvent) -> None:
         if (
@@ -355,6 +430,19 @@ class AudioRecognition:
 
             if not transcript:
                 return
+            # Deterministic handling for short backchannels ("mhm", "yes", "right", ...).
+            # While the agent is listening:
+            # - If the agent just asked a question, keep "yeah/yes" as a valid answer (Scenario 2).
+            # - Otherwise, treat pure backchannels as "continue" to avoid meaningless turns.
+            if self._is_backchannel_only(transcript) and not self._contains_interruption_keyword(transcript):
+                if not self._last_assistant_looks_like_question():
+                    transcript = "continue"
+                    ev.alternatives[0].text = transcript
+
+
+            if self._hooks.should_ignore_transcript(transcript, is_final=True):
+                return
+
 
             self._hooks.on_final_transcript(
                 ev,
@@ -402,7 +490,6 @@ class AudioRecognition:
                     self._run_eou_detection(chat_ctx)
 
         elif ev.type == stt.SpeechEventType.PREFLIGHT_TRANSCRIPT:
-            self._hooks.on_interim_transcript(ev, speaking=self._speaking if self._vad else None)
             transcript = ev.alternatives[0].text
             language = ev.alternatives[0].language
             confidence = ev.alternatives[0].confidence
@@ -414,11 +501,17 @@ class AudioRecognition:
 
             if not transcript:
                 return
+            
+            if self._hooks.should_ignore_transcript(transcript, is_final=False):
+                return
+            
+            self._hooks.on_interim_transcript(ev, speaking=self._speaking if self._vad else None)
 
             logger.debug(
                 "received user preflight transcript",
                 extra={"user_transcript": transcript, "language": self._last_language},
             )
+
 
             # still need to increment it as it's used for turn detection,
             self._last_final_transcript_time = time.time()
@@ -441,12 +534,19 @@ class AudioRecognition:
                 )
 
         elif ev.type == stt.SpeechEventType.INTERIM_TRANSCRIPT:
+            transcript = ev.alternatives[0].text
+            if transcript and self._hooks.should_ignore_transcript(transcript, is_final=False):
+                return
             self._hooks.on_interim_transcript(ev, speaking=self._speaking if self._vad else None)
-            self._audio_interim_transcript = ev.alternatives[0].text
 
         elif ev.type == stt.SpeechEventType.END_OF_SPEECH and self._turn_detection_mode == "stt":
-            with trace.use_span(self._ensure_user_turn_span()):
+            span = self._ensure_user_turn_span()
+
+            if span is None or not hasattr(span, "get_span_context"):
                 self._hooks.on_end_of_speech(None)
+            else:
+                with trace.use_span(span):
+                    self._hooks.on_end_of_speech(None)
 
             self._speaking = False
             self._user_turn_committed = True
@@ -456,8 +556,13 @@ class AudioRecognition:
             self._run_eou_detection(chat_ctx)
 
         elif ev.type == stt.SpeechEventType.START_OF_SPEECH and self._turn_detection_mode == "stt":
-            with trace.use_span(self._ensure_user_turn_span()):
-                self._hooks.on_start_of_speech(None)
+            span = self._ensure_user_turn_span()
+
+            if span is None or not hasattr(span, "get_span_context"):
+                self._hooks.on_end_of_speech(None)
+            else:
+                with trace.use_span(span):
+                    self._hooks.on_end_of_speech(None)
 
             self._speaking = True
             if self._speech_start_time is None:
@@ -469,9 +574,13 @@ class AudioRecognition:
 
     async def _on_vad_event(self, ev: vad.VADEvent) -> None:
         if ev.type == vad.VADEventType.START_OF_SPEECH:
-            with trace.use_span(self._ensure_user_turn_span()):
-                self._hooks.on_start_of_speech(ev)
+            span = self._ensure_user_turn_span()
 
+            if span is None or not hasattr(span, "get_span_context"):
+                self._hooks.on_start_of_speech(None)
+            else:
+                with trace.use_span(span):
+                    self._hooks.on_start_of_speech(None)
             self._speaking = True
 
             if self._end_of_turn_task is not None:
@@ -483,21 +592,24 @@ class AudioRecognition:
             # for metrics, get the "earliest" signal of speech as possible
             if ev.raw_accumulated_speech > 0.0:
                 self._last_speaking_time = time.time()
-
                 if self._speech_start_time is None:
                     self._speech_start_time = time.time()
 
         elif ev.type == vad.VADEventType.END_OF_SPEECH:
-            with trace.use_span(self._ensure_user_turn_span()):
-                self._hooks.on_end_of_speech(ev)
+            span = self._ensure_user_turn_span()
 
+            if span is None or not hasattr(span, "get_span_context"):
+                self._hooks.on_end_of_speech(None)
+            else:
+                with trace.use_span(span):
+                    self._hooks.on_end_of_speech(None)
             self._speaking = False
+            self._user_turn_committed = True
+            self._last_speaking_time = time.time()
 
-            if self._vad_base_turn_detection or (
-                self._turn_detection_mode == "stt" and self._user_turn_committed
-            ):
-                chat_ctx = self._hooks.retrieve_chat_ctx().copy()
-                self._run_eou_detection(chat_ctx)
+            chat_ctx = self._hooks.retrieve_chat_ctx().copy()
+            self._run_eou_detection(chat_ctx)
+
 
     def _run_eou_detection(self, chat_ctx: llm.ChatContext) -> None:
         if self._stt and not self._audio_transcript and self._turn_detection_mode != "manual":
@@ -699,3 +811,4 @@ class AudioRecognition:
             _set_participant_attributes(self._user_turn_span, room_io.linked_participant)
 
         return self._user_turn_span
+

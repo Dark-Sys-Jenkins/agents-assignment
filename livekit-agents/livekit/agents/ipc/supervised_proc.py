@@ -25,25 +25,23 @@ from . import channel, proto
 from .log_queue import LogQueueListener
 
 
-@contextlib.contextmanager
-def _mask_ctrl_c() -> Generator[None, None, None]:
-    """
-    POSIX: block SIGINT on this thread (defer delivery).
-    Windows/others: temporarily ignore SIGINT (best available), then restore.
-    Keep the critical section *tiny* (just around Process.start()).
-    """
-    if hasattr(signal, "pthread_sigmask"):  # POSIX
-        signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGINT])
-        try:
-            yield
-        finally:
-            signal.pthread_sigmask(signal.SIG_UNBLOCK, [signal.SIGINT])
-    else:
-        old = signal.signal(signal.SIGINT, signal.SIG_IGN)
-        try:
-            yield
-        finally:
-            signal.signal(signal.SIGINT, old)
+import threading
+from contextlib import contextmanager
+import signal
+
+@contextmanager
+def _mask_ctrl_c():
+    # On Windows, signal handlers can only be set in the main thread.
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    old = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, old)
+
 
 
 @dataclass

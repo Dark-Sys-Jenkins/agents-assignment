@@ -75,6 +75,9 @@ class SessionConnectOptions:
 @dataclass
 class AgentSessionOptions:
     allow_interruptions: bool
+    backchannel_ignore_words: tuple[str, ...]
+    interruption_keywords: tuple[str, ...]
+    backchannel_validation_delay: float
     discard_audio_if_uninterruptible: bool
     min_interruption_duration: float
     min_interruption_words: int
@@ -129,6 +132,21 @@ class VoiceActivityVideoSampler:
 
 
 DEFAULT_TTS_TEXT_TRANSFORMS: list[TextTransforms] = ["filter_markdown", "filter_emoji"]
+DEFAULT_BACKCHANNEL_IGNORE_WORDS: tuple[str, ...] = (
+    'yeah', 'yea', 'yep', 'yup',
+    'ok', 'okay',
+    'hmm', 'mm', 'mhm', 'mm-hmm',
+    'uh', 'uh-huh', 'uhhuh',
+    'aha', 'ah',
+    'right',
+)
+
+DEFAULT_INTERRUPTION_KEYWORDS: tuple[str, ...] = (
+    'stop', 'wait', 'no', 'pause', 'hold', 'cancel', 'quit',
+)
+
+DEFAULT_BACKCHANNEL_VALIDATION_DELAY: float = 0.25
+
 
 
 class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
@@ -144,6 +162,9 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         mcp_servers: NotGivenOr[list[mcp.MCPServer]] = NOT_GIVEN,
         userdata: NotGivenOr[Userdata_T] = NOT_GIVEN,
         allow_interruptions: bool = True,
+        backchannel_ignore_words: Sequence[str] | None = None,
+        interruption_keywords: Sequence[str] | None = None,
+        backchannel_validation_delay: float = DEFAULT_BACKCHANNEL_VALIDATION_DELAY,
         discard_audio_if_uninterruptible: bool = True,
         min_interruption_duration: float = 0.5,
         min_interruption_words: int = 0,
@@ -268,6 +289,17 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         self._chat_ctx = ChatContext.empty()
         self._opts = AgentSessionOptions(
             allow_interruptions=allow_interruptions,
+            backchannel_ignore_words=tuple(
+                w.strip().lower()
+                for w in (backchannel_ignore_words or DEFAULT_BACKCHANNEL_IGNORE_WORDS)
+                if w and w.strip()
+            ),
+            interruption_keywords=tuple(
+                w.strip().lower()
+                for w in (interruption_keywords or DEFAULT_INTERRUPTION_KEYWORDS)
+                if w and w.strip()
+            ),
+            backchannel_validation_delay=backchannel_validation_delay,
             discard_audio_if_uninterruptible=discard_audio_if_uninterruptible,
             min_interruption_duration=min_interruption_duration,
             min_interruption_words=min_interruption_words,

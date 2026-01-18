@@ -39,7 +39,13 @@ from livekit.protocol import agent, models
 
 from .log import logger
 from .telemetry import _upload_session_report, trace_types, tracer
-from .telemetry.traces import _setup_cloud_tracer
+try:
+    from .telemetry.traces import _setup_cloud_tracer  # type: ignore
+except Exception:
+    # Telemetry is optional; do not block agent runtime if OpenTelemetry logging APIs differ.
+    def _setup_cloud_tracer(*args, **kwargs):
+        return None
+
 from .types import NotGivenOr
 from .utils import http_context, is_given, wait_for_participant
 from .utils.misc import is_cloud
