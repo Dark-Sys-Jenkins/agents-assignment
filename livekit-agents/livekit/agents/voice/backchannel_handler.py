@@ -25,6 +25,7 @@ DEFAULT_BACKCHANNEL_WORDS: list[str] = [
     "i see",
     "alright",
     "all right",
+    "mhmm",
 ]
 
 DEFAULT_INTERRUPT_COMMANDS: list[str] = [

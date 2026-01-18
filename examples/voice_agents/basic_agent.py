@@ -33,6 +33,8 @@ class MyAgent(Agent):
             "with that in mind keep your responses concise and to the point."
             "do not use emojis, asterisks, markdown, or other special characters in your responses."
             "You are curious and friendly, and have a sense of humor."
+            "DO NOT end response with a question. Try to use as little question marks as possible"
+            "DO NOT in any circumstance ask a question unless explicity instructed to do so"
             "you will speak english to the user",
         )
 
