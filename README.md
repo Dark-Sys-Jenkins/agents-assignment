@@ -2,6 +2,8 @@
 
 This repository contains an example LiveKit Agents voice agent that demonstrates "intelligent interruptions": ignoring backchannel/filler words while speaking, but interrupting when the user provides meaningful speech (for example: "hold" or "stop").
 
+## VIDEO PROOF - https://drive.google.com/file/d/183Dxq4aYK-tfH5BwqPrtQtX0B17Qj_FO/view?usp=sharing
+
 ## Overview
 
 - Components: Deepgram STT/TTS, Silero VAD, Google Gemini LLM, and the LiveKit Agents framework.
