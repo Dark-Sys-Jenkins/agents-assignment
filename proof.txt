@@ -1,0 +1,20 @@
+
+=== SEMANTIC INTERRUPTION PROOF RUN ===
+
+[TEST 1] Soft backchannel while agent speaking
+Input: yeah
+Ignored: True
+
+[TEST 2] Hard interrupt while agent speaking
+Input: stop
+Interrupt: True
+
+[TEST 3] Mixed semantic interrupt
+Input: yeah wait
+Interrupt: True
+
+[TEST 4] Soft backchannel when agent silent
+Input: yeah
+Processed normally (no interrupt): True
+
+=== ALL CONDITIONS VERIFIED ===
