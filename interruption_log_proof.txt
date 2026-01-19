@@ -1,0 +1,37 @@
+SmartAgentActivity initialized with buffering (timeout: 400ms)
+
+[1768842394.450] === SCENARIO A: Backchannel during speech ('yeah') ===
+[00.758] VAD DETECTED
+[00.758] AGENT STATE: speaking
+[00.758] BUFFER: interruption_id=a21ca7fb-9702-4238-aa13-5c4f56627359
+[STT-FINAL] 'yeah' for interrupt a21ca7fb...
+[00.963] STT FINAL: "yeah"
+[00.963] CLASSIFIER: backchannel=True
+[00.963] ACTION: IGNORE (no interruption)
+[INTERRUPT-DISCARD] Ignoring backchanneling (latency: 205ms, text: 'yeah')
+[00.964] TTS CONTINUES (no gap)
+
+[1768842394.807] === SCENARIO B: Real interrupt during speech ('stop') ===
+[01.116] VAD DETECTED
+[01.116] AGENT STATE: speaking
+[01.117] BUFFER: interruption_id=d885ca2d-52e1-45be-badd-ee23a8d37154
+[STT-FINAL] 'stop' for interrupt d885ca2d...
+[01.318] STT FINAL: "stop"
+[01.319] CLASSIFIER: interrupt=True
+[01.319] ACTION: EXECUTE INTERRUPTION
+[INTERRUPT-EXECUTE] Stopping agent (latency: 201ms, interim: False, text: 'stop')
+
+[1768842395.180] === SCENARIO C: Backchannel while silent ('yeah') ===
+[01.489] VAD DETECTED
+[01.490] RESPOND (agent silent)
+[01.704] STT FINAL: "yeah"
+
+[1768842395.566] === SCENARIO D: Mixed semantic interrupt ('yeah but wait') ===
+[01.875] VAD DETECTED
+[01.875] AGENT STATE: speaking
+[01.875] BUFFER: interruption_id=5dc5b061-d568-4c31-bcc9-b4fde2e74ca7
+[STT-FINAL] 'yeah but wait' for interrupt 5dc5b061...
+[02.092] STT FINAL: "yeah but wait"
+[02.093] CLASSIFIER: interrupt=True
+[02.093] ACTION: EXECUTE INTERRUPTION
+[INTERRUPT-EXECUTE] Stopping agent (latency: 218ms, interim: False, text: 'yeah but wait')

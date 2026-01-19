@@ -77,3 +77,45 @@ For frontend support, use the [Agents playground](https://agents-playground.live
 
 - [LiveKit Documentation](https://docs.livekit.io/)
 - [LiveKit Agents Documentation](https://docs.livekit.io/agents/)
+
+## Intelligent Interruption Handling
+
+### Architecture
+
+This implementation fixes the VAD-STT race condition by:
+
+1. **Intercepting VAD Events**: Override `on_vad_inference_done()` in `SmartAgentActivity`
+2. **Buffering**: Create pending interruption instead of executing immediately
+3. **STT Validation**: Wait for `on_final_transcript()` to decide
+4. **Execution**: Only interrupt if STT confirms it's not backchanneling
+
+### Flow Diagram
+```
+User speaks "yeah"
+    ↓
+VAD detects (50ms)
+    ↓
+SmartAgentActivity.on_vad_inference_done()
+    ↓
+Is agent speaking? YES
+    ↓
+Create pending_interruption, DON'T call super()
+    ↓
+[Agent continues speaking seamlessly]
+    ↓
+STT completes (250ms): "yeah"
+    ↓
+SmartAgentActivity.on_final_transcript()
+    ↓
+Classifier: is_pure_backchanneling("yeah")? YES
+    ↓
+Discard pending_interruption
+    ↓
+[Agent still speaking, no interruption occurred]
+```
+
+### Configuration
+
+- `INTERRUPTION_TIMEOUT_MS`: Fallback timeout if STT fails (default: 400ms)
+- `IGNORE_WORDS`: Comma-separated backchanneling words
+- `INTERRUPT_KEYWORDS`: Comma-separated interrupt keywords
