@@ -75,7 +75,17 @@ from .generation import (
     update_instructions,
 )
 from .speech_handle import SpeechHandle
-
+import re
+import difflib
+from difflib import get_close_matches
+BACKCHANNEL_WORDS={
+    "yeah" , "ok", "okay", "hmm", "hm", "uh-huh", "right",
+    "correct", "yep", "sure", "i see", "go on", "mhmm",
+    "mhmmm", "aa", "got it", "aaa", "aha"
+}
+INTERRUPT_WORDS={
+    "stop", "wait", "hold", "pause", "cancel", "no"
+}
 if TYPE_CHECKING:
     from ..llm import mcp
     from .agent_session import AgentSession
@@ -1173,6 +1183,34 @@ class AgentActivity(RecognitionHooks):
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
             # ignore if realtime model has turn detection enabled
             return
+        
+        if self._session.agent_state == 'speaking' and self._audio_recognition:
+            raw_text = self._audio_recognition.current_transcript
+            clean_text = re.sub(r'[^\w\s]', '', raw_text.lower()).strip()
+
+            user_words = set(clean_text.split())
+
+            if not user_words:
+                return
+            
+            if any(word in INTERRUPT_WORDS for word in user_words):
+                logger.debug(f'COMMAND word incoming: {clean_text}')
+
+            is_backchannel = True
+            for word in user_words:
+                matches = get_close_matches(word, BACKCHANNEL_WORDS, n = 1, cutoff = 0.8)
+                if not matches:
+                    is_backchannel = False
+                    break
+
+            if is_backchannel:
+                print(f'IGNORING (Fuzzy Match): {clean_text}')
+                return
+            
+            if len(user_words) <= 1:
+                print(f'WAITING (ambiguous): {clean_text}')
+            
+            print(f'INTERRUPTING (Substantive): {clean_text}')
 
         if (
             self.stt is not None
@@ -1396,7 +1434,32 @@ class AgentActivity(RecognitionHooks):
             # In practice this is OK because most speeches will be interrupted if a new turn
             # is detected. So the previous execution should complete quickly.
             await old_task
+        raw_text = info.new_transcript.lower().strip()
+        clean_text = re.sub(r'[^\w\s]', '', raw_text)
+        user_words = clean_text.split()
+        print(f"\n[DEBUG] Heard: {clean_text}")
+        if any(w in clean_text for w in INTERRUPT_WORDS):
+            print(f"\n[DEBUG] ACTION: HARD STOP")
+            await self.interrupt(force=True)
+            return
+        is_backchannel = False
+        if difflib.get_close_matches(clean_text, BACKCHANNEL_WORDS, n=1, cutoff=0.8):
+            is_backchannel = True
+        # Check short phrases (<= 3 words) for backchannel words
+        elif len(user_words) <= 3:
+            for word in user_words:
+                if difflib.get_close_matches(word, BACKCHANNEL_WORDS, n=1, cutoff=0.85):
+                    is_backchannel = True
+                    break
 
+        if is_backchannel:
+            print(f"[DEBUG] ACTION: IGNORE (Fuzzy match on '{clean_text}')")
+            return
+        is_agent_active = (self._current_speech is not None) or (len(self._speech_q) > 0)
+        
+        if is_agent_active:
+            print(f'[DEBUG] ACTION: INTERRUPT & REPLY')
+            await self.interrupt(force=True)
         # When the audio recognition detects the end of a user turn:
         #  - check if realtime model server-side turn detection is enabled
         #  - check if there is no current generation happening
@@ -1414,20 +1477,6 @@ class AgentActivity(RecognitionHooks):
             if self._rt_session is not None:
                 self._rt_session.commit_audio()
 
-        if self._current_speech is not None:
-            if not self._current_speech.allow_interruptions:
-                logger.warning(
-                    "skipping reply to user input, current speech generation cannot be interrupted",
-                    extra={"user_input": info.new_transcript},
-                )
-                return
-            await self._interrupt_paused_speech(self._interrupt_paused_speech_task)
-
-            if self._current_speech:
-                await self._current_speech.interrupt()
-
-            if self._rt_session is not None:
-                self._rt_session.interrupt()
 
         user_message = llm.ChatMessage(
             role="user",
@@ -1444,6 +1493,7 @@ class AgentActivity(RecognitionHooks):
                 self._agent._chat_ctx.items.append(user_message)
                 self._session._conversation_item_added(user_message)
             return
+        await self._generate_reply()
 
         # create a temporary mutable chat context to pass to on_user_turn_completed
         # the user can edit it for the current generation, but changes will not be kept inside the
