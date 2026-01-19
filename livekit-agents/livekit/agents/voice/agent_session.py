@@ -52,6 +52,10 @@ from .events import (
     UserState,
     UserStateChangedEvent,
 )
+from .conversation_signal_filter import (
+    CORE_BACKCHANNEL_TERMS,
+    CORE_INTERRUPT_TERMS,
+)
 from .ivr import IVRActivity
 from .recorder_io import RecorderIO
 from .run_result import RunResult
@@ -89,6 +93,9 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    ignore_backchanneling: bool
+    backchannel_terms: list[str]
+    interrupt_terms: list[str]
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +166,9 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        ignore_backchanneling: bool = False,
+        backchannel_terms: list[str] | None = None,
+        interrupt_terms: list[str] | None = None,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -248,7 +258,30 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             conn_options (SessionConnectOptions, optional): Connection options for
                 stt, llm, and tts.
             loop (asyncio.AbstractEventLoop, optional): Event loop to bind the
-                session to. Falls back to :pyfunc:`asyncio.get_event_loop()`.
+                session to. Falls back to :pyfunc:`asyncio.get_event_loop()
+                
+                ---- my Implementation ----
+                ignore_backchanneling (bool):  
+                    When set to True, the agent will disregard casual verbal acknowledgements such as 
+                    "yeah", "ok", or "hmm" while it is speaking. This helps avoid unnecessary 
+                    interruptions during the agent’s response. Only explicit command words like 
+                    "wait", "stop", or "no" will still cause an interruption. Default is ``False``.
+
+                backchannel_terms (list[str], optional):  
+                    A customizable list of words that should be treated as passive acknowledgements 
+                    rather than meaningful interruptions. These are typically short listener responses 
+                    that indicate understanding or attention. The default list includes commonly used 
+                    backchannels such as "yeah", "ok", and "uh-huh".
+
+                interrupt_terms (list[str], optional):  
+                    A list of words or phrases that should always interrupt the agent, regardless of 
+                    whether it is currently speaking. These represent clear user requests to take 
+                    control of the conversation. The default set includes terms like "wait", "stop", 
+                    and "hold on".
+                --------------------------
+
+                
+                `.
         """
         super().__init__()
         self._loop = loop or asyncio.get_event_loop()
@@ -288,6 +321,9 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            ignore_backchanneling=ignore_backchanneling,
+            backchannel_terms=backchannel_terms or CORE_BACKCHANNEL_TERMS,
+            interrupt_terms=interrupt_terms or CORE_INTERRUPT_TERMS,
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False

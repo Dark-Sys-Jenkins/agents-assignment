@@ -33,7 +33,9 @@ class MyAgent(Agent):
             "with that in mind keep your responses concise and to the point."
             "do not use emojis, asterisks, markdown, or other special characters in your responses."
             "You are curious and friendly, and have a sense of humor."
-            "you will speak english to the user",
+            "you will speak english to the user"
+            "Do not ask any questions under any circumstances unless explicitly instructed to do so."
+            "Avoid ending your response with a question, and minimize the use of question marks.",
         )
 
     async def on_enter(self):
@@ -91,7 +93,7 @@ async def entrypoint(ctx: JobContext):
         tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
         # See more at https://docs.livekit.io/agents/build/turns
-        turn_detection=MultilingualModel(),
+        #turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         # allow the LLM to generate a response while waiting for the end of turn
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
@@ -100,6 +102,7 @@ async def entrypoint(ctx: JobContext):
         # when it's detected, you may resume the agent's speech
         resume_false_interruption=True,
         false_interruption_timeout=1.0,
+        ignore_backchanneling=True,
     )
 
     # log metrics as they are emitted, and total usage after session is over
