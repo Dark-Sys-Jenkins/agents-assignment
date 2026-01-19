@@ -20,6 +20,7 @@ from ..utils import aio, is_given
 from . import io
 from ._utils import _set_participant_attributes
 from .agent import ModelSettings
+from .interruption_filter import InterruptionFilter, FilterDecision
 
 if TYPE_CHECKING:
     from .agent_session import AgentSession
@@ -103,6 +104,8 @@ class AudioRecognition:
         turn_detection: TurnDetectionMode | None,
         min_endpointing_delay: float,
         max_endpointing_delay: float,
+        is_agent_speaking_cb: callable = None,
+        filler_words: list[str] | None = None,
     ) -> None:
         self._session = session
         self._hooks = hooks
@@ -142,6 +145,11 @@ class AudioRecognition:
 
         self._user_turn_span: trace.Span | None = None
         self._closing = asyncio.Event()
+
+        # Filler word filtering at source level
+        self._is_agent_speaking_cb = is_agent_speaking_cb
+        self._interruption_filter = InterruptionFilter(filler_words=filler_words)
+        self._filler_turn_in_progress = False  # Track if current turn is all fillers
 
     def update_options(
         self,
@@ -356,6 +364,29 @@ class AudioRecognition:
             if not transcript:
                 return
 
+            # ROOT-LEVEL FILLER FILTERING
+            # Check if agent is speaking and this is a filler word
+            agent_speaking = self._is_agent_speaking_cb() if self._is_agent_speaking_cb else False
+            
+            if agent_speaking:
+                # Use the interruption filter to check if this is a filler
+                filter_result = self._interruption_filter.on_transcript_update(transcript)
+                
+                if filter_result.decision == FilterDecision.WAIT:
+                    # It's a filler word - DROP IT COMPLETELY
+                    # Don't accumulate, don't notify hooks, LLM never knows
+                    logger.info(f"[PROOF] DROPPED FILLER at source: '{transcript}' - Agent continues, LLM unaware")
+                    self._filler_turn_in_progress = True
+                    return
+                elif filter_result.decision == FilterDecision.INTERRUPT:
+                    # Non-filler detected - this is a real interruption
+                    logger.info(f"[PROOF] NON-FILLER detected: '{transcript}' - Proceeding to interrupt agent")
+                    self._filler_turn_in_progress = False
+            else:
+                # Agent not speaking - process normally (PASS_THROUGH)
+                logger.info(f"[PROOF] Agent silent, processing: '{transcript}'")
+                self._filler_turn_in_progress = False
+
             self._hooks.on_final_transcript(
                 ev,
                 speaking=self._speaking if self._vad else None,
@@ -400,6 +431,7 @@ class AudioRecognition:
                 if not self._speaking:
                     chat_ctx = self._hooks.retrieve_chat_ctx().copy()
                     self._run_eou_detection(chat_ctx)
+
 
         elif ev.type == stt.SpeechEventType.PREFLIGHT_TRANSCRIPT:
             self._hooks.on_interim_transcript(ev, speaking=self._speaking if self._vad else None)
@@ -473,9 +505,15 @@ class AudioRecognition:
                 self._hooks.on_start_of_speech(ev)
 
             self._speaking = True
+            
+            # Activate filter based on agent state
+            agent_speaking = self._is_agent_speaking_cb() if self._is_agent_speaking_cb else False
+            self._interruption_filter.on_speech_start(agent_is_speaking=agent_speaking)
+            self._filler_turn_in_progress = False
 
             if self._end_of_turn_task is not None:
                 self._end_of_turn_task.cancel()
+
 
         elif ev.type == vad.VADEventType.INFERENCE_DONE:
             self._hooks.on_vad_inference_done(ev)

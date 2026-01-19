@@ -15,13 +15,23 @@ from opentelemetry._logs.severity import SeverityNumber
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk._logs import (
-    LogData,
-    LoggerProvider,
-    LoggingHandler,
-    LogRecord,
-    LogRecordProcessor,
-)
+from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler, LogRecordProcessor
+
+# OpenTelemetry logging types have changed across versions.
+#
+# - Older versions exposed `LogData` and passed it to LogRecordProcessor.emit/on_emit.
+# - Newer versions pass `ReadWriteLogRecord` directly to LogRecordProcessor.on_emit
+#   and no longer export `LogData`.
+try:  # pragma: no cover
+    # Newer OpenTelemetry
+    from opentelemetry.sdk._logs import ReadWriteLogRecord
+
+    LogData = Any  # type: ignore[assignment]
+except ImportError:  # pragma: no cover
+    # Older OpenTelemetry
+    from opentelemetry.sdk._logs import LogData, LogRecord
+
+    ReadWriteLogRecord = LogRecord  # type: ignore[misc,assignment]
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
@@ -77,20 +87,38 @@ class _MetadataLogProcessor(LogRecordProcessor):
     def __init__(self, metadata: dict[str, AttributeValue]) -> None:
         self._metadata = metadata
 
-    def emit(self, log_data: LogData) -> None:
-        if log_data.log_record.attributes:
-            log_data.log_record.attributes.update(self._metadata)  # type: ignore
-            log_data.log_record.attributes.update(  # type: ignore
-                {"logger.name": log_data.instrumentation_scope.name}
-            )
+    def _apply_metadata(self, log_record: ReadWriteLogRecord, *, include_logger_name: bool) -> None:
+        if log_record.attributes:
+            log_record.attributes.update(self._metadata)  # type: ignore
         else:
-            log_data.log_record.attributes = self._metadata
+            log_record.attributes = self._metadata  # type: ignore
 
-    def on_emit(self, log_data: LogData) -> None:
-        if log_data.log_record.attributes:
-            log_data.log_record.attributes.update(self._metadata)  # type: ignore
-        else:
-            log_data.log_record.attributes = self._metadata
+        if include_logger_name:
+            scope = getattr(log_record, "instrumentation_scope", None)
+            scope_name = getattr(scope, "name", None)
+            if scope_name:
+                log_record.attributes.update({"logger.name": scope_name})  # type: ignore
+
+    def emit(self, log_data: Any) -> None:  # noqa: ANN401
+        """Back-compat for older OpenTelemetry which calls `emit(LogData)`."""
+
+        # Old API: LogData(log_record=..., instrumentation_scope=...)
+        record = getattr(log_data, "log_record", None)
+        if record is None:
+            # New API accidentally calling emit with the record directly.
+            record = log_data
+
+        self._apply_metadata(record, include_logger_name=True)
+
+    def on_emit(self, log_record: Any) -> None:  # noqa: ANN401
+        """Newer OpenTelemetry calls `on_emit(ReadWriteLogRecord)`."""
+
+        # Old API: on_emit(LogData)
+        record = getattr(log_record, "log_record", None)
+        if record is None:
+            record = log_record
+
+        self._apply_metadata(record, include_logger_name=False)
 
     def shutdown(self) -> None:
         pass

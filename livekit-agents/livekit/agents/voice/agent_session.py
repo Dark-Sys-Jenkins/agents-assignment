@@ -89,6 +89,10 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    filler_words: Sequence[str] | None
+    """List of filler words to ignore during interruption detection.
+    When the agent is speaking, these words (e.g., 'yeah', 'ok', 'hmm')
+    will not trigger an interruption. If None, default filler words are used."""
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +163,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        filler_words: Sequence[str] | None = None,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -288,6 +293,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            filler_words=filler_words,
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False
