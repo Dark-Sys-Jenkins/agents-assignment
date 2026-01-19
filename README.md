@@ -148,6 +148,128 @@ The feature consists of:
 
 Total code footprint: ~160 lines across 3 files
 
+## Running the Assignment Agent
+
+### Prerequisites
+
+The following environment variables must be set:
+
+```bash
+# LiveKit connection
+LIVEKIT_URL=wss://your-livekit-server.com
+LIVEKIT_API_KEY=your_api_key
+LIVEKIT_API_SECRET=your_api_secret
+
+# Speech services
+DEEPGRAM_API_KEY=your_deepgram_key
+GEMINI_API_KEY=your_gemini_key
+```
+
+### Starting the Agent
+
+Run the basic agent example with intelligent interruption handling enabled:
+
+```bash
+python examples/voice_agents/basic_agent.py dev
+```
+
+The agent will:
+1. Connect to your LiveKit server
+2. Wait for users to join the room
+3. Automatically greet users when they connect
+4. Enable intelligent interruption filtering
+
+### Connecting to the Agent
+
+Use the [LiveKit Agents Playground](https://agents-playground.livekit.io/) or any LiveKit client SDK:
+
+1. Enter your LiveKit server URL
+2. Provide a room name (agent will join automatically)
+3. Click "Connect"
+4. Start speaking to test interruption handling
+
+### Verification via Logs
+
+The agent includes structured logging to verify intelligent interruption behavior without video recording.
+
+#### Log Format
+
+All interruption decisions are logged with the following markers:
+
+```
+[INTERRUPTION_CHECK] agent_speaking=<bool> transcript="<text>" decision=<IGNORE|INTERRUPT|PROCESS>
+[AUDIO_FLOW] uninterrupted=true
+[AUDIO_FLOW] interrupted=true reason=hard_command
+```
+
+#### Test Scenarios
+
+**Scenario 1: Filler word while agent is speaking**
+
+User says "mmhm" during agent speech:
+```
+[INTERRUPTION_CHECK] agent_speaking=True transcript="mmhm" decision=IGNORE
+[AUDIO_FLOW] uninterrupted=true
+```
+Result: Agent continues speaking without pause.
+
+**Scenario 2: Filler word while agent is silent**
+
+User says "yeah" when agent is not speaking:
+```
+[INTERRUPTION_CHECK] agent_speaking=False transcript="yeah" decision=PROCESS
+```
+Result: Transcript forwarded to LLM normally.
+
+**Scenario 3: Hard interrupt while agent is speaking**
+
+User says "stop" during agent speech:
+```
+[INTERRUPTION_CHECK] agent_speaking=True transcript="stop" decision=INTERRUPT
+[AUDIO_FLOW] interrupted=true reason=hard_command
+```
+Result: Agent stops immediately.
+
+#### Capturing Verification Logs
+
+To save logs for review:
+
+```bash
+python examples/voice_agents/basic_agent.py dev 2>&1 | tee agent_verification.log
+```
+
+Filter for interruption events only:
+
+```bash
+# Linux/macOS
+grep -E "\[INTERRUPTION_CHECK\]|\[AUDIO_FLOW\]" agent_verification.log
+
+# Windows PowerShell
+Select-String -Pattern "\[INTERRUPTION_CHECK\]","\[AUDIO_FLOW\]" agent_verification.log
+```
+
+### How the Interruption Logic Works
+
+- VAD fires when it detects speech duration above threshold, but lacks semantic awareness to distinguish "yeah" from "stop", so it marks the event as pending rather than immediately interrupting.
+- When STT produces a final transcript, the system evaluates the text content and current agent state to determine whether the pending interruption should proceed or be cancelled.
+- If the agent is speaking and the transcript contains only soft acknowledgement words, the pending interruption is discarded and the agent continues without any audio disruption.
+- If the transcript contains any hard interrupt word, the system immediately executes the interruption regardless of agent state, stopping speech and clearing queued audio.
+- If the agent is silent, all transcripts bypass filtering and proceed directly to normal LLM processing since there is no speech to interrupt.
+- This deferred decision pattern ensures deterministic behavior: the same transcript in the same agent state always produces the same interruption outcome, with no timing-dependent edge cases.
+
+### Implementation Constraints
+
+The intelligent interruption handling implementation adheres to strict constraints:
+
+- **No LiveKit Core Modifications**: Core LiveKit libraries remain unmodified
+- **No VAD Internals Changed**: VAD triggers and thresholds unchanged
+- **No Audio Operations**: No pause, resume, buffering, or replay logic added
+- **No Timing Dependencies**: No sleeps, delays, polling, or retry mechanisms
+- **No New Dependencies**: Uses only existing LiveKit and Python standard libraries
+- **No STT/TTS/LLM Changes**: Speech recognition and synthesis providers unchanged
+
+The solution works by deferring the interruption decision from VAD detection time to STT transcript arrival time, allowing semantic analysis of user input before committing to audio interruption.
+
 
 
 ## Docs and guides
