@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterable, Coroutine, Generator
 from dataclasses import dataclass
@@ -229,31 +231,42 @@ class Agent:
         """
         pass
 
-    def stt_node(
+    async def stt_node(
         self, audio: AsyncIterable[rtc.AudioFrame], model_settings: ModelSettings
-    ) -> (
-        AsyncIterable[stt.SpeechEvent | str]
-        | Coroutine[Any, Any, AsyncIterable[stt.SpeechEvent | str]]
-        | Coroutine[Any, Any, None]
-    ):
-        """
-        A node in the processing pipeline that transcribes audio frames into speech events.
+    ) -> AsyncGenerator[stt.SpeechEvent, None]:
 
-        By default, this node uses a Speech-To-Text (STT) capability from the current agent.
-        If the STT implementation does not support streaming natively, a VAD (Voice Activity
-        Detection) mechanism is required to wrap the STT.
+        FILLER_WORDS = {"yeah", "okay", "hmm", "uhhuh", "right", "yes", "um", "gotit", "sure", "Okay"}
 
-        You can override this node with your own implementation for more flexibility (e.g.,
-        custom pre-processing of audio, additional buffering, or alternative STT strategies).
+        activity = self._get_activity_or_raise()
+        wrapped_stt = activity.stt
 
-        Args:
-            audio (AsyncIterable[rtc.AudioFrame]): An asynchronous stream of audio frames.
-            model_settings (ModelSettings): Configuration and parameters for model execution.
+        if not activity.stt.capabilities.streaming:
+            wrapped_stt = stt.StreamAdapter(stt=wrapped_stt, vad=activity.vad)
 
-        Yields:
-            stt.SpeechEvent: An event containing transcribed text or other STT-related data.
-        """
-        return Agent.default.stt_node(self, audio, model_settings)
+        conn_options = activity.session.conn_options.stt_conn_options
+        async with wrapped_stt.stream(conn_options=conn_options) as stream:
+
+            async def _forward_input():
+                async for frame in audio:
+                    stream.push_frame(frame)
+
+            forward_task = asyncio.create_task(_forward_input())
+
+            try:
+                async for event in stream:
+                    # Check for final transcripts
+                    if event.type == stt.SpeechEventType.FINAL_TRANSCRIPT:
+                        transcript = event.alternatives[0].text.strip().lower()
+                        clean_transcript = "".join(e for e in transcript if e.isalnum())
+                        compressed_transcript = re.sub(r'(.)\1+', r'\1', clean_transcript)
+
+                        if compressed_transcript in FILLER_WORDS:
+                            logger.info(f"Ignoring backchannel/filler: {clean_transcript}")
+                            continue 
+
+                    yield event
+            finally:
+                await utils.aio.cancel_and_wait(forward_task)
 
     def llm_node(
         self,

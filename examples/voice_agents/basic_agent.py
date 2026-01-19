@@ -27,8 +27,8 @@ load_dotenv()
 
 
 class MyAgent(Agent):
-    def __init__(self) -> None:
-        super().__init__(
+    def _init_(self) -> None:
+        super()._init_(
             instructions="Your name is Kelly. You would interact with users via voice."
             "with that in mind keep your responses concise and to the point."
             "do not use emojis, asterisks, markdown, or other special characters in your responses."
@@ -91,15 +91,16 @@ async def entrypoint(ctx: JobContext):
         tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
         # See more at https://docs.livekit.io/agents/build/turns
-        turn_detection=MultilingualModel(),
+        turn_detection="vad",
         vad=ctx.proc.userdata["vad"],
+        min_interruption_words=2,
         # allow the LLM to generate a response while waiting for the end of turn
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
         preemptive_generation=True,
         # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
         # when it's detected, you may resume the agent's speech
         resume_false_interruption=True,
-        false_interruption_timeout=1.0,
+        false_interruption_timeout=1.5,
     )
 
     # log metrics as they are emitted, and total usage after session is over
@@ -129,5 +130,5 @@ async def entrypoint(ctx: JobContext):
     )
 
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     cli.run_app(server)
