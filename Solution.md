@@ -8,5 +8,5 @@
 ![My Image](./Solution/image_6.png)
 ![My Image](./Solution/image_7.png)
 
-[Download the Gen-AI Solution PDF](./Solution/Gen-AI%20Solution.pdf)
+[Download the Gen-AI Solution PDF](https://github.com/Dark-Sys-Jenkins/agents-assignment/blob/05f37ee3be08860e3c593a0395e233227c7575cb/Gen-AI%20Solution.pdf)
 
