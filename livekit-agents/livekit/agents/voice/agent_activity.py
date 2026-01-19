@@ -53,6 +53,10 @@ from .audio_recognition import (
     _EndOfTurnInfo,
     _PreemptiveGenerationInfo,
 )
+from .interruption_handler import (
+    InterruptionAnalyzer,
+    BackchannelingConfig,
+)
 from .events import (
     AgentFalseInterruptionEvent,
     ErrorEvent,
@@ -125,6 +129,11 @@ class AgentActivity(RecognitionHooks):
         self._paused_speech: SpeechHandle | None = None
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
+
+        # interruption handler for backchanneling detection
+        self._interruption_analyzer = InterruptionAnalyzer(
+            config=sess.options.backchanneling_config
+        )
 
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
@@ -1183,6 +1192,27 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                return
+
+        # Smart interruption filtering: check if this is a backchanneling or actual interruption
+        if (
+            self.stt is not None
+            and self._audio_recognition is not None
+            and self._current_speech is not None
+        ):
+            text = self._audio_recognition.current_transcript
+            agent_is_speaking = self._current_speech is not None
+
+            # Use the interruption analyzer to determine if we should ignore this interruption
+            if self._interruption_analyzer.should_ignore_interruption(text, agent_is_speaking):
+                analysis = self._interruption_analyzer.get_analysis(text, agent_is_speaking)
+                logger.info(
+                    f"Filtering backchanneling: {text}",
+                    extra={
+                        "analysis": analysis,
+                        "speech_handle": self._current_speech,
+                    },
+                )
                 return
 
         if self._rt_session is not None:
