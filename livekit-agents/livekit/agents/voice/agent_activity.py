@@ -53,6 +53,7 @@ from .audio_recognition import (
     _EndOfTurnInfo,
     _PreemptiveGenerationInfo,
 )
+from .interruption_handler import InterruptionHandler
 from .events import (
     AgentFalseInterruptionEvent,
     ErrorEvent,
@@ -141,6 +142,16 @@ class AgentActivity(RecognitionHooks):
 
         self._on_enter_task: asyncio.Task | None = None
         self._on_exit_task: asyncio.Task | None = None
+
+        # Initialize intelligent interruption handler
+        interruption_config = (
+            self._session.options.interruption_config
+            if self._session.options.intelligent_interruptions
+            else None
+        )
+        self._interruption_handler = (
+            InterruptionHandler(interruption_config) if interruption_config else None
+        )
 
         if (
             isinstance(self.llm, llm.RealtimeModel)
@@ -1166,13 +1177,64 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
-    def _interrupt_by_audio_activity(self) -> None:
+    def _interrupt_by_audio_activity(self, *, speech_duration: float | None = None) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
             # ignore if realtime model has turn detection enabled
             return
+
+        # Get current transcript for intelligent interruption handling
+        transcript = None
+        if self._audio_recognition is not None:
+            transcript = self._audio_recognition.current_transcript
+
+        # Use intelligent interruption handler if enabled
+        if self._interruption_handler is not None:
+            # If transcript is empty, try to get it from the handler's buffer
+            # (which gets updated by interim/final transcripts)
+            if not transcript or not transcript.strip():
+                transcript = self._interruption_handler.get_transcript("default")
+            
+            # Use the captured agent speaking state from when user speech started
+            # (captured in on_start_of_speech). This is more reliable than checking
+            # current state, which might have changed due to previous interruption attempts.
+            agent_speaking_when_user_started = self._interruption_handler.is_agent_speaking()
+            
+            # Also check current state for logging/debugging
+            agent_currently_speaking = (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            )
+            
+            # Log interruption attempt for debugging
+            logger.info(
+                f"Interruption triggered - transcript: '{transcript}', "
+                f"agent_speaking_when_user_started: {agent_speaking_when_user_started}, "
+                f"agent_currently_speaking: {agent_currently_speaking}, "
+                f"current_speech: {self._current_speech is not None}"
+            )
+            # Check if interruption should be ignored (pass speech duration for better decision)
+            # This uses the state captured when user speech started, not current state
+            should_ignore = self._interruption_handler.should_ignore_interruption(
+                transcript, speech_duration=speech_duration
+            )
+            if should_ignore:
+                logger.info(
+                    f"Intelligent interruption handler: IGNORING interruption for transcript: '{transcript}' "
+                    f"(agent_speaking={self._interruption_handler.is_agent_speaking()}, "
+                    f"speech_duration={speech_duration}) - RETURNING EARLY, NO INTERRUPTION"
+                )
+                # IMPORTANT: Return early to prevent any interruption logic from executing
+                # This prevents the agent from being paused or interrupted
+                # This return happens BEFORE any state changes, audio pausing, or interruption logic
+                return  # Ignore this interruption - DO NOT proceed with interruption logic
+            else:
+                logger.info(
+                    f"Intelligent interruption handler: ALLOWING interruption for transcript: '{transcript}'"
+                )
 
         if (
             self.stt is not None
@@ -1185,6 +1247,9 @@ class AgentActivity(RecognitionHooks):
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
                 return
 
+        # Only proceed with interruption logic if we haven't already decided to ignore
+        # (The intelligent interruption handler check above would have returned early if ignoring)
+        
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
 
@@ -1193,6 +1258,30 @@ class AgentActivity(RecognitionHooks):
             and not self._current_speech.interrupted
             and self._current_speech.allow_interruptions
         ):
+            # FINAL SAFETY CHECK: Before interrupting, check one more time if this should be ignored
+            # This catches cases where transcript became available between VAD and this point
+            if self._interruption_handler is not None:
+                # Get the latest transcript
+                final_transcript = None
+                if self._audio_recognition is not None:
+                    final_transcript = self._audio_recognition.current_transcript
+                if not final_transcript or not final_transcript.strip():
+                    final_transcript = self._interruption_handler.get_transcript("default")
+                
+                # If we have a transcript and it should be ignored, DON'T INTERRUPT
+                if final_transcript and self._interruption_handler.should_ignore_interruption(
+                    final_transcript, speech_duration=speech_duration
+                ):
+                    logger.info(
+                        f"FINAL CHECK: Transcript '{final_transcript}' should be ignored - "
+                        f"CANCELLING interruption execution - agent will continue speaking"
+                    )
+                    return  # Don't interrupt - cancel the interruption
+            
+            logger.info(
+                f"INTERRUPTION EXECUTING: About to interrupt current speech "
+                f"(use_pause={use_pause}, can_pause={self._session.output.audio.can_pause if self._session.output.audio else False})"
+            )
             self._paused_speech = self._current_speech
 
             # reset the false interruption timer
@@ -1212,7 +1301,35 @@ class AgentActivity(RecognitionHooks):
     # region recognition hooks
 
     def on_start_of_speech(self, ev: vad.VADEvent | None) -> None:
+        logger.info(f"VAD: Start of speech detected")
         self._session._update_user_state("speaking")
+        
+        # Capture agent's speaking state at the moment user starts speaking
+        # This is critical for intelligent interruption handling - we need to know
+        # if the agent was speaking when the user started, not when we process the transcript
+        # Check MULTIPLE sources for maximum reliability
+        if self._interruption_handler is not None:
+            # Source 1: Check if agent has active speech handle
+            has_active_speech = (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            )
+            # Source 2: Check the session's agent state
+            agent_state_speaking = self._session._agent_state == "speaking"
+            # Source 3: Check the handler's current state (most reliable - updated by _update_agent_state)
+            handler_state_speaking = self._interruption_handler.is_agent_speaking()
+            
+            # Agent is speaking if ANY condition is true (most reliable)
+            agent_was_speaking = has_active_speech or agent_state_speaking or handler_state_speaking
+            
+            # Update handler state to ensure it's correct
+            self._interruption_handler.set_agent_speaking(agent_was_speaking)
+            logger.info(
+                f"Captured agent speaking state at speech start: {agent_was_speaking} "
+                f"(has_active_speech={has_active_speech}, agent_state_speaking={agent_state_speaking}, "
+                f"handler_state_speaking={handler_state_speaking}, current_speech={self._current_speech is not None})"
+            )
 
         if self._false_interruption_timer:
             # cancel the timer when user starts speaking but leave the paused state unchanged
@@ -1220,6 +1337,8 @@ class AgentActivity(RecognitionHooks):
             self._false_interruption_timer = None
 
     def on_end_of_speech(self, ev: vad.VADEvent | None) -> None:
+        if ev:
+            logger.info(f"VAD: End of speech detected (speech_duration: {ev.speech_duration:.2f}s, silence_duration: {ev.silence_duration:.2f}s)")
         speech_end_time = time.time()
         if ev:
             speech_end_time = speech_end_time - ev.silence_duration
@@ -1241,27 +1360,95 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
-            self._interrupt_by_audio_activity()
+            # CRITICAL: Check if we should ignore BEFORE calling _interrupt_by_audio_activity
+            # This prevents ANY processing overhead that could cause a pause
+            if self._interruption_handler is not None:
+                # Check if agent is currently speaking - use MULTIPLE sources for reliability
+                # 1. Handler's state (updated by _update_agent_state) - includes "recently speaking" window
+                handler_state = self._interruption_handler.is_agent_speaking()
+                # 2. Session's agent state (direct check)
+                session_state = self._session._agent_state == "speaking"
+                # 3. Active speech handle (most reliable - actual audio output)
+                has_active_speech = (
+                    self._current_speech is not None
+                    and not self._current_speech.interrupted
+                    and self._current_speech.allow_interruptions
+                )
+                # Agent is speaking if ANY source says so (be conservative)
+                agent_is_speaking = handler_state or session_state or has_active_speech
+                
+                # Check if we already have a transcript that should be ignored
+                transcript = None
+                if self._audio_recognition is not None:
+                    transcript = self._audio_recognition.current_transcript
+                if not transcript or not transcript.strip():
+                    transcript = self._interruption_handler.get_transcript("default")
+                
+                # CRITICAL RULE: If agent is speaking (or recently was), be VERY aggressive about ignoring
+                # This is the most aggressive check to prevent any interruption
+                if agent_is_speaking:
+                    # If we have a transcript, check if it's an ignore word
+                    if transcript and transcript.strip():
+                        # Check if transcript should be ignored
+                        if self._interruption_handler.should_ignore_interruption(
+                            transcript, speech_duration=ev.speech_duration
+                        ):
+                            logger.info(
+                                f"IGNORING: Agent is speaking, transcript '{transcript}' is ignore word - "
+                                f"SKIPPING ALL processing (no interruption, no pause, no response)"
+                            )
+                            return  # Skip entirely - prevent ANY processing
+                    # If no transcript yet, but speech is short (< 1.5s), likely backchanneling
+                    # We use 1.5s to be very conservative - most backchanneling is < 1s
+                    elif ev.speech_duration < 1.5:
+                        logger.info(
+                            f"IGNORING: Agent is speaking, short speech ({ev.speech_duration:.2f}s) "
+                            f"with no transcript yet - likely backchanneling, SKIPPING ALL processing"
+                        )
+                        return  # Skip entirely - prevent first interruption attempt
+            
+            logger.info(
+                f"VAD detected speech (duration: {ev.speech_duration:.2f}s) - triggering interruption check"
+            )
+            # Pass speech duration to interruption handler for better decision making
+            self._interrupt_by_audio_activity(speech_duration=ev.speech_duration)
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text if ev.alternatives else None
+        
+        # Update interruption handler with transcript
+        if self._interruption_handler is not None and transcript_text:
+            self._interruption_handler.update_transcript("default", transcript_text)
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text or "",
                 is_final=False,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
+        if transcript_text and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # Check if this transcript should be ignored BEFORE calling _interrupt_by_audio_activity
+            # This prevents interrupting for backchanneling words like "yeah", "ok", "hmm"
+            should_ignore = False
+            if self._interruption_handler is not None:
+                should_ignore = self._interruption_handler.should_ignore_interruption(transcript_text)
+                if should_ignore:
+                    logger.debug(
+                        f"Interim transcript '{transcript_text}' should be ignored - skipping interruption"
+                    )
+            
+            if not should_ignore:
+                self._interrupt_by_audio_activity()
 
             if (
                 speaking is False
@@ -1276,10 +1463,27 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text if ev.alternatives else None
+        
+        # Update interruption handler with final transcript
+        if self._interruption_handler is not None and transcript_text:
+            self._interruption_handler.update_transcript("default", transcript_text)
+            
+            # Check if this transcript should be ignored BEFORE calling _interrupt_by_audio_activity
+            # This prevents re-interrupting when the transcript was already ignored during VAD
+            if self._interruption_handler.should_ignore_interruption(transcript_text):
+                logger.info(
+                    f"Final transcript '{transcript_text}' was already ignored - skipping interruption AND transcript event"
+                )
+                # For ignored backchanneling, don't emit the transcript event at all
+                # This prevents the agent from thinking it should respond to "yeah/ok/hmm"
+                # when the agent was speaking (backchanneling should be completely ignored)
+                return  # Skip everything for already-ignored transcripts
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text or "",
                 is_final=True,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
@@ -1292,6 +1496,20 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # CRITICAL: Check again if this should be ignored (in case state changed)
+            # This is a safety check to prevent interrupting for ignored transcripts
+            should_ignore = False
+            if self._interruption_handler is not None and transcript_text:
+                should_ignore = self._interruption_handler.should_ignore_interruption(transcript_text)
+                if should_ignore:
+                    logger.info(
+                        f"Final transcript '{transcript_text}' should be ignored - "
+                        f"skipping _interrupt_by_audio_activity() call"
+                    )
+                    # Don't call _interrupt_by_audio_activity for ignored transcripts
+                    return
+            
+            # Only call _interrupt_by_audio_activity if transcript is NOT ignored
             self._interrupt_by_audio_activity()
 
             if (
@@ -1414,6 +1632,22 @@ class AgentActivity(RecognitionHooks):
             if self._rt_session is not None:
                 self._rt_session.commit_audio()
 
+        # Check if this transcript should be ignored (backchanneling while agent was speaking)
+        # Do this BEFORE any interruption logic to prevent stopping the agent
+        if self._interruption_handler is not None:
+            if self._interruption_handler.should_ignore_interruption(info.new_transcript):
+                logger.info(
+                    f"User turn completed with ignored transcript '{info.new_transcript}' - "
+                    f"skipping ALL processing (interruption, chat context, reply generation)"
+                )
+                # Clear the audio transcript to prevent it from being processed
+                if self._audio_recognition is not None:
+                    # Use a public API on AudioRecognition if available to reset the transcript
+                    reset_transcript = getattr(self._audio_recognition, "reset_transcript", None)
+                    if callable(reset_transcript):
+                        reset_transcript()
+                return  # Skip processing this turn entirely - DO NOT interrupt the agent
+        
         if self._current_speech is not None:
             if not self._current_speech.allow_interruptions:
                 logger.warning(
@@ -1428,7 +1662,7 @@ class AgentActivity(RecognitionHooks):
 
             if self._rt_session is not None:
                 self._rt_session.interrupt()
-
+        
         user_message = llm.ChatMessage(
             role="user",
             content=[info.new_transcript],

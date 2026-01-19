@@ -40,6 +40,7 @@ from ._utils import _set_participant_attributes
 from .agent import Agent
 from .agent_activity import AgentActivity
 from .audio_recognition import TurnDetectionMode
+from .interruption_handler import InterruptionConfig, InterruptionHandler
 from .events import (
     AgentEvent,
     AgentState,
@@ -89,6 +90,8 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    intelligent_interruptions: bool
+    interruption_config: InterruptionConfig | None
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +162,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        intelligent_interruptions: bool = True,
+        interruption_config: NotGivenOr[InterruptionConfig] = NOT_GIVEN,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -245,6 +250,10 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                 Defaults to ``False``.
             ivr_detection (bool): Whether to detect if the agent is interacting with an IVR system.
                 Default ``False``.
+            intelligent_interruptions (bool): Whether to enable intelligent interruption handling
+                that filters backchanneling words when agent is speaking. Default ``True``.
+            interruption_config (InterruptionConfig, optional): Configuration for intelligent
+                interruption handling. If not provided, loads from environment variables or uses defaults.
             conn_options (SessionConnectOptions, optional): Connection options for
                 stt, llm, and tts.
             loop (asyncio.AbstractEventLoop, optional): Event loop to bind the
@@ -263,6 +272,15 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             video_sampler = VoiceActivityVideoSampler(speaking_fps=1.0, silent_fps=0.3)
 
         self._video_sampler = video_sampler
+
+        # Load interruption config if not provided
+        if not is_given(interruption_config):
+            if intelligent_interruptions:
+                from .interruption_handler import load_config_from_env
+
+                interruption_config = load_config_from_env()
+            else:
+                interruption_config = None
 
         # This is the "global" chat_context, it holds the entire conversation history
         self._chat_ctx = ChatContext.empty()
@@ -285,6 +303,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             ),
             preemptive_generation=preemptive_generation,
             ivr_detection=ivr_detection,
+            intelligent_interruptions=intelligent_interruptions,
+            interruption_config=interruption_config,
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
@@ -1176,6 +1196,10 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
 
         old_state = self._agent_state
         self._agent_state = state
+
+        # Update interruption handler with agent speaking state via AgentActivity API
+        if self._activity is not None:
+            self._activity.set_agent_speaking(state == "speaking")
         self.emit(
             "agent_state_changed",
             AgentStateChangedEvent(old_state=old_state, new_state=state),
