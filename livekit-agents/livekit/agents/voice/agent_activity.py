@@ -103,6 +103,7 @@ class _PreemptiveGeneration:
     tool_choice: llm.ToolChoice | None
     created_at: float
 
+IGNORE_WORDS = {"yeah", "ok", "okay", "mhm", "uh-huh", "hmm", "right", "sure", "yep", "yes", "aha", "oh"}
 
 # NOTE: AgentActivity isn't exposed to the public API
 class AgentActivity(RecognitionHooks):
@@ -163,6 +164,48 @@ class AgentActivity(RecognitionHooks):
 
         # speeches that audio playout finished but not done because of tool calls
         self._background_speeches: set[SpeechHandle] = set()
+
+    def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
+        """
+        Hook called when a new interim transcript is available.
+        We use this to implement "Intelligent Interruption".
+        """
+        # safety check: ensure we have text
+        if not ev.alternatives or not ev.alternatives[0].text:
+            return
+
+        # get the text and clean it up
+        text = ev.alternatives[0].text.strip().lower()
+        
+        # check if the agent is currently speaking
+        # if speech is None or already interrupted, we don't need to do anything.
+        if not self._current_speech or self._current_speech.is_interrupted:
+            return
+
+        # analyze the words
+        # we split the sentence to check individual words. 
+        # example: "Yeah okay but wait" -> ["yeah", "okay", "but", "wait"]
+        import string
+        translator = str.maketrans('', '', string.punctuation)
+        cleaned_text = text.translate(translator) # Removes punctuation like "Stop!" -> "stop"
+        words = cleaned_text.split()
+
+        should_interrupt = False
+        
+        # logic: If we find ANY word that is NOT in the ignore list, we must interrupt.
+        # this handles cases like "Yeah okay but stop" -> "stop" triggers the interrupt.
+        for w in words:
+            if w not in IGNORE_WORDS:
+                should_interrupt = True
+                break
+
+        # execute Interruption
+        if should_interrupt:
+            logger.info(f"Intelligent Interruption triggered by: '{text}'")
+            # we schedule the interruption on the event loop to be safe
+            self._loop.call_soon_threadsafe(self._current_speech.interrupt)
+        else:
+            logger.info(f"Ignoring backchannel: '{text}'")
 
     def _validate_turn_detection(
         self, turn_detection: TurnDetectionMode | None
