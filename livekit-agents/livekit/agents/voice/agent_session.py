@@ -89,6 +89,7 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    backchannel_ignore_words: Sequence[str] | None
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +160,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        backchannel_ignore_words: NotGivenOr[Sequence[str] | None] = NOT_GIVEN,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -287,6 +289,9 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             ivr_detection=ivr_detection,
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
+            else None,
+            backchannel_ignore_words=backchannel_ignore_words
+            if is_given(backchannel_ignore_words)
             else None,
         )
         self._conn_options = conn_options or SessionConnectOptions()
