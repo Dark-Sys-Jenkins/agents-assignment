@@ -15,13 +15,13 @@ from opentelemetry._logs.severity import SeverityNumber
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk._logs import (
-    LogData,
-    LoggerProvider,
-    LoggingHandler,
-    LogRecord,
-    LogRecordProcessor,
-)
+# from opentelemetry.sdk._logs import (
+#     LogData,
+#     LoggerProvider,
+#     LoggingHandler,
+#     LogRecord,
+#     LogRecordProcessor,
+# )
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
@@ -29,7 +29,11 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Span, TraceFlags, Tracer
 from opentelemetry.util._decorator import _agnosticcontextmanager
 from opentelemetry.util.types import AttributeValue
-
+# Dummy classes to prevent NameErrors
+class LogRecordProcessor: pass
+class LogExporter: pass
+class LoggerProvider: pass
+class LogData: pass
 from livekit import api
 from livekit.protocol import agent_pb, metrics as proto_metrics
 
