@@ -1,0 +1,8 @@
+python-dotenv
+livekit
+livekit-agents
+livekit-plugins-deepgram
+livekit-plugins-silero
+librosa
+numpy
+pyttsx3
