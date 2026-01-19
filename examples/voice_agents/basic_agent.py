@@ -99,7 +99,8 @@ async def entrypoint(ctx: JobContext):
         # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
         # when it's detected, you may resume the agent's speech
         resume_false_interruption=True,
-        false_interruption_timeout=1.0,
+        false_interruption_timeout=0.5,
+        min_endpointing_delay=0.5,
     )
 
     # log metrics as they are emitted, and total usage after session is over

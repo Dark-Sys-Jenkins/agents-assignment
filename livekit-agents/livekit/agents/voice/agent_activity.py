@@ -75,6 +75,7 @@ from .generation import (
     update_instructions,
 )
 from .speech_handle import SpeechHandle
+from .interruption_handler import InterruptHandler
 
 if TYPE_CHECKING:
     from ..llm import mcp
@@ -141,6 +142,10 @@ class AgentActivity(RecognitionHooks):
 
         self._on_enter_task: asyncio.Task | None = None
         self._on_exit_task: asyncio.Task | None = None
+
+        self._handler = InterruptHandler()
+
+        self._pending_vad_event: vad.VADEvent | None = None
 
         if (
             isinstance(self.llm, llm.RealtimeModel)
@@ -1174,17 +1179,6 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
-        if (
-            self.stt is not None
-            and opt.min_interruption_words > 0
-            and self._audio_recognition is not None
-        ):
-            text = self._audio_recognition.current_transcript
-
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
-                return
-
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
 
@@ -1236,11 +1230,9 @@ class AgentActivity(RecognitionHooks):
             self._start_false_interruption_timer(timeout)
 
     def on_vad_inference_done(self, ev: vad.VADEvent) -> None:
-        if self._turn_detection in ("manual", "realtime_llm"):
-            # ignore vad inference done event if turn_detection is manual or realtime_llm
-            return
-
-        if ev.speech_duration >= self._session.options.min_interruption_duration:
+        if getattr(self._session.options, "ignore_backchanneling", True):
+            self._pending_vad_event = ev
+        else:
             self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
@@ -1272,6 +1264,25 @@ class AgentActivity(RecognitionHooks):
                 self._start_false_interruption_timer(timeout)
 
     def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> None:
+        duration = 0.0
+        if self._pending_vad_event:
+            duration = self._pending_vad_event.speech_duration
+
+        decision = self._handler.evaluate(
+            transcript=ev.alternatives[0].text,
+            speech_duration=duration,
+            agent_is_speaking=(self._session.agent_state == "speaking"),
+        )
+
+        print(f"[INT] '{ev.alternatives[0].text}' ({duration:.2f}s) -> {decision.reason.upper()}")
+
+        if not decision.should_interrupt:
+            self._pending_vad_event = None
+            return
+
+        self._interrupt_by_audio_activity()
+        self._pending_vad_event = None
+
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
@@ -1344,6 +1355,17 @@ class AgentActivity(RecognitionHooks):
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool:
         # IMPORTANT: This method is sync to avoid it being cancelled by the AudioRecognition
         # We explicitly create a new task here
+
+        decision = self._handler.evaluate(
+            transcript=info.new_transcript,
+            speech_duration=1.0,
+            agent_is_speaking=(self._session.agent_state == "speaking"),
+        )
+
+        if not decision.should_interrupt:
+            print(f"[EOU] ignored backchannel: '{info.new_transcript}")
+            self._cancel_preemptive_generation()
+            return False
 
         if self._scheduling_paused:
             self._cancel_preemptive_generation()
