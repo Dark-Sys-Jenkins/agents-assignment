@@ -1,0 +1,277 @@
+INFO:livekit:livekit_ffi::server:139:livekit_ffi::server - initializing ffi server v0.12.42
+INFO:livekit:livekit_ffi::cabi:50:livekit_ffi::cabi - initializing ffi server v0.12.42
+DEBUG:asyncio:Using proactor: IocpProactor
+INFO:livekit.agents:starting worker
+INFO:livekit.agents:starting inference executor
+INFO:livekit.agents:initializing process
+INFO:livekit.agents:process initialized
+INFO:livekit.agents:HTTP server listening on :58266
+INFO:livekit.agents:initializing job runner
+INFO:kelly-bot:Loading VAD...
+DEBUG:asyncio:Using proactor: IocpProactor
+INFO:livekit.agents:job runner initialized
+INFO:kelly-bot:Connecting to room: test
+DEBUG:livekit.agents:input stream attached
+DEBUG:livekit.agents:http_session(): creating a new httpclient ctx
+DEBUG:livekit.agents:using audio io: `RoomIO` -> `AgentSession` -> `TranscriptSynchronizer` -> `RoomIO`
+DEBUG:livekit.agents:using transcript io: `AgentSession` -> `TranscriptSynchronizer` -> `RoomIO`
+DEBUG:livekit.agents:start reading stream
+DEBUG:livekit.agents:flush audio emitter due to slow audio generation
+INFO:kelly-bot:Analysis: 'Hello.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'O' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me about' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me about Internet.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Tell me about any' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me about Internet protocols.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me about Internet protocols.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Okay.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+INFO:kelly-bot:Analysis: 'Okay.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+WARNING:livekit.agents:skipping reply to user input, current speech generation cannot be interrupted
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+WARNING:livekit.agents:skipping reply to user input, current speech generation cannot be interrupted
+INFO:kelly-bot:Analysis: 'Stop.' | Talking: True | Soft: False
+INFO:kelly-bot:Hard stop command detected. Stopping audio.
+INFO:kelly-bot:Analysis: 'Stop.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Okay.' | Talking: False | Soft: True
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Okay.' | Talking: False | Soft: True
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Okay.' | Talking: False | Soft: True
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Okay. Tell me something about' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Okay. Tell me something about the earphone.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Okay. Tell me something about a earphone.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Yeah. Wait a second.' | Talking: True | Soft: False
+INFO:kelly-bot:Hard stop command detected. Stopping audio.
+INFO:kelly-bot:Analysis: 'Yeah. Wait a second.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: False | Soft: True
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Thanks.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Thanks.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Tell me some' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me something about Internet.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me something about Internet.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Okay.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+WARNING:livekit.agents:skipping reply to user input, current speech generation cannot be interrupted
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+WARNING:livekit.agents:skipping reply to user input, current speech generation cannot be interrupted
+INFO:kelly-bot:Analysis: 'Uh-huh.' | Talking: True | Soft: False
+INFO:kelly-bot:Valid interruption detected. Stopping audio.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+WARNING:livekit.agents:preemptive generation enabled but chat context or tools have changed after `on_user_turn_completed`
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Tell me something' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me something about history of' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me something about history of Internet.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Okay.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+INFO:kelly-bot:Analysis: 'Okay.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+WARNING:livekit.agents:skipping reply to user input, current speech generation cannot be interrupted
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+WARNING:livekit.agents:skipping reply to user input, current speech generation cannot be interrupted
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: False | Soft: True
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: False | Soft: True
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Ten minutes' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me the accounting' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+INFO:kelly-bot:Analysis: 'counting from one to' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'counting from one to five.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Stop.' | Talking: True | Soft: False
+INFO:kelly-bot:Hard stop command detected. Stopping audio.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+WARNING:livekit.agents:preemptive generation enabled but chat context or tools have changed after `on_user_turn_completed`
+DEBUG:livekit.agents:flush audio emitter due to slow audio generation
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: True | Soft: False
+INFO:kelly-bot:Valid interruption detected. Stopping audio.
+INFO:kelly-bot:Analysis: 'Hello?' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Hello.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Hello.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Okay. Take' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me something.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me something about it.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me something about Internet.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: True | Soft: True
+INFO:kelly-bot:Passive acknowledgement. Ignoring.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+WARNING:livekit.agents:skipping reply to user input, current speech generation cannot be interrupted
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: False | Soft: True
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Yeah.' | Talking: False | Soft: True
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Tell me about the history.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Tell me about the history.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+DEBUG:livekit.agents:flush audio emitter due to slow audio generation
+INFO:kelly-bot:Analysis: 'No. Stop.' | Talking: True | Soft: False
+INFO:kelly-bot:Hard stop command detected. Stopping audio.
+INFO:kelly-bot:Analysis: 'No. Stop.' | Talking: True | Soft: False
+INFO:kelly-bot:Hard stop command detected. Stopping audio.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+WARNING:livekit.agents:preemptive generation enabled but chat context or tools have changed after `on_user_turn_completed`
+INFO:kelly-bot:Analysis: 'Okay. Resume the' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+INFO:kelly-bot:Analysis: 'Resume the history again.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+INFO:kelly-bot:Analysis: 'Now okay.' | Talking: True | Soft: False
+INFO:kelly-bot:Valid interruption detected. Stopping audio.
+INFO:kelly-bot:Analysis: 'Yeah. Okay. Stop.' | Talking: False | Soft: False
+INFO:kelly-bot:Agent silent. Processing input normally.
+DEBUG:livekit.agents:received user transcript
+DEBUG:livekit.plugins.turn_detector:eou prediction
+DEBUG:livekit.agents:using preemptive generation
+WARNING:livekit.agents:exiting forcefully
