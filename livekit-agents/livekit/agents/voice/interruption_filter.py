@@ -91,6 +91,52 @@ def _tokenize_transcript(transcript: str) -> list[str]:
     return [token.strip() for token in tokens if token.strip()]
 
 
+def _is_phonetic_utterance(transcript: str) -> bool:
+    """
+    Detect purely phonetic utterances that should be treated as soft acknowledgments.
+    
+    Phonetic utterances consist only of phoneme fragments like "mm", "hm", "uh", "um"
+    that Deepgram emits for sounds like "mmhm" before lexical tokens stabilize.
+    
+    Args:
+        transcript: Normalized transcript (lowercase, stripped)
+        
+    Returns:
+        True if the utterance is purely phonetic (should be ignored)
+        False otherwise
+        
+    Examples:
+        >>> _is_phonetic_utterance("mm")
+        True
+        >>> _is_phonetic_utterance("hm")
+        True
+        >>> _is_phonetic_utterance("mm hm")
+        True
+        >>> _is_phonetic_utterance("uh um")
+        True
+        >>> _is_phonetic_utterance("hello")
+        False
+    """
+    # Normalize: lowercase, remove punctuation, collapse multiple spaces
+    normalized = re.sub(r"[^\w\s]", "", transcript.lower()).strip()
+    normalized = re.sub(r"\s+", " ", normalized)
+    
+    if not normalized:
+        return True  # Empty after normalization
+    
+    # Phonetic pattern: only m, h, u characters (possibly repeated and space-separated)
+    # Matches: "mm", "hm", "uh", "um", "mmm", "mm hm", "uh um", etc.
+    phonetic_pattern = re.compile(r"^[mhu\s]+$")
+    
+    if phonetic_pattern.match(normalized):
+        # Additional check: must contain at least one m or h (not just spaces)
+        has_phoneme = any(c in normalized for c in "mhu")
+        return has_phoneme
+    
+    return False
+
+
+
 def should_ignore_as_soft_acknowledgment(
     transcript: str, agent_speaking: bool
 ) -> bool:
@@ -137,22 +183,27 @@ def should_ignore_as_soft_acknowledgment(
     if not transcript or not transcript.strip():
         return True  # Ignore empty input
 
+    # Rule 2a: Check for phonetic utterances BEFORE tokenization
+    # This catches fragments like "mm", "hm", "uh" that arrive before stable lexical tokens
+    if _is_phonetic_utterance(transcript):
+        return True  # Phonetic fragment → ignore
+
     # Tokenize the transcript
     tokens = _tokenize_transcript(transcript)
 
     if not tokens:
         return True  # No valid tokens → ignore
 
-    # Rule 2a: Check for hard interrupt words (takes precedence)
+    # Rule 2b: Check for hard interrupt words (takes precedence)
     for token in tokens:
         if token in HARD_INTERRUPT_WORDS:
             return False  # Hard interrupt detected → do NOT ignore
 
-    # Rule 2b: Check if ALL tokens are soft acknowledgments
+    # Rule 2c: Check if ALL tokens are soft acknowledgments
     all_soft = all(token in SOFT_ACKNOWLEDGMENT_WORDS for token in tokens)
 
     if all_soft:
         return True  # Only soft words → ignore
 
-    # Rule 2c: Mixed input (soft + other content) → do NOT ignore
+    # Rule 2d: Mixed input (soft + other content) → do NOT ignore
     return False

@@ -93,6 +93,47 @@ class TestMixedInputDetection:
         assert should_ignore_as_soft_acknowledgment("wait ok", agent_speaking=True) is False
 
 
+class TestPhoneticUtteranceDetection:
+    """Test detection of phonetic utterances (mmhm fragments)."""
+
+    def test_single_phoneme_fragments(self):
+        """Single phoneme fragments like 'mm', 'hm' should be ignored."""
+        assert should_ignore_as_soft_acknowledgment("mm", agent_speaking=True) is True
+        assert should_ignore_as_soft_acknowledgment("hm", agent_speaking=True) is True
+        assert should_ignore_as_soft_acknowledgment("uh", agent_speaking=True) is True
+        assert should_ignore_as_soft_acknowledgment("um", agent_speaking=True) is True
+
+    def test_repeated_phonemes(self):
+        """Repeated phonemes like 'mmm', 'hhh' should be ignored."""
+        assert should_ignore_as_soft_acknowledgment("mmm", agent_speaking=True) is True
+        assert should_ignore_as_soft_acknowledgment("mmmm", agent_speaking=True) is True
+        assert should_ignore_as_soft_acknowledgment("hh", agent_speaking=True) is True
+
+    def test_spaced_phonemes(self):
+        """Space-separated phonemes like 'mm hm' should be ignored."""
+        assert should_ignore_as_soft_acknowledgment("mm hm", agent_speaking=True) is True
+        assert should_ignore_as_soft_acknowledgment("uh um", agent_speaking=True) is True
+        assert should_ignore_as_soft_acknowledgment("m h m", agent_speaking=True) is True
+
+    def test_phonemes_with_punctuation(self):
+        """Phonemes with punctuation should still be recognized."""
+        assert should_ignore_as_soft_acknowledgment("mm.", agent_speaking=True) is True
+        assert should_ignore_as_soft_acknowledgment("hm!", agent_speaking=True) is True
+        assert should_ignore_as_soft_acknowledgment("mm-hm", agent_speaking=True) is True
+
+    def test_phonemes_when_agent_silent(self):
+        """Phonemes when agent is silent should NOT be ignored."""
+        assert should_ignore_as_soft_acknowledgment("mm", agent_speaking=False) is False
+        assert should_ignore_as_soft_acknowledgment("hm", agent_speaking=False) is False
+
+    def test_non_phonetic_words(self):
+        """Non-phonetic words should NOT be treated as phonetic utterances."""
+        assert should_ignore_as_soft_acknowledgment("hello", agent_speaking=True) is False
+        assert should_ignore_as_soft_acknowledgment("yes", agent_speaking=True) is True  # soft word
+        assert should_ignore_as_soft_acknowledgment("home", agent_speaking=True) is False
+
+
+
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
 
