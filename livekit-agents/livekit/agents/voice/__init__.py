@@ -1,6 +1,7 @@
 from . import io, run_result
 from .agent import Agent, AgentTask, ModelSettings
 from .agent_session import AgentSession, VoiceActivityVideoSampler
+from .interruption_handler_mrinank import InterruptionHandler, InterruptionHandlerConfig
 from .events import (
     AgentEvent,
     AgentFalseInterruptionEvent,
@@ -45,6 +46,8 @@ __all__ = [
     "FunctionToolsExecutedEvent",
     "AgentFalseInterruptionEvent",
     "TranscriptSynchronizer",
+    "InterruptionHandler",
+    "InterruptionHandlerConfig",
     "io",
     "room_io",
     "run_result",

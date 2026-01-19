@@ -1,0 +1,110 @@
+[19:30:23.813]              
+[19:30:23.813]              ╔==============================================================================╗
+[19:30:23.813]              ║                                                                              ║
+[19:30:23.813]              ║                   LiveKit Interruption Handler - Test Suite                  ║
+[19:30:23.813]              ║                       Context-Aware Backchannel Handling                     ║
+[19:30:23.813]              ║                                                                              ║
+[19:30:23.813]              ╚==============================================================================╝
+[19:30:23.813]              
+[19:30:23.813]              ================================================================================
+[19:30:23.813]                SCENARIO 1: The Long Explanation (Backchannel During Speaking)
+[19:30:23.813]              ================================================================================
+[19:30:23.813] INFO         Agent State: SPEAKING
+[19:30:23.813] INFO         Expectation: All backchannel utterances should be IGNORED
+[19:30:23.813]              
+[19:30:23.813] PASS         ✓ Backchannel ignored: 'yeah'
+[19:30:23.813] INFO           └─ single filler word while speaking - Reason: passive_acknowledgement_ignored_agent_speaking
+[19:30:23.813] PASS         ✓ Backchannel ignored: 'okay'
+[19:30:23.813] INFO           └─ single filler word variant while speaking - Reason: passive_acknowledgement_ignored_agent_speaking
+[19:30:23.813] PASS         ✓ Backchannel ignored: 'yeah okay'
+[19:30:23.813] INFO           └─ multiple filler words while speaking - Reason: passive_acknowledgement_ignored_agent_speaking
+[19:30:23.813] PASS         ✓ Backchannel ignored: 'uh-huh'
+[19:30:23.813] INFO           └─ backchannel token while speaking - Reason: passive_acknowledgement_ignored_agent_speaking
+[19:30:23.813] PASS         ✓ Backchannel ignored: 'okay yeah uh-huh'
+[19:30:23.813] INFO           └─ multiple backchannel utterances while speaking - Reason: passive_acknowledgement_ignored_agent_speaking
+[19:30:23.813] PASS         ✓ Backchannel ignored: 'hmm right'
+[19:30:23.813] INFO           └─ common filler combinations while speaking - Reason: passive_acknowledgement_ignored_agent_speaking
+[19:30:23.813]              
+[19:30:23.813]              ================================================================================
+[19:30:23.813]                SCENARIO 2: The Passive Affirmation (Response While Silent)
+[19:30:23.813]              ================================================================================
+[19:30:23.813] INFO         Agent State: LISTENING/SILENT
+[19:30:23.813] INFO         Expectation: All backchannel utterances should RESPOND (not ignore)
+[19:30:23.813]              
+[19:30:23.813] PASS         ✓ Passive affirmation responded: 'yeah'
+[19:30:23.813] INFO           └─ single affirmation while silent - Reason: passive_acknowledgement_agent_silent
+[19:30:23.813] PASS         ✓ Passive affirmation responded: 'ok'
+[19:30:23.813] INFO           └─ single ok while silent - Reason: passive_acknowledgement_agent_silent
+[19:30:23.813] PASS         ✓ Passive affirmation responded: 'hmm'
+[19:30:23.813] INFO           └─ hmm while silent - Reason: passive_acknowledgement_agent_silent
+[19:30:23.813] PASS         ✓ Passive affirmation responded: 'right'
+[19:30:23.813] INFO           └─ right while silent - Reason: passive_acknowledgement_agent_silent
+[19:30:23.813] PASS         ✓ Passive affirmation responded: 'uh-huh'
+[19:30:23.813] INFO           └─ uh-huh while silent - Reason: passive_acknowledgement_agent_silent
+[19:30:23.813]              
+[19:30:23.813]              ================================================================================
+[19:30:23.813]                SCENARIO 3: The Correction (Semantic Interruption)
+[19:30:23.813]              ================================================================================
+[19:30:23.813] INFO         Agent State: SPEAKING
+[19:30:23.813] INFO         Expectation: All utterances with semantic content should INTERRUPT
+[19:30:23.813]              
+[19:30:23.813] PASS         ✓ Semantic content interrupts: 'no stop'
+[19:30:23.813] INFO           └─ contains command word 'stop' - Reason: contains_semantic_content
+[19:30:23.813] PASS         ✓ Semantic content interrupts: 'wait'
+[19:30:23.813] INFO           └─ contains command word 'wait' - Reason: contains_semantic_content
+[19:30:23.813] PASS         ✓ Semantic content interrupts: 'stop'
+[19:30:23.813] INFO           └─ single command word - Reason: contains_semantic_content
+[19:30:23.813] PASS         ✓ Semantic content interrupts: 'no'
+[19:30:23.813] INFO           └─ explicit negation - Reason: contains_semantic_content
+[19:30:23.813] PASS         ✓ Semantic content interrupts: 'stop please'
+[19:30:23.813] INFO           └─ command with politeness marker - Reason: contains_semantic_content
+[19:30:23.813]              
+[19:30:23.813]              ================================================================================
+[19:30:23.813]                SCENARIO 4: The Mixed Input (Filler + Semantic)
+[19:30:23.813]              ================================================================================
+[19:30:23.813] INFO         Agent State: SPEAKING
+[19:30:23.813] INFO         Expectation: Mixed inputs with ANY semantic content should INTERRUPT
+[19:30:23.813]              
+[19:30:23.813] PASS         ✓ Mixed content interrupts: 'yeah okay but wait'
+[19:30:23.813] INFO           └─ filler words + semantic content - Reason: contains_semantic_content
+[19:30:23.813] PASS         ✓ Mixed content interrupts: 'yeah wait a second'
+[19:30:23.813] INFO           └─ backchannel + command - Reason: contains_semantic_content
+[19:30:23.813] PASS         ✓ Mixed content interrupts: 'ok so stop'
+[19:30:23.813] INFO           └─ ok (filler) + stop (semantic) - Reason: contains_semantic_content
+[19:30:23.813] PASS         ✓ Mixed content interrupts: 'yeah hmm no'
+[19:30:23.813] INFO           └─ multiple fillers + negation - Reason: contains_semantic_content
+[19:30:23.813]              
+[19:30:23.813]              ================================================================================
+[19:30:23.813]                SCENARIO 5: Edge Cases and Boundary Conditions
+[19:30:23.813]              ================================================================================
+[19:30:23.813] PASS         ✓ Empty transcript
+[19:30:23.813] INFO           └─ Empty text does not trigger ignore
+[19:30:23.813] PASS         ✓ Punctuation only
+[19:30:23.813] INFO           └─ Punctuation-only text does not trigger ignore
+[19:30:23.813] PASS         ✓ Case insensitivity
+[19:30:23.813] INFO           └─ Uppercase filler words are recognized
+[19:30:23.813] PASS         ✓ Mixed case
+[19:30:23.813] INFO           └─ Mixed-case filler words are recognized
+[19:30:23.813] PASS         ✓ Words with punctuation
+[19:30:23.813] INFO           └─ Filler words with punctuation are recognized
+[19:30:23.813]              
+[19:30:23.813]              ================================================================================
+[19:30:23.813]                SCENARIO 6: State Transitions
+[19:30:23.813]              ================================================================================
+[19:30:23.813] INFO         User says 'yeah' while agent transitions listening -> speaking
+[19:30:23.813] PASS         ✓ State-dependent behavior
+[19:30:23.813] INFO           └─ Same word behaves differently based on agent state
+[19:30:23.813]              
+[19:30:23.813]              ================================================================================
+[19:30:23.813]                SCENARIO RESULTS
+[19:30:23.813]              ================================================================================
+[19:30:23.813]                Scenario 1: Long Explanation: PASSED ✓
+[19:30:23.813]                Scenario 2: Passive Affirmation: PASSED ✓
+[19:30:23.813]                Scenario 3: Correction: PASSED ✓
+[19:30:23.813]                Scenario 4: Mixed Input: PASSED ✓
+[19:30:23.813]                Scenario 5: Edge Cases: PASSED ✓
+[19:30:23.813]                Scenario 6: State Transitions: PASSED ✓
+[19:30:23.813]              
+[19:30:23.813]              ================================================================================
+[19:30:23.813]              TEST SUMMARY: 26/26 passed (100%)
+[19:30:23.813]              ================================================================================

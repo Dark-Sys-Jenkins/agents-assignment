@@ -26,6 +26,7 @@ from ..llm.tool_context import (
     is_function_tool,
     is_raw_function_tool,
 )
+from .interruption_handler import InterruptionHandler, InterruptionHandlerConfig
 from ..log import logger
 from ..metrics import (
     EOUMetrics,
@@ -125,6 +126,11 @@ class AgentActivity(RecognitionHooks):
         self._paused_speech: SpeechHandle | None = None
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
+        
+        # Context-aware interruption handler for filtering backchannel utterances
+        self._interruption_handler = InterruptionHandler(
+            InterruptionHandlerConfig(enabled=True, verbose_logging=False)
+        )
 
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
@@ -1183,6 +1189,32 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                return
+        
+        # CONTEXT-AWARE INTERRUPTION HANDLING:
+        # Check if this is a backchannel utterance that should be ignored
+        if self._audio_recognition is not None and self._current_speech is not None:
+            transcript = self._audio_recognition.current_transcript
+            agent_is_speaking = self._current_speech is not None and not self._current_speech.interrupted
+            
+            # Determine agent state
+            current_agent_state = self._session.agent_state
+            
+            # Check if we should ignore this interrupt
+            if self._interruption_handler.should_ignore_interrupt(
+                transcript=transcript,
+                agent_is_speaking=agent_is_speaking,
+                current_agent_state=current_agent_state
+            ):
+                reason = self._interruption_handler.get_interrupt_reason(
+                    transcript=transcript,
+                    agent_is_speaking=agent_is_speaking
+                )
+                logger.info(
+                    f"[INTERRUPTION_HANDLER] Ignoring backchannel interrupt: "
+                    f"transcript='{transcript}', agent_state={current_agent_state}, "
+                    f"reason={reason}"
+                )
                 return
 
         if self._rt_session is not None:
