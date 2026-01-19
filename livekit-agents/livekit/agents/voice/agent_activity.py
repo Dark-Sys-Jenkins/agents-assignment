@@ -53,6 +53,7 @@ from .audio_recognition import (
     _EndOfTurnInfo,
     _PreemptiveGenerationInfo,
 )
+from .backchanneling import TranscriptAnalyzer
 from .events import (
     AgentFalseInterruptionEvent,
     ErrorEvent,
@@ -125,6 +126,8 @@ class AgentActivity(RecognitionHooks):
         self._paused_speech: SpeechHandle | None = None
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
+        self._buffered_vad_event: vad.VADEvent | None = None
+        self._transcript_analyzer: TranscriptAnalyzer | None = None
 
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
@@ -1241,6 +1244,16 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
+            if (
+                self._session.options.ignore_backchanneling
+                and self.stt is not None
+                and self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            ):
+                self._buffered_vad_event = ev
+                return
+
             self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
@@ -1248,16 +1261,32 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+
+        if (
+            self._session.options.ignore_backchanneling
+            and self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        ):
+            if self._transcript_analyzer is None:
+                self._transcript_analyzer = TranscriptAnalyzer(
+                    filler_words=self._session.options.backchanneling_ignore_words,
+                    directive_words=self._session.options.backchanneling_interrupt_words,
+                )
+            self._transcript_analyzer.analyze(transcript_text, agent_speaking=True)
+            return
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=False,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
+        if transcript_text and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
@@ -1276,23 +1305,64 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+
+        agent_is_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        )
+
+        if self._session.options.ignore_backchanneling and agent_is_speaking:
+            if self._transcript_analyzer is None:
+                self._transcript_analyzer = TranscriptAnalyzer(
+                    filler_words=self._session.options.backchanneling_ignore_words,
+                    directive_words=self._session.options.backchanneling_interrupt_words,
+                )
+
+            result = self._transcript_analyzer.analyze(transcript_text, agent_speaking=True)
+
+            if result.allow_continue:
+                self._buffered_vad_event = None
+                return
+
+            self._buffered_vad_event = None
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=True,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
-        # agent speech might not be interrupted if VAD failed and a final transcript is received
-        # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
-        # which will also be immediately interrupted
 
         if self._audio_recognition and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            if self._session.options.ignore_backchanneling and agent_is_speaking:
+                opt = self._session.options
+                use_pause = (
+                    opt.resume_false_interruption and opt.false_interruption_timeout is not None
+                )
+
+                self._paused_speech = self._current_speech
+
+                if (
+                    use_pause
+                    and self._session.output.audio
+                    and self._session.output.audio.can_pause
+                ):
+                    self._session.output.audio.pause()
+                    self._session._update_agent_state("listening")
+                else:
+                    if self._rt_session is not None:
+                        self._rt_session.interrupt()
+                    if self._current_speech:
+                        self._current_speech.interrupt()
+            else:
+                self._interrupt_by_audio_activity()
 
             if (
                 speaking is False
@@ -1344,6 +1414,24 @@ class AgentActivity(RecognitionHooks):
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool:
         # IMPORTANT: This method is sync to avoid it being cancelled by the AudioRecognition
         # We explicitly create a new task here
+        agent_is_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        )
+
+        if self._session.options.ignore_backchanneling and agent_is_speaking:
+            if self._transcript_analyzer is None:
+                self._transcript_analyzer = TranscriptAnalyzer(
+                    filler_words=self._session.options.backchanneling_ignore_words,
+                    directive_words=self._session.options.backchanneling_interrupt_words,
+                )
+
+            result = self._transcript_analyzer.analyze(info.new_transcript, agent_speaking=True)
+
+            if result.allow_continue:
+                self._cancel_preemptive_generation()
+                return False
 
         if self._scheduling_paused:
             self._cancel_preemptive_generation()

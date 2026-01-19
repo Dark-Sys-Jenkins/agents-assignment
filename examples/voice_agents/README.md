@@ -65,6 +65,16 @@ This directory contains a comprehensive collection of voice-based agent examples
 - [`tts_text_pacing.py`](./tts_text_pacing.py) - Pacing control for TTS requests
 - [`speaker_id_multi_speaker.py`](./speaker_id_multi_speaker.py) - Multi-speaker identification
 
+### 🗣️ Intelligent Interruption (Backchanneling)
+
+The [`basic_agent.py`](./basic_agent.py) example now demonstrates Intelligent Interruption Handling. When enabled via `ignore_backchanneling=True`, the agent:
+
+- Ignores passive acknowledgements (fillers like "yeah", "uh-huh") while it is speaking, allowing for natural back-and-forth flow.
+- Interrupts immediately for commands ("stop", "wait") or meaningful input.
+- Buffers VAD events and defers interruption decisions until a final transcript is available, preventing false starts from partial words.
+
+The logic resides in `livekit.agents.voice.backchanneling` and is integrated into the internal `AgentActivity` loop. Custom words can be configured via environment variables `LIVEKIT_FILLER_WORDS` and `LIVEKIT_DIRECTIVE_WORDS`.
+
 ### 📊 Tracing & Error Handling
 
 - [`langfuse_trace.py`](./langfuse_trace.py) - LangFuse integration for conversation tracing
