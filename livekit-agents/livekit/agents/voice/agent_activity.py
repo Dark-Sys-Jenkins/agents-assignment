@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import contextvars
 import heapq
 import json
@@ -125,6 +126,8 @@ class AgentActivity(RecognitionHooks):
         self._paused_speech: SpeechHandle | None = None
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
+        # timer used to delay VAD-triggered interruption decisions while agent is speaking
+        self._vad_interrupt_timer: asyncio.TimerHandle | None = None
 
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
@@ -1174,40 +1177,134 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
-        if (
-            self.stt is not None
-            and opt.min_interruption_words > 0
-            and self._audio_recognition is not None
-        ):
-            text = self._audio_recognition.current_transcript
+        # if we have STT output, inspect the transcript to decide if this is a
+        # real interruption or a short filler/false interruption.
+        if self.stt is not None and self._audio_recognition is not None:
+            text = (self._audio_recognition.current_transcript or "").strip()
 
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
-                return
+            # normalize lowercased text without punctuation for simple matching
+            import re
 
-        if self._rt_session is not None:
-            self._rt_session.start_user_activity()
+            text_norm = re.sub(r"[^\w\s'-]", "", text.lower()).strip()
 
-        if (
-            self._current_speech is not None
-            and not self._current_speech.interrupted
-            and self._current_speech.allow_interruptions
-        ):
-            self._paused_speech = self._current_speech
+            # explicit stop words that should always interrupt immediately
+            stop_words = {
+                "stop",
+                "wait",
+                "no",
+                "hold",
+                "hold on",
+                "please stop",
+            }
 
-            # reset the false interruption timer
-            if self._false_interruption_timer:
-                self._false_interruption_timer.cancel()
-                self._false_interruption_timer = None
+            # common short filler/interjection words we want to ignore
+            filler_words = self._get_filler_words()
 
-            if use_pause and self._session.output.audio and self._session.output.audio.can_pause:
-                self._session.output.audio.pause()
-                self._session._update_agent_state("listening")
-            else:
-                if self._rt_session is not None:
-                    self._rt_session.interrupt()
+            # if any stop word appears as a whole word, treat as real interruption
+            # but ignore occurrences that are part of negated phrases (e.g. "don't stop", "do not stop")
+            negation_single = {"dont", "don't", "do", "not", "never"}
+            negation_phrases = {"do not", "dont", "don't"}
 
-                self._current_speech.interrupt()
+            words = [w[0] for w in split_words(text_norm, split_character=True)]
+
+            found_stop = False
+            for i, w in enumerate(words):
+                if w in stop_words:
+                    prev1 = words[i - 1] if i > 0 else ""
+                    prev2 = " ".join(words[i - 2 : i]) if i > 1 else ""
+                    # ignore if directly negated (e.g. "don't stop", "do not stop", "never stop")
+                    if prev1 in negation_single or prev2 in negation_phrases:
+                        continue
+                    found_stop = True
+                    break
+
+            if not found_stop:
+                # remove filler words; if nothing meaningful remains, treat as false interruption
+                meaningful = [w for w in words if w not in filler_words]
+                if len(meaningful) == 0:
+                    return
+
+            # if a minimum word count is configured, enforce it on the raw transcript
+            if opt.min_interruption_words > 0:
+                # TODO(long): better word splitting for multi-language
+                if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                    return
+
+            # Signal realtime session that user activity started (if present)
+            if self._rt_session is not None:
+                self._rt_session.start_user_activity()
+
+            if (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            ):
+                self._paused_speech = self._current_speech
+
+                # reset the false interruption timer
+                if self._false_interruption_timer:
+                    self._false_interruption_timer.cancel()
+                    self._false_interruption_timer = None
+
+                if use_pause and self._session.output.audio and self._session.output.audio.can_pause:
+                    self._session.output.audio.pause()
+                    self._session._update_agent_state("listening")
+                else:
+                    if self._rt_session is not None:
+                        self._rt_session.interrupt()
+
+                    self._current_speech.interrupt()
+
+    def _is_filler_transcript(self, text: str) -> bool:
+        """Return True if the transcript contains only filler/interjection words.
+
+        This mirrors the logic in `_interrupt_by_audio_activity` but is used to
+        short-circuit earlier (before any pause/interrupt calls are made).
+        """
+        if not text:
+            return True
+
+        import re
+
+        text_norm = re.sub(r"[^\w\s'-]", "", text.lower()).strip()
+
+        filler_words = self._get_filler_words()
+
+        words = [w[0] for w in split_words(text_norm, split_character=True)]
+        meaningful = [w for w in words if w not in filler_words]
+        return len(meaningful) == 0
+
+    def _get_filler_words(self) -> set[str]:
+        """Return the set of filler words, optionally overridden via env var.
+
+        Use the environment variable `LIVEKIT_IGNORE_WORDS` to provide a comma
+        separated list of words to treat as filler/backchannel tokens.
+        """
+        default = {
+            "yeah",
+            "yea",
+            "yah",
+            "ya",
+            "yep",
+            "yup",
+            "ok",
+            "okay",
+            "hmm",
+            "uh",
+            "um",
+            "mm",
+            "mmhmm",
+            "right",
+            "sure",
+            "alright",
+        }
+
+        raw = os.getenv("LIVEKIT_IGNORE_WORDS")
+        if not raw:
+            return default
+
+        parts = [p.strip().lower() for p in raw.split(",") if p.strip()]
+        return set(parts) | default
 
     # region recognition hooks
 
@@ -1240,8 +1337,63 @@ class AgentActivity(RecognitionHooks):
             # ignore vad inference done event if turn_detection is manual or realtime_llm
             return
 
-        if ev.speech_duration >= self._session.options.min_interruption_duration:
+        if ev.speech_duration < self._session.options.min_interruption_duration:
+            return
+
+        # If the agent has a current speech handle, delay the interruption decision
+        # briefly to allow STT interim transcripts to arrive and classify the input.
+        # Some SpeechHandle implementations may report `done()` earlier than audio
+        # playout completes; rely on the presence of a speech handle rather than
+        # `done()` to decide whether we should delay. If no speech handle exists,
+        # interrupt immediately.
+        if self._current_speech is not None:
+            # cancel any previous VAD interrupt timer
+            if self._vad_interrupt_timer is not None:
+                try:
+                    self._vad_interrupt_timer.cancel()
+                except Exception:
+                    pass
+
+            loop = asyncio.get_event_loop()
+            # small delay to wait for STT result; increase slightly to accommodate
+            # slower STT setups while still remaining low enough to be imperceptible
+            delay = 0.4
+            self._vad_interrupt_timer = loop.call_later(
+                delay, lambda: asyncio.create_task(self._evaluate_vad_interrupt())
+            )
+        else:
             self._interrupt_by_audio_activity()
+
+    async def _evaluate_vad_interrupt(self) -> None:
+        """Evaluate whether a recent VAD event should interrupt the agent.
+
+        This is scheduled with a short delay when the agent is speaking to let
+        STT produce an interim transcript. If the transcript is filler-only,
+        we ignore; otherwise we call the normal interruption handler.
+        """
+        # clear timer handle
+        self._vad_interrupt_timer = None
+
+        # if audio_recognition or stt not present, fall back to immediate interrupt
+        if self._audio_recognition is None or self.stt is None:
+            self._interrupt_by_audio_activity()
+            return
+
+        # get the current transcript (may be interim)
+        text = (self._audio_recognition.current_transcript or "").strip()
+
+        # if no transcript yet, be conservative and do not interrupt immediately
+        # to avoid false positives; the existing false-interruption resume logic
+        # will handle resuming if we later decide to pause.
+        if not text:
+            return
+
+        # if transcript is filler-only, ignore entirely
+        if self._is_filler_transcript(text):
+            return
+
+        # otherwise proceed with the usual interruption logic
+        self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
@@ -1261,7 +1413,9 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # avoid any pause/interrupt for filler-only interjections
+            if not self._is_filler_transcript(ev.alternatives[0].text):
+                self._interrupt_by_audio_activity()
 
             if (
                 speaking is False
@@ -1292,7 +1446,9 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # avoid any pause/interrupt for filler-only interjections
+            if not self._is_filler_transcript(ev.alternatives[0].text):
+                self._interrupt_by_audio_activity()
 
             if (
                 speaking is False
