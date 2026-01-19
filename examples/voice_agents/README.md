@@ -1,78 +1,171 @@
-# Voice Agents Examples
+# LiveKit Voice Agent with Context-Aware Backchannel Detection
 
-This directory contains a comprehensive collection of voice-based agent examples demonstrating various capabilities and integrations with the LiveKit Agents framework.
+A voice agent that intelligently handles user backchannels (like "mhmm", "okay", "uh-huh") while speaking, providing a natural conversational experience.
 
-## 📋 Table of Contents
+## Features
 
-### 🚀 Getting Started
+- **Zero-pause backchannel handling** - Agent continues speaking when user says acknowledgements
+- **Instant interrupt for commands** - Says "stop" or "wait" triggers immediate interruption
+- **Multi-word phrase support** - Recognizes phrases like "I see", "got it", "uh huh"
 
-- [`basic_agent.py`](./basic_agent.py) - A fundamental voice agent with metrics collection
+## Quick Start
 
-### 🛠️ Tool Integration & Function Calling
+### 1. Setup Environment
 
-- [`annotated_tool_args.py`](./annotated_tool_args.py) - Using Python type annotations for tool arguments
-- [`dynamic_tool_creation.py`](./dynamic_tool_creation.py) - Creating and registering tools dynamically at runtime
-- [`raw_function_description.py`](./raw_function_description.py) - Using raw JSON schema definitions for tool descriptions
-- [`silent_function_call.py`](./silent_function_call.py) - Executing function calls without verbal responses to user
-- [`long_running_function.py`](./long_running_function.py) - Handling long running function calls with interruption support
+```bash
+cd d:\Work\SalesCodeAI\agents-assignment
 
-### ⚡ Real-time Models
+# Create virtual environment (if not already done)
+python -m venv .venv
 
-- [`weather_agent.py`](./weather_agent.py) - OpenAI Realtime API with function calls for weather information
-- [`realtime_video_agent.py`](./realtime_video_agent.py) - Google Gemini with multimodal video and voice capabilities
-- [`realtime_joke_teller.py`](./realtime_joke_teller.py) - Amazon Nova Sonic real-time model with function calls
-- [`realtime_load_chat_history.py`](./realtime_load_chat_history.py) - Loading previous chat history into real-time models
-- [`realtime_turn_detector.py`](./realtime_turn_detector.py) - Using LiveKit's turn detection with real-time models
-- [`realtime_with_tts.py`](./realtime_with_tts.py) - Combining external TTS providers with real-time models
+# Activate
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # Linux/Mac
 
-### 🎯 Pipeline Nodes & Hooks
+# Install dependencies
+pip install -e .\livekit-agents[openai,cartesia,elevenlabs,deepgram,silero,turn-detector]
+```
 
-- [`fast-preresponse.py`](./fast-preresponse.py) - Generating quick responses using the `on_user_turn_completed` node
-- [`flush_llm_node.py`](./flush_llm_node.py) - Flushing partial LLM output to TTS in `llm_node`
-- [`structured_output.py`](./structured_output.py) - Structured data and JSON outputs from agent responses
-- [`speedup_output_audio.py`](./speedup_output_audio.py) - Dynamically adjusting agent audio playback speed
-- [`timed_agent_transcript.py`](./timed_agent_transcript.py) - Reading timestamped transcripts from `transcription_node`
-- [`inactive_user.py`](./inactive_user.py) - Handling inactive users with the `user_state_changed` event hook
-- [`resume_interrupted_agent.py`](./resume_interrupted_agent.py) - Resuming agent speech after false interruption detection
-- [`toggle_io.py`](./toggle_io.py) - Dynamically toggling audio input/output during conversations
+### 2. Configure Environment Variables
 
-### 🤖 Multi-agent & AgentTask Use Cases
+Create a `.env` file in root directory:
 
-- [`restaurant_agent.py`](./restaurant_agent.py) - Multi-agent system for restaurant ordering and reservation management
-- [`multi_agent.py`](./multi_agent.py) - Collaborative storytelling with multiple specialized agents
-- [`email_example.py`](./email_example.py) - Using AgentTask to collect and validate email addresses
+```env
+LIVEKIT_URL=wss://your-livekit-server.livekit.cloud
+LIVEKIT_API_KEY=your-api-key
+LIVEKIT_API_SECRET=your-api-secret
+OPENAI_API_KEY=your-openai-key
+DEEPGRAM_API_KEY=your-deepgram-key
+ELEVENLABS_API_KEY=your-elevenlabs-key
+```
 
-### 🔗 MCP & External Integrations
+### 3. Run the Agent
 
-- [`web_search.py`](./web_search.py) - Integrating web search capabilities into voice agents
-- [`langgraph_agent.py`](./langgraph_agent.py) - LangGraph integration
-- [`mcp/`](./mcp/) - Model Context Protocol (MCP) integration examples
-  - [`mcp-agent.py`](./mcp/mcp-agent.py) - MCP agent integration
-  - [`server.py`](./mcp/server.py) - MCP server example
-- [`zapier_mcp_integration.py`](./zapier_mcp_integration.py) - Automating workflows with Zapier through MCP
+```bash
+cd examples/voice_agents
+python basic_agent.py dev
+```
 
-### 💾 RAG & Knowledge Management
+### 4. Connect to Test
 
-- [`llamaindex-rag/`](./llamaindex-rag/) - Complete RAG implementation with LlamaIndex
-  - [`chat_engine.py`](./llamaindex-rag/chat_engine.py) - Chat engine integration
-  - [`query_engine.py`](./llamaindex-rag/query_engine.py) - Query engine used in a function tool
-  - [`retrieval.py`](./llamaindex-rag/retrieval.py) - Document retrieval
+Open the LiveKit Playground at your LiveKit server URL to interact with the agent.
 
-### 🎵 Specialized Use Cases
+---
 
-- [`background_audio.py`](./background_audio.py) - Playing background audio or ambient sounds during conversations
-- [`push_to_talk.py`](./push_to_talk.py) - Push-to-talk interaction
-- [`tts_text_pacing.py`](./tts_text_pacing.py) - Pacing control for TTS requests
-- [`speaker_id_multi_speaker.py`](./speaker_id_multi_speaker.py) - Multi-speaker identification
+## How Backchannel Detection Works
 
-### 📊 Tracing & Error Handling
+### The Problem
 
-- [`langfuse_trace.py`](./langfuse_trace.py) - LangFuse integration for conversation tracing
-- [`error_callback.py`](./error_callback.py) - Error handling callback
-- [`session_close_callback.py`](./session_close_callback.py) - Session lifecycle management
+When a user says "mhmm" or "okay" while the agent is speaking, traditional voice agents either:
+- Pause and wait (bad UX - noticeable stuttering)
+- Interrupt and generate a new response (bad UX - agent responds to acknowledgements)
 
-## 📖 Additional Resources
+### The Solution
 
-- [LiveKit Agents Documentation](https://docs.livekit.io/agents/)
-- [Agents Starter Example](https://github.com/livekit-examples/agent-starter-python)
-- [More Agents Examples](https://github.com/livekit-examples/python-agents-examples)
+```
+User speaks while agent talking
+        ↓
+VAD detects voice → Skip pause (agent keeps speaking)
+        ↓
+STT transcribes in parallel
+        ↓
+Is it a backchannel? ──Yes──→ Ignore completely
+        │
+        No / Has "stop", "wait"
+        ↓
+Interrupt agent immediately
+```
+
+**Parallel Processing Approach:** The key insight is that the agent's audio playback and the backchannel detection run as two independent, parallel processes. When the VAD (Voice Activity Detection) detects user speech, instead of immediately pausing the agent, we let the agent continue speaking while the STT (Speech-to-Text) transcribes the user's words in the background. Only once we have the actual transcript do we make a decision: if it's a backchannel word like "mhmm" or "okay", we simply discard it and the agent never knew the user spoke. If it's a real command like "stop" or a genuine question, we interrupt immediately. This separation ensures the agent's speech flow remains completely unaffected by passive acknowledgements, creating a natural conversation experience.
+
+### Key Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| Backchannel words | `agent_session.py` | Frozenset of 30+ words like "yeah", "mhmm", "okay" |
+| VAD bypass | `agent_activity.py` | Skip pause when agent speaking |
+| Transcript check | `agent_activity.py` | Classify as backchannel or real input |
+| Buffer clearing | `audio_recognition.py` | Prevent backchannel accumulation |
+
+### Backchannel Word List
+
+```python
+backchannel_words = frozenset({
+    "yeah", "yes", "yep", "yup", "ok", "okay", "aha", "uh-huh",
+    "hmm", "mm", "mhm", "mhmm", "right", "sure", "got it", "i see",
+    "uh", "um", "understood", "continue", "go on", "really",
+    "wow", "nice", "cool", "oh", "ah", "mm-hmm", "mmhmm", "uh huh"
+})
+```
+
+### Interrupt Commands
+
+Even if text contains backchannel words, these trigger interruption:
+```python
+interrupt_commands = {"wait", "stop", "hold", "pause", "no", "actually", "but", "however"}
+```
+
+---
+
+## Testing
+
+| Say this while agent speaks | Expected behavior |
+|----------------------------|-------------------|
+| "mhmm" | Agent continues, no pause |
+| "okay" | Agent continues, no pause |
+| "I see" | Agent continues, no pause |
+| "yeah uh-huh" | Agent continues, no pause |
+| "stop" | Agent stops immediately |
+| "wait a second" | Agent stops immediately |
+| "yeah but wait" | Agent stops (contains "wait") |
+
+---
+
+## Troubleshooting
+
+### Agent pauses on backchannels
+- Check if the word is in `backchannel_words` in `agent_session.py`
+- Check logs for `"backchannel ignored on final"` message
+
+### Import errors with opentelemetry
+- Ensure `opentelemetry-sdk<1.39` in `pyproject.toml`
+- Reinstall: `pip install -e .\livekit-agents[...]`
+
+### Logs show backchannels accumulating
+- Verify `audio_recognition.py` clears `_audio_transcript` after all `on_end_of_turn` calls
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     AgentSession                        │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │                  AgentActivity                   │    │
+│  │                                                  │    │
+│  │  on_vad_inference_done() ──→ Skip pause if      │    │
+│  │                              agent speaking      │    │
+│  │                                                  │    │
+│  │  on_interim_transcript() ──→ Check backchannel  │    │
+│  │  on_final_transcript()   ──→ Check backchannel  │    │
+│  │  on_end_of_turn()        ──→ Block LLM response │    │
+│  │                                                  │    │
+│  │  _is_backchannel_text()  ──→ Word matching      │    │
+│  │  _contains_interrupt_cmd() ──→ Command check    │    │
+│  └─────────────────────────────────────────────────┘    │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │              AudioRecognition                    │    │
+│  │                                                  │    │
+│  │  _audio_transcript ──→ Cleared after each turn  │    │
+│  │                        (prevents accumulation)   │    │
+│  └─────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## License
+
+See repository root for license information.
