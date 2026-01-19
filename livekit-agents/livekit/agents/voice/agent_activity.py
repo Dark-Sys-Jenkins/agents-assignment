@@ -7,6 +7,7 @@ import json
 import time
 from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
+import re
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from opentelemetry import context as otel_context, trace
@@ -138,6 +139,7 @@ class AgentActivity(RecognitionHooks):
 
         self._drain_blocked_tasks: list[asyncio.Task[Any]] = []
         self._mcp_tools: list[mcp.MCPTool] = []
+        self.min_interruption_words = 2
 
         self._on_enter_task: asyncio.Task | None = None
         self._on_exit_task: asyncio.Task | None = None
@@ -1236,16 +1238,28 @@ class AgentActivity(RecognitionHooks):
             self._start_false_interruption_timer(timeout)
 
     def on_vad_inference_done(self, ev: vad.VADEvent) -> None:
-        if self._turn_detection in ("manual", "realtime_llm"):
-            # ignore vad inference done event if turn_detection is manual or realtime_llm
-            return
+        # if self._turn_detection in ("manual", "realtime_llm"):
+        #     # ignore vad inference done event if turn_detection is manual or realtime_llm
+        #     return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
             self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
+        FILLER_WORDS = {"Yeah.", "Okay.", "hmm", "uhhuh", "Right", "yes.", "um", "Got it.", "Sure.", "Okay."}
+
+        transcript = ev.alternatives[0].text.strip().lower()
+        clean_transcript = "".join(e for e in transcript if e.isalnum())
+        compressed = re.sub(r'(.)\1+', r'\1', clean_transcript)
+
+        # If it's just a filler word, return early and do NOT call _interrupt_by_audio_activity
+        if compressed in FILLER_WORDS:
+            logger.debug(f"Ignoring filler interim transcript: {clean_transcript}")
+            return
+
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
+            
             return
 
         self._session._user_input_transcribed(
