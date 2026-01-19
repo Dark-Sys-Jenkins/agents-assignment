@@ -62,6 +62,9 @@ The agent follows strict, state-dependent rules:
 | filler words | Speaking | IGNORE | Passive backchannel |
 | hard words | Speaking | INTERRUPT | Explicit command |
 | compound words (including hard + filler words) | Speaking | INTERRUPT | Contains non-filler word |
+| "yeah" | Silent | PROCESS | Valid conversational input |
+| "continue" | Paused | RESUME | Continues from stored position |
+| "repeat", "start again" | Any | RESTART | Begins from start |
 
 This logic ensures **no pauses, hiccups, or restarts** occur due to filler words.
 
