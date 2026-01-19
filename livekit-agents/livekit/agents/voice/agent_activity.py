@@ -7,6 +7,7 @@ import json
 import time
 from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from opentelemetry import context as otel_context, trace
@@ -79,6 +80,56 @@ from .speech_handle import SpeechHandle
 if TYPE_CHECKING:
     from ..llm import mcp
     from .agent_session import AgentSession
+
+
+def _load_interruption_words() -> tuple[set[str], set[str]]:
+    config_path = Path(__file__).parent / "config" / "words.json"
+    
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"Interruption words config not found at {config_path}. "
+            "Please ensure words.json exists in the config directory."
+        )
+    
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+            passive = set(config["passive_words"])
+            command = set(config["command_words"])
+            return passive, command
+    except (KeyError, json.JSONDecodeError) as e:
+        raise ValueError(
+            f"Invalid interruption words config format: {e}. "
+            "Config must contain 'passive_words' and 'command_words' arrays."
+        ) from e
+
+
+PASSIVE_WORDS, COMMAND_WORDS = _load_interruption_words()
+
+
+def _classify_user_input(transcript: str) -> str:
+    if not transcript or not transcript.strip():
+        return "unknown"
+
+    words = [
+        word.lower().strip(".,!?;:()\"'")
+        for word in transcript.split()
+        if word.strip(".,!?;:()\"'")
+    ]
+
+    if not words:
+        return "unknown"
+
+    contains_command = any(word in COMMAND_WORDS for word in words)
+    contains_passive = any(word in PASSIVE_WORDS for word in words)
+
+    if contains_command:
+        return "command"
+    elif contains_passive:
+        return "passive"
+    else:
+        return "unknown"
+
 
 _AgentActivityContextVar = contextvars.ContextVar["AgentActivity"]("agents_activity")
 _SpeechHandleContextVar = contextvars.ContextVar["SpeechHandle"]("agents_speech_handle")
@@ -1167,23 +1218,34 @@ class AgentActivity(RecognitionHooks):
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
     def _interrupt_by_audio_activity(self) -> None:
-        opt = self._session.options
-        use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
+        options = self._session.options
+        should_pause = options.resume_false_interruption and options.false_interruption_timeout is not None
 
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
-            # ignore if realtime model has turn detection enabled
             return
 
-        if (
-            self.stt is not None
-            and opt.min_interruption_words > 0
-            and self._audio_recognition is not None
-        ):
-            text = self._audio_recognition.current_transcript
+        if self._audio_recognition is None or self.stt is None:
+            return
 
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+        user_transcript = self._audio_recognition.current_transcript
+        if not user_transcript or not user_transcript.strip():
+            return
+
+        if self._current_speech is not None and not self._current_speech.interrupted:
+            classification = _classify_user_input(user_transcript)
+            if classification == "passive":
+                logger.debug(f"Ignoring passive input while agent is speaking: '{user_transcript}'")
                 return
+
+        if options.min_interruption_words > 0:
+            if self._current_speech is not None and not self._current_speech.interrupted:
+                classification = _classify_user_input(user_transcript)
+                if classification == "unknown":
+                    if len(split_words(user_transcript, split_character=True)) < options.min_interruption_words:
+                        return
+            else:
+                if len(split_words(user_transcript, split_character=True)) < options.min_interruption_words:
+                    return
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
@@ -1195,12 +1257,11 @@ class AgentActivity(RecognitionHooks):
         ):
             self._paused_speech = self._current_speech
 
-            # reset the false interruption timer
             if self._false_interruption_timer:
                 self._false_interruption_timer.cancel()
                 self._false_interruption_timer = None
 
-            if use_pause and self._session.output.audio and self._session.output.audio.can_pause:
+            if should_pause and self._session.output.audio and self._session.output.audio.can_pause:
                 self._session.output.audio.pause()
                 self._session._update_agent_state("listening")
             else:
@@ -1342,8 +1403,6 @@ class AgentActivity(RecognitionHooks):
         )
 
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool:
-        # IMPORTANT: This method is sync to avoid it being cancelled by the AudioRecognition
-        # We explicitly create a new task here
 
         if self._scheduling_paused:
             self._cancel_preemptive_generation()
@@ -1353,7 +1412,6 @@ class AgentActivity(RecognitionHooks):
             )
 
             if self._session._closing:
-                # add user input to chat context
                 user_message = llm.ChatMessage(
                     role="user",
                     content=[info.new_transcript],
@@ -1362,8 +1420,18 @@ class AgentActivity(RecognitionHooks):
                 self._agent._chat_ctx.items.append(user_message)
                 self._session._conversation_item_added(user_message)
 
-            # TODO(theomonnom): should we "forward" this new turn to the next agent/activity?
             return True
+
+        if (
+            self.stt is not None
+            and self._turn_detection != "manual"
+            and self._current_speech is not None
+            and self._current_speech.allow_interruptions
+            and not self._current_speech.interrupted
+        ):
+            classification = _classify_user_input(info.new_transcript)
+            if classification == "passive":
+                return False
 
         if (
             self.stt is not None
@@ -1376,7 +1444,6 @@ class AgentActivity(RecognitionHooks):
             < self._session.options.min_interruption_words
         ):
             self._cancel_preemptive_generation()
-            # avoid interruption if the new_transcript is too short
             return False
 
         old_task = self._user_turn_completed_atask
