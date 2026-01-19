@@ -45,14 +45,12 @@ class AvatarSession:
         participant_name: str,
         as_agent: bool = True,
         local_participant_identity: Optional[str] = None,
-    ):
-        token = (
-            api.AccessToken(api_key=livekit_api_key, api_secret=livekit_api_secret)
-            .with_identity(participant_identity)
-            .with_name(participant_name)
-            .with_grants(api.VideoGrants(room_join=True, room=room.name))
-            .with_attributes({ATTRIBUTE_PUBLISH_ON_BEHALF: local_participant_identity})
-        )
+    ) -> str:
+        token = api.AccessToken(api_key=livekit_api_key, api_secret=livekit_api_secret)
+        token = token.with_identity(participant_identity)
+        token = token.with_name(participant_name)
+        token = token.with_grants(api.VideoGrants(room_join=True, room=room.name))
+
         if as_agent:
             token = token.with_kind("agent")
 
@@ -69,7 +67,7 @@ class AvatarSession:
         livekit_url: NotGivenOr[str | None] = NOT_GIVEN,
         livekit_api_key: NotGivenOr[str | None] = NOT_GIVEN,
         livekit_api_secret: NotGivenOr[str | None] = NOT_GIVEN,
-    ):
+    ) -> None:
         livekit_url = livekit_url or (os.getenv("LIVEKIT_URL") or NOT_GIVEN)
         livekit_api_key = livekit_api_key or (os.getenv("LIVEKIT_API_KEY") or NOT_GIVEN)
         livekit_api_secret = livekit_api_secret or (os.getenv("LIVEKIT_API_SECRET") or NOT_GIVEN)
@@ -78,25 +76,18 @@ class AvatarSession:
                 "livekit_url, livekit_api_key, and livekit_api_secret must be set by arguments or environment variables"
             )
 
-        session_task_mapping = {}
+        session_task_mapping: dict[str, str] = {}
 
-        try:
-            job_ctx = get_job_context()
-            local_participant_identity = job_ctx.token_claims().identity
+        job_ctx = get_job_context()
 
-            async def _shutdown_session():
-                if room.name not in session_task_mapping:
-                    return
-                await self._avatartalk_api.stop_session(session_task_mapping[room.name])
+        async def _shutdown_session() -> None:
+            if room.name not in session_task_mapping:
+                return
+            await self._avatartalk_api.stop_session(session_task_mapping[room.name])
 
-            job_ctx.add_shutdown_callback(_shutdown_session)
-        except (RuntimeError, KeyError):
-            if not room.isconnected():
-                raise AvatarTalkException(
-                    "local participant identity not found in token, and room is not connected"
-                ) from None
-            local_participant_identity = room.local_participant.identity
+        job_ctx.add_shutdown_callback(_shutdown_session)
 
+        local_participant_identity = job_ctx.local_participant_identity
         livekit_token = self.__generate_lk_token(
             livekit_api_key,
             livekit_api_secret,

@@ -1,6 +1,11 @@
+# IO / results
 from . import io, run_result
+
+# Core agent
 from .agent import Agent, AgentTask, ModelSettings
 from .agent_session import AgentSession, VoiceActivityVideoSampler
+
+# Events
 from .events import (
     AgentEvent,
     AgentFalseInterruptionEvent,
@@ -16,48 +21,64 @@ from .events import (
     UserInputTranscribedEvent,
     UserStateChangedEvent,
 )
+
+# Interruption handling
+from .interruption_filter import InterruptionFilter
+
+# Internal outputs (intentionally exported)
 from .room_io import (
     _ParticipantAudioOutput,
     _ParticipantStreamTranscriptionOutput,
     _ParticipantTranscriptionOutput,
 )
+
+# Speech / transcription
 from .speech_handle import SpeechHandle
 from .transcription import TranscriptSynchronizer
 
 __all__ = [
+    # Core agent
+    "Agent",
+    "AgentTask",
+    "ModelSettings",
     "AgentSession",
     "VoiceActivityVideoSampler",
-    "Agent",
-    "ModelSettings",
-    "AgentTask",
+
+    # Speech / transcription
     "SpeechHandle",
-    "RunContext",
-    "UserInputTranscribedEvent",
+    "TranscriptSynchronizer",
+
+    # Interruption handling
+    "InterruptionFilter",
+
+    # Events
     "AgentEvent",
-    "MetricsCollectedEvent",
+    "AgentFalseInterruptionEvent",
+    "AgentStateChangedEvent",
     "ConversationItemAddedEvent",
     "SpeechCreatedEvent",
+    "UserInputTranscribedEvent",
+    "UserStateChangedEvent",
+    "FunctionToolsExecutedEvent",
+    "MetricsCollectedEvent",
     "ErrorEvent",
     "CloseEvent",
     "CloseReason",
-    "UserStateChangedEvent",
-    "AgentStateChangedEvent",
-    "FunctionToolsExecutedEvent",
-    "AgentFalseInterruptionEvent",
-    "TranscriptSynchronizer",
+
+    # IO / results
+    "RunContext",
     "io",
-    "room_io",
     "run_result",
+
+    # Internal outputs
     "_ParticipantAudioOutput",
     "_ParticipantTranscriptionOutput",
     "_ParticipantStreamTranscriptionOutput",
 ]
 
-# Cleanup docs of unexported modules
-_module = dir()
-NOT_IN_ALL = [m for m in _module if m not in __all__]
-
+# Hide non-exported symbols from docs (pdoc)
 __pdoc__ = {}
 
-for n in NOT_IN_ALL:
-    __pdoc__[n] = False
+for name in list(globals()):
+    if name not in __all__ and not name.startswith("_"):
+        __pdoc__[name] = False
