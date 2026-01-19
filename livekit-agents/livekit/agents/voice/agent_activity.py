@@ -75,6 +75,11 @@ from .generation import (
     update_instructions,
 )
 from .speech_handle import SpeechHandle
+from .interruption_filter import (
+    InterruptionFilter,
+    InterruptionFilterConfig,
+    get_default_filter,
+)
 
 if TYPE_CHECKING:
     from ..llm import mcp
@@ -141,6 +146,9 @@ class AgentActivity(RecognitionHooks):
 
         self._on_enter_task: asyncio.Task | None = None
         self._on_exit_task: asyncio.Task | None = None
+
+        # Intelligent interruption filter for backchannel detection
+        self._interruption_filter = get_default_filter()
 
         if (
             isinstance(self.llm, llm.RealtimeModel)
@@ -1183,6 +1191,23 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                return
+
+        # Intelligent interruption filtering: check if user speech is backchannel-only
+        # when agent is speaking, ignore filler words like "yeah", "ok", "hmm"
+        if self._audio_recognition is not None and self._current_speech is not None:
+            transcript = self._audio_recognition.current_transcript
+            agent_is_speaking = self._session.agent_state == "speaking"
+
+            # Use the interruption filter to decide
+            decision = self._interruption_filter.decide(transcript, agent_is_speaking)
+
+            if decision == "ignore":
+                # Backchannel detected while agent is speaking - don't interrupt
+                logger.debug(
+                    "ignoring backchannel while agent is speaking",
+                    extra={"transcript": transcript}
+                )
                 return
 
         if self._rt_session is not None:
