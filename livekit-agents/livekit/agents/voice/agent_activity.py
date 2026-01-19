@@ -1296,6 +1296,8 @@ class AgentActivity(RecognitionHooks):
             if should_ignore_as_soft_acknowledgment(transcript, agent_is_speaking):
                 # Soft acknowledgment while agent speaking → ignore completely
                 # Do NOT forward to LLM, do NOT interrupt, do NOT add to transcript buffer
+                logger.info(f"[INTERRUPTION_CHECK] agent_speaking={agent_is_speaking} transcript=\"{transcript}\" decision=IGNORE")
+                logger.info("[AUDIO_FLOW] uninterrupted=true")
                 logger.debug(
                     "ignoring soft acknowledgment during agent speech",
                     extra={"transcript": transcript},
@@ -1305,6 +1307,12 @@ class AgentActivity(RecognitionHooks):
                     self._false_interruption_timer.cancel()
                     self._false_interruption_timer = None
                 return False  # Signal to NOT add this transcript to the buffer
+            else:
+                # Not a soft acknowledgment - will proceed with processing/interruption
+                if agent_is_speaking:
+                    logger.info(f"[INTERRUPTION_CHECK] agent_speaking={agent_is_speaking} transcript=\"{transcript}\" decision=INTERRUPT")
+                else:
+                    logger.info(f"[INTERRUPTION_CHECK] agent_speaking={agent_is_speaking} transcript=\"{transcript}\" decision=PROCESS")
 
         # SECOND: Forward transcript to LLM (only if not a soft acknowledgement)
         self._session._user_input_transcribed(
@@ -1323,6 +1331,7 @@ class AgentActivity(RecognitionHooks):
         ):
             # Not a soft acknowledgement → proceed with interruption
             self._interrupt_by_audio_activity()
+            logger.info("[AUDIO_FLOW] interrupted=true reason=hard_command")
 
             # Do NOT start false interruption timer or create resume task!
             # Semantic filtering confirmed this is a REAL interrupt - it should stay interrupted.

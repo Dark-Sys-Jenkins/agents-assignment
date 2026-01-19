@@ -88,7 +88,7 @@ async def run_direct():
     
     try:
         await room.connect(url, token)
-        print("✅ Agent Connected to Room!")
+        print(" Agent Connected to Room!")
     except Exception as e:
         print(f"Failed to connect to room: {e}")
         traceback.print_exc()
