@@ -1,5 +1,4 @@
 import logging
-
 from dotenv import load_dotenv
 
 from livekit.agents import (
@@ -10,6 +9,7 @@ from livekit.agents import (
     JobProcess,
     MetricsCollectedEvent,
     RunContext,
+    StopResponse,
     cli,
     metrics,
     room_io,
@@ -18,50 +18,107 @@ from livekit.agents.llm import function_tool
 from livekit.plugins import silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-# uncomment to enable Krisp background voice/noise cancellation
-# from livekit.plugins import noise_cancellation
-
 logger = logging.getLogger("basic-agent")
+logging.basicConfig(level=logging.INFO)
 
 load_dotenv()
 
+# -------------------------------
+# Interruption configuration
+# -------------------------------
+
+IGNORE_WORDS = {
+    "yeah", "ok", "okay", "hmm", "uh-huh", "right", "aha"
+}
+
+INTERRUPT_WORDS = {
+    "stop", "wait", "no", "pause", "hold"
+}
+
+
+# -------------------------------
+# Agent Definition
+# -------------------------------
 
 class MyAgent(Agent):
     def __init__(self) -> None:
         super().__init__(
-            instructions="Your name is Kelly. You would interact with users via voice."
-            "with that in mind keep your responses concise and to the point."
-            "do not use emojis, asterisks, markdown, or other special characters in your responses."
-            "You are curious and friendly, and have a sense of humor."
-            "you will speak english to the user",
+            instructions=(
+                "Your name is Kelly. You interact with users via voice. "
+                "Keep responses concise and natural. "
+                "Do not use emojis, markdown, or special characters. "
+                "You are friendly, curious, and professional. "
+                "You speak English."
+            ),
+            allow_interruptions=False,
         )
+        self.is_speaking = False
 
     async def on_enter(self):
-        # when the agent is added to the session, it'll generate a reply
-        # according to its instructions
-        self.session.generate_reply()
+        # Track agent speaking state using official LiveKit event
+        self.session.on("agent_state_changed", self._on_agent_state_changed)
 
-    # all functions annotated with @function_tool will be passed to the LLM when this
-    # agent is active
+        # Initial greeting
+        await self.session.generate_reply()
+
+    def _on_agent_state_changed(self, event):
+        state = getattr(event, "new_state", None)
+        self.is_speaking = (state == "speaking")
+        logger.debug(f"Agent state changed → {state}")
+
+    async def on_user_turn_completed(self, turn_ctx, new_message):
+        text = (new_message.text_content or "").lower().strip()
+        if not text:
+            return
+        
+        tokens = set(text.split())
+
+        # 1. Flexible Detection
+        # is_soft_ack: user said ONLY words in the ignore list
+        is_soft_ack = tokens.issubset(IGNORE_WORDS)
+        
+        # has_interrupt: user said AT LEAST ONE word in the interrupt list
+        # This fixes sentences like "Yeah but wait" or "Stop now"
+        has_interrupt = not tokens.isdisjoint(INTERRUPT_WORDS)
+
+        logger.info(
+            f"User said: '{text}' | speaking={self.is_speaking} "
+            f"| soft_ack={is_soft_ack} | interrupt={has_interrupt}"
+        )
+
+        # 2. State-Aware Actions
+        if self.is_speaking:
+            if has_interrupt:
+                # MANDATORY: Manually stop the current audio playback
+                logger.info("Hard interruption -> Manually stopping agent audio")
+                self.session.interrupt() 
+                
+                # Prevent the agent from starting a new reply to the "Stop" command
+                raise StopResponse()
+
+            if is_soft_ack:
+                # SEAMLESS: Raising StopResponse here is the ONLY way to prevent 
+                # the "Thinking" pause while keeping the current audio playing.
+                logger.info("Soft ack during speech -> Ignoring to maintain seamless flow")
+                raise StopResponse()
+
+        # 3. Silent Case (Scenario 3 of Assignment)
+        # If the agent is silent, we 'return' so it responds to "Yeah" as a valid answer.
+        return
+
+    # Example tool
     @function_tool
     async def lookup_weather(
         self, context: RunContext, location: str, latitude: str, longitude: str
     ):
-        """Called when the user asks for weather related information.
-        Ensure the user's location (city or region) is provided.
-        When given a location, please estimate the latitude and longitude of the location and
-        do not ask the user for them.
-
-        Args:
-            location: The location they are asking for
-            latitude: The latitude of the location, do not ask user for it
-            longitude: The longitude of the location, do not ask user for it
-        """
-
+        """Called when the user asks for weather information."""
         logger.info(f"Looking up weather for {location}")
+        return "It is sunny with a temperature of 70 degrees."
 
-        return "sunny with a temperature of 70 degrees."
 
+# -------------------------------
+# Agent Server Setup
+# -------------------------------
 
 server = AgentServer()
 
@@ -75,34 +132,23 @@ server.setup_fnc = prewarm
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext):
-    # each log entry will include these fields
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
+
     session = AgentSession(
-        # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
         stt="deepgram/nova-3",
-        # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-        # See all available models at https://docs.livekit.io/agents/models/llm/
         llm="openai/gpt-4.1-mini",
-        # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-        # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-        # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
-        # See more at https://docs.livekit.io/agents/build/turns
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
-        # allow the LLM to generate a response while waiting for the end of turn
-        # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
-        preemptive_generation=True,
-        # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
-        # when it's detected, you may resume the agent's speech
-        resume_false_interruption=True,
-        false_interruption_timeout=1.0,
+
+        # Performance & stability
+        preemptive_generation=False,
+        resume_false_interruption=False,
+        # false_interruption_timeout=1.0,
     )
 
-    # log metrics as they are emitted, and total usage after session is over
     usage_collector = metrics.UsageCollector()
 
     @session.on("metrics_collected")
@@ -112,9 +158,8 @@ async def entrypoint(ctx: JobContext):
 
     async def log_usage():
         summary = usage_collector.get_summary()
-        logger.info(f"Usage: {summary}")
+        logger.info(f"Usage summary: {summary}")
 
-    # shutdown callbacks are triggered when the session is over
     ctx.add_shutdown_callback(log_usage)
 
     await session.start(
@@ -122,7 +167,6 @@ async def entrypoint(ctx: JobContext):
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
-                # uncomment to enable the Krisp BVC noise cancellation
                 # noise_cancellation=noise_cancellation.BVC(),
             ),
         ),
