@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import os
 import time
 from collections.abc import AsyncIterable, Sequence
 from contextlib import AbstractContextManager, nullcontext
@@ -56,6 +57,10 @@ from .ivr import IVRActivity
 from .recorder_io import RecorderIO
 from .run_result import RunResult
 from .speech_handle import SpeechHandle
+from .interruption_controller import (
+    DEFAULT_IGNORE_BACKCHANNELS,
+    DEFAULT_INTERRUPT_KEYWORDS,
+)
 
 if TYPE_CHECKING:
     from ..inference import LLMModels, STTModels, TTSModels
@@ -89,6 +94,10 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    interruption_window_ms: int
+    interruption_active_threshold_ms: int
+    interruption_ignore_backchannels: Sequence[str]
+    interruption_keywords: Sequence[str]
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -131,6 +140,24 @@ class VoiceActivityVideoSampler:
 DEFAULT_TTS_TEXT_TRANSFORMS: list[TextTransforms] = ["filter_markdown", "filter_emoji"]
 
 
+def _parse_env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("invalid env var, using default", extra={"env_var": name, "value": raw})
+        return default
+
+
+def _parse_env_list(name: str, default: Sequence[str]) -> list[str]:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return list(default)
+    return [item.strip().lower() for item in raw.split(",") if item.strip()]
+
+
 class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
     def __init__(
         self,
@@ -159,6 +186,10 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        interruption_window_ms: int | None = None,
+        interruption_active_threshold_ms: int | None = None,
+        interruption_ignore_backchannels: NotGivenOr[Sequence[str]] = NOT_GIVEN,
+        interruption_keywords: NotGivenOr[Sequence[str]] = NOT_GIVEN,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -245,6 +276,17 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                 Defaults to ``False``.
             ivr_detection (bool): Whether to detect if the agent is interacting with an IVR system.
                 Default ``False``.
+            interruption_window_ms (int, optional): Sliding window size for interruption filtering.
+                Defaults to ``250`` or ``LK_INTERRUPT_WINDOW_MS`` if set.
+            interruption_active_threshold_ms (int, optional): Minimum active time in the window
+                before a candidate interruption is considered. Defaults to ``120`` or
+                ``LK_INTERRUPT_ACTIVE_THRESHOLD_MS`` if set.
+            interruption_ignore_backchannels (Sequence[str], optional): Backchannel phrases to
+                suppress while the agent is speaking. Defaults to a built-in list or
+                ``LK_IGNORE_BACKCHANNELS`` if set.
+            interruption_keywords (Sequence[str], optional): Hard interruption keywords that
+                immediately stop the agent when detected. Defaults to a built-in list or
+                ``LK_INTERRUPT_KEYWORDS`` if set.
             conn_options (SessionConnectOptions, optional): Connection options for
                 stt, llm, and tts.
             loop (asyncio.AbstractEventLoop, optional): Event loop to bind the
@@ -266,6 +308,27 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
 
         # This is the "global" chat_context, it holds the entire conversation history
         self._chat_ctx = ChatContext.empty()
+        interruption_window_ms = (
+            _parse_env_int("LK_INTERRUPT_WINDOW_MS", 250)
+            if interruption_window_ms is None
+            else interruption_window_ms
+        )
+        interruption_active_threshold_ms = (
+            _parse_env_int("LK_INTERRUPT_ACTIVE_THRESHOLD_MS", 120)
+            if interruption_active_threshold_ms is None
+            else interruption_active_threshold_ms
+        )
+        ignore_backchannels = (
+            _parse_env_list("LK_IGNORE_BACKCHANNELS", DEFAULT_IGNORE_BACKCHANNELS)
+            if not is_given(interruption_ignore_backchannels)
+            else list(interruption_ignore_backchannels)
+        )
+        interrupt_keywords = (
+            _parse_env_list("LK_INTERRUPT_KEYWORDS", DEFAULT_INTERRUPT_KEYWORDS)
+            if not is_given(interruption_keywords)
+            else list(interruption_keywords)
+        )
+
         self._opts = AgentSessionOptions(
             allow_interruptions=allow_interruptions,
             discard_audio_if_uninterruptible=discard_audio_if_uninterruptible,
@@ -288,6 +351,10 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            interruption_window_ms=interruption_window_ms,
+            interruption_active_threshold_ms=interruption_active_threshold_ms,
+            interruption_ignore_backchannels=ignore_backchannels,
+            interruption_keywords=interrupt_keywords,
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False

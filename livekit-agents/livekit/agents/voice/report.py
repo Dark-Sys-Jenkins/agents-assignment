@@ -56,6 +56,12 @@ class SessionReport:
                 "user_away_timeout": self.options.user_away_timeout,
                 "min_consecutive_speech_delay": self.options.min_consecutive_speech_delay,
                 "preemptive_generation": self.options.preemptive_generation,
+                "interruption_window_ms": self.options.interruption_window_ms,
+                "interruption_active_threshold_ms": self.options.interruption_active_threshold_ms,
+                "interruption_ignore_backchannels": list(
+                    self.options.interruption_ignore_backchannels
+                ),
+                "interruption_keywords": list(self.options.interruption_keywords),
             },
             "chat_history": self.chat_history.to_dict(exclude_timestamp=False),
             "timestamp": self.timestamp,

@@ -42,6 +42,45 @@ agents that can see, hear, and understand.
 - **Builtin test framework**: Write tests and use judges to ensure your agent is performing as expected.
 - **Open-source**: Fully open-source, allowing you to run the entire stack on your own servers, including [LiveKit server](https://github.com/livekit/livekit), one of the most widely used WebRTC media servers.
 
+## Intelligent interruption handling
+
+LiveKit Agents includes a state-conditioned temporal filter with deferred semantic validation:
+
+- While the agent is speaking, short VAD bursts are buffered in a small sliding window. The agent only stops if the activity is sustained *and* the STT text contains a hard interrupt intent (e.g., "stop", "wait", "cancel").
+- Backchannel fillers (e.g., "yeah", "ok", "hmm") are ignored while speaking and do not pause or stutter audio.
+- While the agent is silent, all user input (including "yeah/ok/hmm") is treated as normal input.
+
+### Configuration
+
+You can set these per-session or via environment variables:
+
+- `interruption_window_ms` / `LK_INTERRUPT_WINDOW_MS` (default: 250)
+- `interruption_active_threshold_ms` / `LK_INTERRUPT_ACTIVE_THRESHOLD_MS` (default: 120)
+- `interruption_ignore_backchannels` / `LK_IGNORE_BACKCHANNELS`
+- `interruption_keywords` / `LK_INTERRUPT_KEYWORDS`
+
+Env lists are comma-separated, e.g.:
+
+```bash
+export LK_IGNORE_BACKCHANNELS="yeah,ok,okay,mm-hm,uh-huh"
+export LK_INTERRUPT_KEYWORDS="stop,wait,hold on,cancel"
+```
+
+### Example debug logs
+
+```
+interruption_controller activity agent_state=speaking active=True active_ms=140.0 window_ms=250.0 decision=candidate
+interruption_controller stt agent_state=speaking text="ok stop" normalized="ok stop" is_final=True active_ms=160.0 decision=interrupt
+```
+
+### Proof guidance
+
+To show compliance, record a short screen capture or log transcript demonstrating:
+
+- Agent continues seamlessly during a backchannel (e.g., "yeah"/"ok") while speaking.
+- Agent stops immediately on a hard interrupt (e.g., "stop", "wait", "cancel").
+- "yeah/ok/hmm" while silent is accepted as normal input.
+
 ## Installation
 
 To install the core Agents library, along with plugins for popular model providers:
