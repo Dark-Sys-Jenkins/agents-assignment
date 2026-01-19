@@ -6,6 +6,7 @@ from collections.abc import Generator, Sequence
 from typing import Any, Callable
 
 from .. import llm, utils
+from .interrupt_logic import interrupt_logic  # NEW
 
 
 class SpeechHandle:
@@ -42,6 +43,9 @@ class SpeechHandle:
         self._done_fut.add_done_callback(_on_done)
         self._maybe_run_final_output: Any = None  # kept private
 
+        # NEW: mark agent as speaking
+        interrupt_logic.on_agent_speaking_start()
+
     @staticmethod
     def create(allow_interruptions: bool = True) -> SpeechHandle:
         return SpeechHandle(
@@ -71,23 +75,10 @@ class SpeechHandle:
 
     @allow_interruptions.setter
     def allow_interruptions(self, value: bool) -> None:
-        """Allow or disallow interruptions on this SpeechHandle.
-
-        When set to False, the SpeechHandle will no longer accept any incoming
-        interruption requests until re-enabled. If the handle is already
-        interrupted, clearing interruptions is not allowed.
-
-        Args:
-            value (bool): True to allow interruptions, False to disallow.
-
-        Raises:
-            RuntimeError: If attempting to disable interruptions when already interrupted.
-        """
         if self.interrupted and not value:
             raise RuntimeError(
                 "Cannot set allow_interruptions to False, the SpeechHandle is already interrupted"
             )
-
         self._allow_interruptions = value
 
     @property
@@ -98,29 +89,20 @@ class SpeechHandle:
         return self._done_fut.done()
 
     def interrupt(self, *, force: bool = False) -> SpeechHandle:
-        """Interrupt the current speech generation.
-
-        Raises:
-            RuntimeError: If this speech handle does not allow interruptions.
-
-        Returns:
-            SpeechHandle: The same speech handle that was interrupted.
+        """
+        Interrupt the current speech generation.
         """
         if not force and not self._allow_interruptions:
             raise RuntimeError("This generation handle does not allow interruptions")
+
+        # NEW: defer interruption while agent is speaking
+        if not force and interrupt_logic.on_vad_interrupt():
+            return self
 
         self._cancel()
         return self
 
     async def wait_for_playout(self) -> None:
-        """Waits for the entire assistant turn to complete playback.
-
-        This method waits until the assistant has fully finished speaking,
-        including any finalization steps beyond initial response generation.
-        This is appropriate to call when you want to ensure the speech output
-        has entirely played out, including any tool calls and response follow-ups."""
-
-        # raise an error to avoid developer mistakes
         from .agent import _get_activity_task_info
 
         if task := asyncio.current_task():
@@ -128,9 +110,7 @@ class SpeechHandle:
             if info and info.function_call and info.speech_handle == self:
                 raise RuntimeError(
                     f"cannot call `SpeechHandle.wait_for_playout()` from inside the function tool `{info.function_call.name}` that owns this SpeechHandle. "
-                    "This creates a circular wait: the speech handle is waiting for the function tool to complete, "
-                    "while the function tool is simultaneously waiting for the speech handle.\n"
-                    "To wait for the assistant’s spoken response prior to running this tool, use `RunContext.wait_for_playout()` instead."
+                    "This creates a circular wait."
                 )
 
         await asyncio.shield(self._done_fut)
@@ -174,7 +154,6 @@ class SpeechHandle:
         for item in items:
             for cb in self._item_added_callbacks:
                 cb(item)
-
             self._chat_items.append(item)
 
     def _authorize_generation(self) -> None:
@@ -191,7 +170,6 @@ class SpeechHandle:
     async def _wait_for_generation(self, step_idx: int = -1) -> None:
         if not self._generations:
             raise RuntimeError("cannot use wait_for_generation: no active generation is running.")
-
         await asyncio.shield(self._generations[step_idx])
 
     async def _wait_for_scheduled(self) -> None:
@@ -200,16 +178,17 @@ class SpeechHandle:
     def _mark_generation_done(self) -> None:
         if not self._generations:
             raise RuntimeError("cannot use mark_generation_done: no active generation is running.")
-
         with contextlib.suppress(asyncio.InvalidStateError):
             self._generations[-1].set_result(None)
 
     def _mark_done(self) -> None:
         with contextlib.suppress(asyncio.InvalidStateError):
-            # will raise InvalidStateError if the future is already done (interrupted)
             self._done_fut.set_result(None)
             if self._generations:
-                self._mark_generation_done()  # preemptive generation could be cancelled before being scheduled
+                self._mark_generation_done()
+
+        # NEW: mark agent as no longer speaking
+        interrupt_logic.on_agent_speaking_end()
 
     def _mark_scheduled(self) -> None:
         with contextlib.suppress(asyncio.InvalidStateError):

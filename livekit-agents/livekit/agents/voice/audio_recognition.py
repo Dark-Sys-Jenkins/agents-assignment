@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol, Union, cast
 
 from opentelemetry import trace
+from .interrupt_logic import interrupt_logic
 
 from livekit import rtc
 
@@ -354,6 +355,16 @@ class AudioRecognition:
                 self._last_language = language
 
             if not transcript:
+                return
+
+            decision = interrupt_logic.resolve_transcript(transcript)
+
+            if decision == "interrupt":
+                if self._session.current_speech_handle:
+                    self._session.current_speech_handle.interrupt(force=True)
+                return
+
+            if decision == "ignore":
                 return
 
             self._hooks.on_final_transcript(
