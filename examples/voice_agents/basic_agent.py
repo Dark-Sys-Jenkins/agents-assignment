@@ -2,6 +2,11 @@ import logging
 
 from dotenv import load_dotenv
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s  %(message)s"
+)
+
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -21,9 +26,20 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 # uncomment to enable Krisp background voice/noise cancellation
 # from livekit.plugins import noise_cancellation
 
+
+
 logger = logging.getLogger("basic-agent")
 
 load_dotenv()
+
+IGNORE_WORDS = {
+    "yeah", "ok", "okay", "hmm", "uh-huh", "right", "yep"
+}
+
+INTERRUPT_WORDS = {
+    "stop", "wait", "no", "hold on", "pause"
+}
+
 
 
 class MyAgent(Agent):
@@ -35,11 +51,49 @@ class MyAgent(Agent):
             "You are curious and friendly, and have a sense of humor."
             "you will speak english to the user",
         )
+        self.agent_speaking = False
+    
 
     async def on_enter(self):
         # when the agent is added to the session, it'll generate a reply
         # according to its instructions
         self.session.generate_reply()
+
+    async def on_speech_start(self, context: RunContext):
+        self.agent_speaking = True
+        logger.info("Agent started speaking")
+
+    async def on_speech_end(self, context: RunContext):
+        self.agent_speaking = False
+        logger.info("Agent finished speaking")
+
+    async def on_user_input(self, context: RunContext, text: str):
+
+        logger.info(
+            f"User input received: '{text}' | agent_speaking={self.agent_speaking}"
+        )
+        
+        normalized = "".join(c for c in text.lower() if c.isalnum() or c.isspace()).strip()
+        words = set(normalized.split())
+
+    
+
+        if self.agent_speaking:
+            if words & INTERRUPT_WORDS:
+                logger.info("Interrupt command detected — stopping agent")
+                return await super().on_user_input(context, text)
+
+            if words and words.issubset(IGNORE_WORDS):
+                logger.info("Ignoring passive acknowledgement while speaking")
+                return
+            
+            logger.info("Meaningful input detected — interrupting agent")
+            return await super().on_user_input(context, text)
+        
+        
+        logger.info("Decision: RESPOND (agent silent)")
+        
+        return await super().on_user_input(context, text)
 
     # all functions annotated with @function_tool will be passed to the LLM when this
     # agent is active
@@ -67,7 +121,7 @@ server = AgentServer()
 
 
 def prewarm(proc: JobProcess):
-    proc.userdata["vad"] = silero.VAD.load()
+    proc.userdata["vad"] = None
 
 
 server.setup_fnc = prewarm
@@ -129,5 +183,8 @@ async def entrypoint(ctx: JobContext):
     )
 
 
+
 if __name__ == "__main__":
     cli.run_app(server)
+
+
