@@ -15,14 +15,30 @@ from opentelemetry._logs.severity import SeverityNumber
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk._logs import (
-    LogData,
-    LoggerProvider,
-    LoggingHandler,
-    LogRecord,
-    LogRecordProcessor,
-)
-from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+try:
+    from opentelemetry.sdk._logs import (
+        LogData,
+        LoggerProvider,
+        LoggingHandler,
+        LogRecord,
+        LogRecordProcessor,
+    )
+except ImportError:
+    # Fallback for newer versions where LogData is internal
+    from opentelemetry.sdk._logs import (
+        LoggerProvider,
+        LoggingHandler,
+        LogRecordProcessor,
+    )
+    from opentelemetry.sdk._logs._internal import LogRecord
+    # LogData is used in type hints, create a simple placeholder
+    class LogData:
+        pass
+try:
+    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+except ImportError:
+    # Fallback for newer versions
+    from opentelemetry.sdk.logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
