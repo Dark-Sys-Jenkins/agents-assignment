@@ -617,12 +617,13 @@ class AudioRecognition:
                 user_turn_span.end()
                 self._user_turn_span = None
 
-                # clear the transcript if the user turn was committed
-                self._audio_transcript = ""
-                self._final_transcript_confidence = []
-                self._last_speaking_time = None
-                self._last_final_transcript_time = None
-                self._speech_start_time = None
+            # Clearing the transcript buffer - even for ignored backchannels.
+            # This prevents backchannels from accumulating and triggering EOU detection.
+            self._audio_transcript = ""
+            self._final_transcript_confidence = []
+            self._last_speaking_time = None
+            self._last_final_transcript_time = None
+            self._speech_start_time = None
 
             self._user_turn_committed = False
 
