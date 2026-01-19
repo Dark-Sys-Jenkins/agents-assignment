@@ -83,6 +83,26 @@ if TYPE_CHECKING:
 _AgentActivityContextVar = contextvars.ContextVar["AgentActivity"]("agents_activity")
 _SpeechHandleContextVar = contextvars.ContextVar["SpeechHandle"]("agents_speech_handle")
 
+#Adding IGNORE and INTERRUPT key words for the logic layer
+IGNORE_WORDS = {
+    "yeah",
+    "ok",
+    "okay",
+    "hmm",
+    "uh-huh",
+    "makes sense",
+    "understood",
+    "right",
+}
+
+INTERRUPT_WORDS = {
+    "stop",
+    "pause",
+    "wait",
+    "no",
+    "hold on",
+}
+
 
 @dataclass
 class _OnEnterData:
@@ -141,6 +161,9 @@ class AgentActivity(RecognitionHooks):
 
         self._on_enter_task: asyncio.Task | None = None
         self._on_exit_task: asyncio.Task | None = None
+
+        #adding a pendinginterrupt so it doesnt interrupt instantly hearing a word
+        self._pending_interrupt: bool = False
 
         if (
             isinstance(self.llm, llm.RealtimeModel)
@@ -1188,6 +1211,10 @@ class AgentActivity(RecognitionHooks):
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
 
+        #stop the agent getting interrupted instantly
+        self._pending_interrupt = True
+        return
+
         if (
             self._current_speech is not None
             and not self._current_speech.interrupted
@@ -1272,6 +1299,7 @@ class AgentActivity(RecognitionHooks):
                 self._start_false_interruption_timer(timeout)
 
     def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> None:
+        
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
@@ -1288,11 +1316,32 @@ class AgentActivity(RecognitionHooks):
         # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
         # which will also be immediately interrupted
 
+
+        #extracting the text for the logic control
+        text = ev.alternatives[0].text.lower().strip()
+        is_speaking = self._current_speech is not None
+        
+        contains_interrupt = any(word in text for word in INTERRUPT_WORDS)
+        contains_ignore = all(word in IGNORE_WORDS for word in text.split())
+
         if self._audio_recognition and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            if is_speaking and self._pending_interrupt:
+                if contains_interrupt and not contains_ignore:
+                    logger.info(f"[Agent] speaking=True | text='{text}' -> INTERRUPT")
+                    self._pending_interrupt = False
+                    self._interrupt_by_audio_activity()
+                else:
+                    logger.info(f"[Agent] speaking=True | text='{text}' -> IGNORE")
+                    self._pending_interrupt = False
+                    return
+
+            else:
+                 logger.info(f"[Agent] speaking=False | text='{text}' -> SILENT RESPONSE")
+                 self._pending_interrupt = True
+
 
             if (
                 speaking is False
@@ -1344,6 +1393,16 @@ class AgentActivity(RecognitionHooks):
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool:
         # IMPORTANT: This method is sync to avoid it being cancelled by the AudioRecognition
         # We explicitly create a new task here
+
+        text = info.new_transcript.lower().strip(".!, ")
+        words = text.split()
+        is_agent_speaking = self._current_speech is not None and not self._current_speech.done()
+        is_ignore_phrase = len(words) > 0 and all(w in IGNORE_WORDS for w in words)
+
+        if is_agent_speaking and is_ignore_phrase:
+            logger.info(f"[Logic] IGNORED Turn: '{text}' while speaking. Continuing audio.")
+            self._pending_interrupt = False # Reset the flag
+            return False
 
         if self._scheduling_paused:
             self._cancel_preemptive_generation()
