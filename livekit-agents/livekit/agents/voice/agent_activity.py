@@ -75,6 +75,14 @@ from .generation import (
     update_instructions,
 )
 from .speech_handle import SpeechHandle
+<<<<<<< HEAD
+=======
+from .interruption_filter import (
+    ContextAwareInterruptionFilter,
+    FilterDecision,
+    InterruptionType,
+)
+>>>>>>> ca7ccf37 (final)
 
 if TYPE_CHECKING:
     from ..llm import mcp
@@ -126,6 +134,12 @@ class AgentActivity(RecognitionHooks):
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
 
+<<<<<<< HEAD
+=======
+        # Context-aware interruption filter for intelligent interruption handling
+        self._interruption_filter = ContextAwareInterruptionFilter(enable_logging=True)
+
+>>>>>>> ca7ccf37 (final)
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
         self._q_updated = asyncio.Event()
@@ -1174,6 +1188,30 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
+<<<<<<< HEAD
+=======
+        # Apply context-aware interruption filter BEFORE making interruption decision
+        # This prevents false interruptions from filler words
+        current_transcript = ""
+        if self.stt is not None and self._audio_recognition is not None:
+            current_transcript = self._audio_recognition.current_transcript
+            
+            # Evaluate if this transcript should trigger an interruption
+            filter_decision = self._interruption_filter.evaluate(
+                transcript=current_transcript,
+                is_agent_speaking=self._current_speech is not None and not self._current_speech.interrupted,
+                is_agent_playing_audio=self._session.output.audio is not None and self._session.output.audio.is_playing,
+            )
+            
+            # If filter decision is IGNORE, don't proceed with interruption
+            if filter_decision.decision_type == InterruptionType.IGNORE:
+                logger.info(
+                    f"[INTERRUPTION_FILTER] Ignoring filler word(s): '{current_transcript}' "
+                    f"(agent speaking: {self._current_speech is not None})"
+                )
+                return
+
+>>>>>>> ca7ccf37 (final)
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
