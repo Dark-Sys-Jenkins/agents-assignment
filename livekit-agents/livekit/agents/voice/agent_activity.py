@@ -154,6 +154,10 @@ class AgentActivity(RecognitionHooks):
             extend_defaults=filler_words is None,  # Use defaults if no custom words
         )
 
+        # Track when agent is generating/playing a response (spans full lifecycle)
+        # This eliminates timing gaps that cause filter activation to fail
+        self._response_in_progress = False
+
         if (
             isinstance(self.llm, llm.RealtimeModel)
             and self.llm.capabilities.turn_detection
@@ -597,7 +601,10 @@ class AgentActivity(RecognitionHooks):
             min_endpointing_delay=self.min_endpointing_delay,
             max_endpointing_delay=self.max_endpointing_delay,
             turn_detection=self._turn_detection,
+            is_agent_speaking_cb=self._is_agent_speaking,
+            filler_words=self._session.options.filler_words,
         )
+
         self._audio_recognition.start()
 
     @tracer.start_as_current_span("drain_agent_activity")
@@ -886,6 +893,9 @@ class AgentActivity(RecognitionHooks):
             SpeechCreatedEvent(speech_handle=handle, user_initiated=True, source="generate_reply"),
         )
 
+        # Mark response as in progress - ensures filter stays active during ENTIRE response
+        self._response_in_progress = True
+
         if isinstance(self.llm, llm.RealtimeModel):
             self._create_speech_task(
                 self._realtime_reply_task(
@@ -1048,6 +1058,8 @@ class AgentActivity(RecognitionHooks):
                 speech._authorize_generation()
                 await speech._wait_for_generation()
                 self._current_speech = None
+                # Clear response flag - playout complete, filter can deactivate
+                self._response_in_progress = False
                 last_playout_ts = time.time()
 
             # if we're draining/pasuing and there are no more speech tasks, we can exit.
@@ -1118,6 +1130,12 @@ class AgentActivity(RecognitionHooks):
         self._session._on_error(error)
 
     def _on_input_speech_started(self, _: llm.InputSpeechStartedEvent) -> None:
+        # CRITICAL: Do NOT notify or interrupt if agent is speaking
+        # Wait for STT to confirm it's not a filler word
+        if self._is_agent_speaking():
+            logger.info("[PROOF] BLOCKED _on_input_speech_started - Agent is speaking, waiting for STT")
+            return
+            
         if self.vad is None:
             self._session._update_user_state("speaking")
 
@@ -1178,11 +1196,25 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
-    def _interrupt_by_audio_activity(self) -> None:
+    def _interrupt_by_audio_activity(self, *, from_transcript: bool = False) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
+        # CRITICAL: If agent is speaking, block VAD-only pauses.
+        # Allow interruption if confirmed by transcript (from_transcript=True).
+        if self._is_agent_speaking() and not from_transcript:
+            # Agent is speaking - block pause from audio activity alone
+            logger.info(f"[PROOF] BLOCKED PAUSE - Agent is speaking (VAD-only). Filter active: {self._interruption_filter.is_active}")
+            return
+
+        # Block pause if filter is active and hasn't decided to INTERRUPT
+        is_blocked = self._interruption_filter.should_block_pause
+        if is_blocked:
+            logger.info(f"[PROOF] BLOCKED PAUSE - Filter Active. Agent Speaking: {self._is_agent_speaking()}")
+            return
+
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
+
             # ignore if realtime model has turn detection enabled
             return
 
@@ -1225,14 +1257,30 @@ class AgentActivity(RecognitionHooks):
 
     def _is_agent_speaking(self) -> bool:
         """Check if the agent is currently speaking (outputting audio)."""
+        # More robust check: Agent is speaking if:
+        # 1. State machine says "speaking"
+        # 2. There is a current speech handle being processed
+        # 3. There are "background" speeches still playing out (e.g. tool follow-ups)
+        # 4. Response is in progress (from generate_reply to playout complete)
         return (
-            self._current_speech is not None
-            and not self._current_speech.interrupted
-            and self._current_speech.allow_interruptions
+            self._response_in_progress  # KEY: Tracks full response lifecycle
+            or self._session.agent_state == "speaking"
+            or self._current_speech is not None
+            or len(self._background_speeches) > 0
+            or len(self._speech_q) > 0
         )
 
     def on_start_of_speech(self, ev: vad.VADEvent | None) -> None:
-        self._session._update_user_state("speaking")
+        # Check if agent is speaking FIRST
+        is_speaking = self._is_agent_speaking()
+        
+        # CRITICAL: Do NOT update user state to "speaking" when agent is speaking
+        # This prevents the system from reacting to the user's speech before we know
+        # if it's a filler word. The state update will happen later when STT confirms.
+        if not is_speaking:
+            self._session._update_user_state("speaking")
+        else:
+            logger.info("[PROOF] BLOCKED user_state update - Agent is speaking, deferring until STT confirms non-filler")
 
         if self._false_interruption_timer:
             # cancel the timer when user starts speaking but leave the paused state unchanged
@@ -1240,9 +1288,7 @@ class AgentActivity(RecognitionHooks):
             self._false_interruption_timer = None
 
         # Start interruption filter - context-aware based on agent state
-        self._interruption_filter.on_speech_start(
-            agent_is_speaking=self._is_agent_speaking()
-        )
+        self._interruption_filter.on_speech_start(agent_is_speaking=is_speaking)
 
     def on_end_of_speech(self, ev: vad.VADEvent | None) -> None:
         speech_end_time = time.time()
@@ -1280,22 +1326,16 @@ class AgentActivity(RecognitionHooks):
         if ev.speech_duration >= self._session.options.min_interruption_duration:
             # Only interrupt if filter allows (not actively filtering fillers)
             if not self._interruption_filter.is_active:
+                logger.debug("[PROOF] VAD Inference interrupting - Filter NOT active")
                 self._interrupt_by_audio_activity()
+            else:
+                logger.debug("[PROOF] VAD Inference SKIPPING interrupt - Filter IS active (Agent Speaking)")
             # If filter is active, we wait for transcript to decide
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
-
-        self._session._user_input_transcribed(
-            UserInputTranscribedEvent(
-                language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
-                is_final=False,
-                speaker_id=ev.alternatives[0].speaker_id,
-            ),
-        )
 
         transcript_text = ev.alternatives[0].text
         if transcript_text and self._turn_detection not in (
@@ -1305,17 +1345,36 @@ class AgentActivity(RecognitionHooks):
             # Check with interruption filter
             filter_result = self._interruption_filter.on_transcript_update(transcript_text)
             
+            # Log for proof transcript
+            logger.info(
+                f"[PROOF] Transcript: '{transcript_text}' | Agent Speaking: {self._is_agent_speaking()} | Decision: {filter_result.decision.value}"
+            )
+            
             if filter_result.decision == FilterDecision.INTERRUPT:
-                # Non-filler word detected - interrupt the agent
-                logger.debug(
-                    "non-filler word detected, interrupting agent",
-                    extra={"reason": filter_result.reason, "transcript": filter_result.transcript},
+                logger.info(f"[PROOF] ACTION: INTERRUPT - Agent stops speaking")
+                self._interrupt_by_audio_activity(from_transcript=True)
+                self._session._user_input_transcribed(
+                    UserInputTranscribedEvent(
+                        language=ev.alternatives[0].language,
+                        transcript=ev.alternatives[0].text,
+                        is_final=False,
+                        speaker_id=ev.alternatives[0].speaker_id,
+                    ),
                 )
-                self._interrupt_by_audio_activity()
             elif filter_result.decision == FilterDecision.PASS_THROUGH:
-                # Filter not active (agent silent) - normal behavior
-                self._interrupt_by_audio_activity()
-            # If WAIT, don't interrupt yet - keep accumulating
+                logger.info(f"[PROOF] ACTION: PASS_THROUGH - Agent was silent, processing input")
+                self._interrupt_by_audio_activity(from_transcript=True)
+                self._session._user_input_transcribed(
+                    UserInputTranscribedEvent(
+                        language=ev.alternatives[0].language,
+                        transcript=ev.alternatives[0].text,
+                        is_final=False,
+                        speaker_id=ev.alternatives[0].speaker_id,
+                    ),
+                )
+            elif filter_result.decision == FilterDecision.WAIT:
+                logger.info(f"[PROOF] ACTION: IGNORE - Filler word detected, agent continues speaking")
+            # If WAIT or IGNORE, don't interrupt and don't send to LLM
 
             if (
                 speaking is False
@@ -1330,18 +1389,6 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
-        self._session._user_input_transcribed(
-            UserInputTranscribedEvent(
-                language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
-                is_final=True,
-                speaker_id=ev.alternatives[0].speaker_id,
-            ),
-        )
-        # agent speech might not be interrupted if VAD failed and a final transcript is received
-        # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
-        # which will also be immediately interrupted
-
         transcript_text = ev.alternatives[0].text
         if self._audio_recognition and self._turn_detection not in (
             "manual",
@@ -1350,17 +1397,36 @@ class AgentActivity(RecognitionHooks):
             # Final check with interruption filter
             filter_result = self._interruption_filter.on_transcript_update(transcript_text)
             
+            # Log for proof transcript
+            logger.info(
+                f"[PROOF] Final Transcript: '{transcript_text}' | Agent Speaking: {self._is_agent_speaking()} | Decision: {filter_result.decision.value}"
+            )
+            
             if filter_result.decision == FilterDecision.INTERRUPT:
-                # Non-filler word detected - interrupt the agent
-                logger.debug(
-                    "non-filler word in final transcript, interrupting agent",
-                    extra={"reason": filter_result.reason, "transcript": filter_result.transcript},
+                logger.info(f"[PROOF] ACTION: INTERRUPT - Agent stops speaking")
+                self._interrupt_by_audio_activity(from_transcript=True)
+                self._session._user_input_transcribed(
+                    UserInputTranscribedEvent(
+                        language=ev.alternatives[0].language,
+                        transcript=ev.alternatives[0].text,
+                        is_final=True,
+                        speaker_id=ev.alternatives[0].speaker_id,
+                    ),
                 )
-                self._interrupt_by_audio_activity()
             elif filter_result.decision == FilterDecision.PASS_THROUGH:
-                # Filter not active (agent silent) - normal behavior
-                self._interrupt_by_audio_activity()
-            # If WAIT or IGNORE, let on_end_of_speech handle it
+                logger.info(f"[PROOF] ACTION: PASS_THROUGH - Agent was silent, processing input")
+                self._interrupt_by_audio_activity(from_transcript=True)
+                self._session._user_input_transcribed(
+                    UserInputTranscribedEvent(
+                        language=ev.alternatives[0].language,
+                        transcript=ev.alternatives[0].text,
+                        is_final=True,
+                        speaker_id=ev.alternatives[0].speaker_id,
+                    ),
+                )
+            elif filter_result.decision in (FilterDecision.WAIT, FilterDecision.IGNORE):
+                logger.info(f"[PROOF] ACTION: IGNORE - Filler word detected, agent continues speaking")
+            # If WAIT or IGNORE, don't interrupt and don't send to LLM
 
             if (
                 speaking is False

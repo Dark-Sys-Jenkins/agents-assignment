@@ -58,25 +58,46 @@ class FilterResult:
 
 
 # Default filler words that should be ignored during agent speech
+# These are normalized to lowercase without punctuation for matching
 DEFAULT_FILLER_WORDS: frozenset[str] = frozenset({
-    # Affirmations
-    "yeah", "yep", "yes", "yup", "yea",
-    "ok", "okay", "k", "kay",
-    "sure", "right", "alright", "all right",
+    # === AFFIRMATIONS ===
+    "yeah", "yep", "yes", "yup", "yea", "ya", "yah", "yeh",
+    "ok", "okay", "k", "kay", "okey", "oke",
+    "sure", "right", "alright", "all right", "aight",
+    "correct", "exactly", "absolutely", "definitely", "certainly",
+    "fine", "good", "great", "nice", "cool", "perfect",
+    "true", "agreed", "indeed",
     
-    # Backchannels / Acknowledgments
-    "hmm", "hm", "mm", "mmm", "mhm", "mm-hmm", "mmhmm",
-    "uh-huh", "uh huh", "uhuh", "aha", "ah",
+    # === BACKCHANNELS / ACKNOWLEDGMENTS ===
+    "hmm", "hm", "mm", "mmm", "mhm", "mm-hmm", "mmhmm", "mm hmm",
+    "uh-huh", "uh huh", "uhuh", "uhhuh", "aha", "ah", "ahh", "aah",
+    "oh", "ooh", "ohh",
     
-    # Hesitations
-    "uh", "um", "er", "eh", "oh",
+    # === HESITATIONS / FILLERS ===
+    "uh", "um", "er", "eh", "em", "uhm", "umm", "err", "ehh",
+    "hmm", "huh", "hm",
+    "like", "you know", "i mean",
     
-    # Continuers
-    "go on", "continue", "i see", "got it", "gotcha",
-    "understood", "makes sense",
+    # === CONTINUERS / LISTENING SIGNALS ===
+    "go on", "continue", "i see", "got it", "gotcha", "got ya",
+    "understood", "makes sense", "i understand",
+    "go ahead", "keep going", "carry on",
     
-    # Filler phrases (single words that commonly appear)
-    "like", "so", "well", "anyway", "basically",
+    # === THINKING / PROCESSING ===
+    "let me see", "lets see", "let's see",
+    "well", "so", "anyway", "anyways", "basically",
+    
+    # === SHORT RESPONSES (often transcribed with punctuation) ===
+    "oh okay", "oh ok", "oh yeah", "oh yes", "oh right",
+    "yeah yeah", "yes yes", "ok ok", "okay okay",
+    "uh huh", "mm hm", "mhm mhm",
+    
+    # === COMMON MISHEARINGS / VARIATIONS ===
+    "yea", "ye", "yo", "yup yup", "yep yep",
+    "kk", "kk", "k k",
+    
+    # === INTERNATIONAL VARIATIONS (STT may transcribe "yeah" as these) ===
+    "ja", "jah", "si", "oui", "hai", "da", "haan", "han",  # yes in various languages
 })
 
 
@@ -146,6 +167,21 @@ class InterruptionFilter:
         return self._is_active
     
     @property
+    def decision_made(self) -> bool:
+        """Whether a definitive decision to interrupt has been made."""
+        return self._decision_made
+    
+    @property
+    def should_block_pause(self) -> bool:
+        """Returns True if audio pause should be blocked.
+        
+        This is the key property for zero-pause behavior:
+        - True: Filter is active and no INTERRUPT decision yet (keep playing!)
+        - False: Either filter is inactive OR decided to INTERRUPT (pause OK)
+        """
+        return self._is_active and not self._decision_made
+    
+    @property
     def current_buffer(self) -> str:
         """The current accumulated transcript."""
         return self._buffer
@@ -158,16 +194,81 @@ class InterruptionFilter:
         self._decision_made = False
     
     def _normalize_word(self, word: str) -> str:
-        """Normalize a word for comparison."""
-        # Remove punctuation and convert to lowercase
-        return re.sub(r'[^\w\s-]', '', word.lower().strip())
+        """Normalize a word for comparison.
+        
+        Handles real-world transcription variations:
+        - Case: 'Yeah', 'YEAH', 'yeah' -> 'yeah'
+        - Punctuation: 'Yeah.', 'Yeah,', 'Yeah!' -> 'yeah'
+        - Whitespace: '  yeah  ' -> 'yeah'
+        """
+        # Convert to lowercase first
+        word = word.lower().strip()
+        # Remove ALL punctuation (periods, commas, exclamation, question marks, etc.)
+        word = re.sub(r'[^\w\s-]', '', word)
+        # Remove any remaining whitespace
+        word = word.strip()
+        return word
     
     def _is_filler(self, word: str) -> bool:
-        """Check if a word is a filler word."""
+        """Check if a word is a filler word.
+        
+        Uses aggressive normalization and pattern matching to handle
+        real-world transcription variations from services like Deepgram.
+        """
         normalized = self._normalize_word(word)
         if not normalized:
             return True  # Empty/punctuation-only = treat as filler
-        return normalized in self._filler_words
+        
+        # Direct match in filler words set
+        if normalized in self._filler_words:
+            return True
+        
+        # Remove all non-alpha characters for pattern matching
+        alpha_only = re.sub(r'[^a-z]', '', normalized)
+        
+        # === PATTERN MATCHING FOR VARIANTS ===
+        
+        # Handle "mm" variants: mmm, mmmm, mhm, mmhm, mm-hm, etc.
+        if re.match(r'^m+h?m*$', alpha_only):
+            return True
+        
+        # Handle "uh/ah" variants: uh, uhh, uhhh, ah, ahh, ahhh
+        if re.match(r'^[ua]h+$', alpha_only):
+            return True
+        
+        # Handle "hm/hmm" variants: hm, hmm, hmmm
+        if re.match(r'^hm+$', alpha_only):
+            return True
+        
+        # Handle "uh-huh" variants: uhuh, uh-huh, uhhuh, etc.
+        if re.match(r'^u+h+u+h+$', alpha_only):
+            return True
+        
+        # Handle "oh" variants: oh, ohh, ohhh, ooh
+        if re.match(r'^o+h*$', alpha_only):
+            return True
+        
+        # Handle "yeah" variants: ya, yah, yea, yeah, yeaah
+        if re.match(r'^y[ae]+h?$', alpha_only):
+            return True
+        
+        # Handle "okay" variants: ok, okay, okey, okk
+        if re.match(r'^o?k+[ae]?y?$', alpha_only):
+            return True
+        
+        # Handle laughter/chuckle sounds
+        if re.match(r'^(ha)+h?$', alpha_only) or re.match(r'^(he)+h?$', alpha_only):
+            return True
+        
+        # Handle thinking sounds: um, umm, ummm
+        if re.match(r'^u+m+$', alpha_only):
+            return True
+        
+        # Handle "er/err" variants
+        if re.match(r'^e+r+$', alpha_only):
+            return True
+            
+        return False
     
     def _extract_new_words(self, new_transcript: str) -> list[str]:
         """Extract words that are new compared to the buffer."""
@@ -278,14 +379,14 @@ class InterruptionFilter:
             FilterResult: IGNORE if all fillers, INTERRUPT if non-filler was found.
         """
         if not self._is_active:
-            result = self._make_decision(
+            return self._make_decision(
                 FilterDecision.PASS_THROUGH,
                 "Filter was inactive"
             )
-            self._is_active = False
-            return result
         
-        self._is_active = False
+        # NOTE: We do NOT set self._is_active = False here.
+        # This allows late-arriving transcripts (STT after VAD end) to still be 
+        # processed by the filter. We only reset and deactivate at the NEXT on_speech_start.
         
         if self._found_non_filler:
             return self._make_decision(
