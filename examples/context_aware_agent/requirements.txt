@@ -1,0 +1,11 @@
+# Context-Aware Agent Dependencies
+# Install from project root with: pip install -e "livekit-agents[openai,silero,deepgram,cartesia,turn-detector]"
+
+python-dotenv>=1.0.0
+
+# The following are installed via livekit-agents extras:
+# - livekit-plugins-openai (LLM)
+# - livekit-plugins-silero (VAD)
+# - livekit-plugins-deepgram (STT)
+# - livekit-plugins-cartesia (TTS)
+# - livekit-plugins-turn-detector (Turn detection)
