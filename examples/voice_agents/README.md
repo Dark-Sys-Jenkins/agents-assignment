@@ -78,71 +78,38 @@ This directory contains a comprehensive collection of voice-based agent examples
 - [More Agents Examples](https://github.com/livekit-examples/python-agents-examples)
 
 
-**Updated Part:**
 ## Semantic Interruption Handling (Assignment Submission)
 
 ### Problem
-
-In real-time voice agents, short words like **“yeah”, “okay”, “uh-huh”** often interrupt the agent
-while it is speaking. This happens because **Voice Activity Detection (VAD) is acoustic-only**
-and cannot understand user intent.
-
-As a result, passive acknowledgements are treated as real interruptions.
-
----
+In real-time voice agents, short filler words like **“yeah”, “okay”, “uh-huh”** trigger the Voice Activity Detector (VAD), causing the agent to cut off abruptly. This creates a choppy, unnatural user experience because the agent treats passive listening as an interruption.
 
 ### Solution
+This solution implements a **"Logic Layer"** strategy in **`basic_agent.py`**.
 
-This solution makes interruption handling **semantic and state-aware**.
+Instead of relying on acoustic VAD to pause the agent, we:
+1.  **Disable Auto-Interruption:** The agent is configured in "Deaf Mode" (`turn_detection=None`, `vad=None`). It does not pause for noise.
+2.  **Analyze Transcripts:** We process final transcripts in real-time.
+3.  **Apply Semantic Logic:**
+    * **Fillers ("Yeah", "Uh-huh"):** Ignored completely. The agent keeps speaking.
+    * **Commands ("Stop", "Wait"):** Trigger a manual, immediate interruption.
+    * **Mixed Intent ("Yeah but wait"):** Detected as an interruption.
 
-Key ideas:
-- **VAD is treated as speculative**
-- **Final Speech-to-Text (STT) transcripts are authoritative**
-- The agent tracks whether it is currently speaking
+### Files Included
 
-Each final transcript is classified into:
-- **Ignore words** (e.g., `yeah`, `okay`)
-- **Interrupt words** (e.g., `stop`, `wait`)
-- **Actual user intent**
+* **`examples/voice_agents/basic_agent.py`** (The Solution)
+    * Contains the modified `MyAgent` class with the `InterruptionController` logic.
+    * Demonstrates the "Deaf Agent" configuration + Manual Transcript Handler.
 
----
+* **`examples/voice_agents/resume_interrupted_agent.py`**
+    * Restored to original state (as a baseline for comparison).
 
-### Behavior
-
-- Agent speaking + only ignore words → **ignored completely**
-- Agent speaking + interrupt word → **immediate stop**
-- Agent silent + “yeah” → **treated as valid input**
-- Mixed input (e.g., “yeah okay but wait”) → **interrupt**
-
-This keeps audio smooth and avoids false interruptions.
-
----
-
-### Files
-
-- **`resume_interrupted_agent.py`**  
-  Main implementation using LiveKit APIs.  
-  Handles real-time audio and semantic interruption logic.
-
-- **`semantic_interrupt_handler.py`**  
-  Logic-only file to demonstrate and test interruption decisions without audio.
-
-- **`audio_timeline_demo.py`**  
-  Log-based proof showing ignored fillers and real interrupts.
-
----
-
-### Proof
-
-- Live demo video link will be provided in the submission form / github comments.
-- Log transcript output is included as uploaded proof.
-
----
+* **`semantic_interrupt_handler.py`** & **`audio_timeline_demo.py`**
+    * Logic proof scripts used to generate the log transcripts and timeline demonstrations.
 
 ### Configuration
-
-Ignore and interrupt keywords are defined as Python sets and can be changed easily:
-
+The logic uses configurable sets in `basic_agent.py` for easy tuning:
 ```python
-IGNORE_WORDS = {...}
-STOP_WORDS = {...}
+# Words to ignore (agent keeps talking)
+FILLER_WORDS = {"yeah", "uh-huh", "ok", ...}
+# Words to stop (agent cuts off)
+STOP_WORDS = {"stop", "wait", "cancel", ...}
