@@ -22,7 +22,7 @@ from ..llm.tool_context import (
     _FunctionToolInfo,
     _RawFunctionToolInfo,
     get_function_info,
-    get_raw_function_info,
+    get_raw_function_info, 
     is_function_tool,
     is_raw_function_tool,
 )
@@ -75,6 +75,7 @@ from .generation import (
     update_instructions,
 )
 from .speech_handle import SpeechHandle
+from .interruption_filter_Satya_Sheel_Shekhar import InterruptionFilter
 
 if TYPE_CHECKING:
     from ..llm import mcp
@@ -125,6 +126,9 @@ class AgentActivity(RecognitionHooks):
         self._paused_speech: SpeechHandle | None = None
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
+        
+        # for context-aware interruption filtering
+        self._interruption_filter = InterruptionFilter()
 
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
@@ -1183,6 +1187,20 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                return
+        
+        # Context-aware interruption filter: check if we should actually interrupt
+        # based on the content of the transcript and agent speaking state
+        if self._audio_recognition is not None and self._current_speech is not None:
+            transcript = self._audio_recognition.current_transcript
+            agent_is_speaking = self._current_speech is not None and not self._current_speech.interrupted
+            
+            # Check if this is a passive acknowledgement while agent is speaking
+            if not self._interruption_filter.should_interrupt_agent(transcript, agent_is_speaking):
+                logger.debug(
+                    "ignoring passive acknowledgement while agent is speaking",
+                    extra={"transcript": transcript}
+                )
                 return
 
         if self._rt_session is not None:
