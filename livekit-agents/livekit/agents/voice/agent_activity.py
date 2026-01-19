@@ -37,6 +37,53 @@ from ..metrics import (
 )
 from ..telemetry import trace_types, tracer, utils as trace_utils
 from ..tokenize.basic import split_words
+def _on_input_audio_transcription_completed(
+    self,
+    ev: llm.InputTranscriptionCompleted
+) -> None:
+    transcript = ev.transcript or ""
+    words = _normalize_words(transcript)
+
+    # Always emit transcript event
+    self._session._user_input_transcribed(
+        UserInputTranscribedEvent(
+            transcript=transcript,
+            is_final=ev.is_final,
+        )
+    )
+
+    if not ev.is_final:
+        return
+
+    agent_state = self._session.agent_state  # speaking / listening / idle
+
+    if agent_state == "speaking":
+        if _contains_interrupt(words):
+            # Hard interruption
+            self.interrupt()
+            return
+
+        if _only_backchannel(words):
+            # False interruption: ignore completely
+            self._session.emit(
+                "agent_false_interruption",
+                AgentFalseInterruptionEvent(resumed=True),
+            )
+            return
+
+        # Mixed or meaningful input → interrupt
+        self.interrupt()
+        return
+
+    # Agent is not speaking → normal behavior
+    msg = llm.ChatMessage(
+        role="user",
+        content=[transcript],
+        id=ev.item_id,
+    )
+    self._agent._chat_ctx.items.append(msg)
+    self._session._conversation_item_added(msg)
+
 from ..types import NOT_GIVEN, FlushSentinel, NotGivenOr
 from ..utils.misc import is_given
 from ._utils import _set_participant_attributes
