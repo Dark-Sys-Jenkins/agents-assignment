@@ -27,6 +27,11 @@ from ..llm.tool_context import (
     is_raw_function_tool,
 )
 from ..log import logger
+from .interruption_filter import (
+    InterruptionFilter,
+    FilterDecision,
+    create_interruption_filter,
+)
 from ..metrics import (
     EOUMetrics,
     LLMMetrics,
@@ -141,6 +146,13 @@ class AgentActivity(RecognitionHooks):
 
         self._on_enter_task: asyncio.Task | None = None
         self._on_exit_task: asyncio.Task | None = None
+
+        # Initialize interruption filter for filler word detection
+        filler_words = self._session.options.filler_words
+        self._interruption_filter = create_interruption_filter(
+            filler_words=list(filler_words) if filler_words else None,
+            extend_defaults=filler_words is None,  # Use defaults if no custom words
+        )
 
         if (
             isinstance(self.llm, llm.RealtimeModel)
@@ -1211,6 +1223,14 @@ class AgentActivity(RecognitionHooks):
 
     # region recognition hooks
 
+    def _is_agent_speaking(self) -> bool:
+        """Check if the agent is currently speaking (outputting audio)."""
+        return (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        )
+
     def on_start_of_speech(self, ev: vad.VADEvent | None) -> None:
         self._session._update_user_state("speaking")
 
@@ -1218,6 +1238,11 @@ class AgentActivity(RecognitionHooks):
             # cancel the timer when user starts speaking but leave the paused state unchanged
             self._false_interruption_timer.cancel()
             self._false_interruption_timer = None
+
+        # Start interruption filter - context-aware based on agent state
+        self._interruption_filter.on_speech_start(
+            agent_is_speaking=self._is_agent_speaking()
+        )
 
     def on_end_of_speech(self, ev: vad.VADEvent | None) -> None:
         speech_end_time = time.time()
@@ -1228,6 +1253,18 @@ class AgentActivity(RecognitionHooks):
             last_speaking_time=speech_end_time,
         )
 
+        # End interruption filter - if all fillers, resume agent speech
+        filter_result = self._interruption_filter.on_speech_end()
+        
+        if filter_result.decision == FilterDecision.IGNORE:
+            # All words were fillers - resume agent if paused
+            logger.debug(
+                "filler words ignored, resuming agent speech",
+                extra={"reason": filter_result.reason, "transcript": filter_result.transcript},
+            )
+            # Don't start false interruption timer, let existing resume logic handle it
+            # The paused speech will resume after false_interruption_timeout
+        
         if (
             self._paused_speech
             and (timeout := self._session.options.false_interruption_timeout) is not None
@@ -1241,7 +1278,10 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
-            self._interrupt_by_audio_activity()
+            # Only interrupt if filter allows (not actively filtering fillers)
+            if not self._interruption_filter.is_active:
+                self._interrupt_by_audio_activity()
+            # If filter is active, we wait for transcript to decide
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
@@ -1257,11 +1297,25 @@ class AgentActivity(RecognitionHooks):
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
+        transcript_text = ev.alternatives[0].text
+        if transcript_text and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # Check with interruption filter
+            filter_result = self._interruption_filter.on_transcript_update(transcript_text)
+            
+            if filter_result.decision == FilterDecision.INTERRUPT:
+                # Non-filler word detected - interrupt the agent
+                logger.debug(
+                    "non-filler word detected, interrupting agent",
+                    extra={"reason": filter_result.reason, "transcript": filter_result.transcript},
+                )
+                self._interrupt_by_audio_activity()
+            elif filter_result.decision == FilterDecision.PASS_THROUGH:
+                # Filter not active (agent silent) - normal behavior
+                self._interrupt_by_audio_activity()
+            # If WAIT, don't interrupt yet - keep accumulating
 
             if (
                 speaking is False
@@ -1288,11 +1342,25 @@ class AgentActivity(RecognitionHooks):
         # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
         # which will also be immediately interrupted
 
+        transcript_text = ev.alternatives[0].text
         if self._audio_recognition and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # Final check with interruption filter
+            filter_result = self._interruption_filter.on_transcript_update(transcript_text)
+            
+            if filter_result.decision == FilterDecision.INTERRUPT:
+                # Non-filler word detected - interrupt the agent
+                logger.debug(
+                    "non-filler word in final transcript, interrupting agent",
+                    extra={"reason": filter_result.reason, "transcript": filter_result.transcript},
+                )
+                self._interrupt_by_audio_activity()
+            elif filter_result.decision == FilterDecision.PASS_THROUGH:
+                # Filter not active (agent silent) - normal behavior
+                self._interrupt_by_audio_activity()
+            # If WAIT or IGNORE, let on_end_of_speech handle it
 
             if (
                 speaking is False

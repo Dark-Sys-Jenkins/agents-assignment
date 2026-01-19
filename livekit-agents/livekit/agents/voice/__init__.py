@@ -16,6 +16,13 @@ from .events import (
     UserInputTranscribedEvent,
     UserStateChangedEvent,
 )
+from .interruption_filter import (
+    DEFAULT_FILLER_WORDS,
+    FilterDecision,
+    FilterResult,
+    InterruptionFilter,
+    create_interruption_filter,
+)
 from .room_io import (
     _ParticipantAudioOutput,
     _ParticipantStreamTranscriptionOutput,
@@ -45,6 +52,11 @@ __all__ = [
     "FunctionToolsExecutedEvent",
     "AgentFalseInterruptionEvent",
     "TranscriptSynchronizer",
+    "InterruptionFilter",
+    "FilterDecision",
+    "FilterResult",
+    "create_interruption_filter",
+    "DEFAULT_FILLER_WORDS",
     "io",
     "room_io",
     "run_result",

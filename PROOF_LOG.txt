@@ -1,0 +1,172 @@
+/Users/mohanganesh/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+
+
+╔════════════════════════════════════════════════════════════════════╗
+║                                                                    ║
+║      LIVEKIT INTERRUPTION FILTER - DEMONSTRATION LOG               ║
+║                                                                    ║
+║      Salescode.ai Interview Assignment                             ║
+║      Feature: Filler Word Interruption Detection                   ║
+║                                                                    ║
+╚════════════════════════════════════════════════════════════════════╝
+
+======================================================================
+  DEFAULT FILLER WORDS
+======================================================================
+
+[17:57:44.139] The following words are treated as backchannels and ignored while agent speaks:
+
+   "ah", "aha", "all right", "alright", "anyway", "basically", "continue", "eh"
+   "er", "go on", "got it", "gotcha", "hm", "hmm", "i see", "k"
+   "kay", "like", "makes sense", "mhm", "mm", "mm-hmm", "mmhmm", "mmm"
+   "oh", "ok", "okay", "right", "so", "sure", "uh", "uh huh"
+   "uh-huh", "uhuh", "um", "understood", "well", "yea", "yeah", "yep"
+   "yes", "yup"
+
+======================================================================
+  SCENARIO: 1: The Long Explanation
+======================================================================
+
+[17:57:44.139] Context: Agent is reading a long paragraph about history.
+[17:57:44.139] Agent State: SPEAKING
+[17:57:44.139] User Action: User says 'Okay... yeah... uh-huh' while Agent is talking.
+[17:57:44.139] Expected: Agent continues speaking (IGNORE filler words)
+
+[17:57:44.139] 🎤 VAD: START_OF_SPEECH detected
+[17:57:44.139]    Filter Decision: wait
+[17:57:44.139]    Filter Active: True
+[17:57:44.139]    Reason: Filter activated: agent is speaking, will accumulate transcript
+
+[17:57:44.139] 📝 STT Update #1: "okay"
+[17:57:44.139]    Filter Decision: wait
+[17:57:44.139]    Reason: All words are fillers so far: ['okay']
+[17:57:44.139] ⏳ WAIT - Accumulating, no action yet
+
+[17:57:44.139] 📝 STT Update #2: "okay yeah"
+[17:57:44.139]    Filter Decision: wait
+[17:57:44.139]    Reason: All words are fillers so far: ['okay', 'yeah']
+[17:57:44.139] ⏳ WAIT - Accumulating, no action yet
+
+[17:57:44.139] 📝 STT Update #3: "okay yeah uh-huh"
+[17:57:44.139]    Filter Decision: wait
+[17:57:44.139]    Reason: All words are fillers so far: ['okay', 'yeah', 'uh-huh']
+[17:57:44.139] ⏳ WAIT - Accumulating, no action yet
+
+[17:57:44.139] 🎤 VAD: END_OF_SPEECH detected
+[17:57:44.139]    Final Decision: ignore
+[17:57:44.139]    Reason: Speech ended with only fillers: ['okay', 'yeah', 'uh-huh']
+[17:57:44.139] ✅ RESULT: All words were fillers → Agent CONTINUES uninterrupted
+
+======================================================================
+  SCENARIO: 2: The Passive Affirmation
+======================================================================
+
+[17:57:44.139] Context: Agent asks 'Are you ready?' and goes silent.
+[17:57:44.139] Agent State: SILENT
+[17:57:44.139] User Action: User says 'Yeah.'
+[17:57:44.139] Expected: Agent processes 'Yeah' as valid input (PASS_THROUGH)
+
+[17:57:44.139] 🎤 VAD: START_OF_SPEECH detected
+[17:57:44.139]    Filter Decision: pass_through
+[17:57:44.139]    Filter Active: False
+[17:57:44.139]    Reason: Filter inactive: agent is silent, all input passes through
+
+[17:57:44.139] 📝 STT Update #1: "yeah"
+[17:57:44.139]    Filter Decision: pass_through
+[17:57:44.139]    Reason: Filter inactive, passing through
+[17:57:44.139] ✅ PASS_THROUGH - Input processed normally (agent was silent)
+
+[17:57:44.139] 🎤 VAD: END_OF_SPEECH detected
+[17:57:44.139]    Final Decision: pass_through
+[17:57:44.139]    Reason: Filter was inactive
+[17:57:44.139] ✅ RESULT: Agent was silent → Input processed normally
+
+======================================================================
+  SCENARIO: 3: The Correction
+======================================================================
+
+[17:57:44.139] Context: Agent is counting 'One, two, three...'
+[17:57:44.139] Agent State: SPEAKING
+[17:57:44.139] User Action: User says 'No stop.'
+[17:57:44.139] Expected: Agent stops immediately (INTERRUPT)
+
+[17:57:44.139] 🎤 VAD: START_OF_SPEECH detected
+[17:57:44.139]    Filter Decision: wait
+[17:57:44.139]    Filter Active: True
+[17:57:44.139]    Reason: Filter activated: agent is speaking, will accumulate transcript
+
+[17:57:44.139] 📝 STT Update #1: "no"
+[17:57:44.139]    Filter Decision: interrupt
+[17:57:44.139]    Reason: Non-filler word detected: 'no'
+[17:57:44.139] 🛑 INTERRUPT TRIGGERED - Agent should STOP immediately
+[17:57:44.139] 🎤 VAD: END_OF_SPEECH detected
+[17:57:44.139]    Final Decision: interrupt
+[17:57:44.139]    Reason: Speech ended with non-filler content: no
+[17:57:44.139] 🛑 RESULT: Non-filler detected → Agent STOPPED
+
+======================================================================
+  SCENARIO: 4: The Mixed Input
+======================================================================
+
+[17:57:44.139] Context: Agent is speaking.
+[17:57:44.139] Agent State: SPEAKING
+[17:57:44.139] User Action: User says 'Yeah okay but wait.'
+[17:57:44.139] Expected: Agent stops when 'but' detected (INTERRUPT)
+
+[17:57:44.139] 🎤 VAD: START_OF_SPEECH detected
+[17:57:44.139]    Filter Decision: wait
+[17:57:44.139]    Filter Active: True
+[17:57:44.139]    Reason: Filter activated: agent is speaking, will accumulate transcript
+
+[17:57:44.139] 📝 STT Update #1: "yeah"
+[17:57:44.139]    Filter Decision: wait
+[17:57:44.139]    Reason: All words are fillers so far: ['yeah']
+[17:57:44.139] ⏳ WAIT - Accumulating, no action yet
+
+[17:57:44.139] 📝 STT Update #2: "yeah okay"
+[17:57:44.139]    Filter Decision: wait
+[17:57:44.139]    Reason: All words are fillers so far: ['yeah', 'okay']
+[17:57:44.139] ⏳ WAIT - Accumulating, no action yet
+
+[17:57:44.139] 📝 STT Update #3: "yeah okay but"
+[17:57:44.139]    Filter Decision: interrupt
+[17:57:44.139]    Reason: Non-filler word detected: 'but'
+[17:57:44.139] 🛑 INTERRUPT TRIGGERED - Agent should STOP immediately
+[17:57:44.139] 🎤 VAD: END_OF_SPEECH detected
+[17:57:44.139]    Final Decision: interrupt
+[17:57:44.139]    Reason: Speech ended with non-filler content: yeah okay but
+[17:57:44.139] 🛑 RESULT: Non-filler detected → Agent STOPPED
+
+======================================================================
+  SUMMARY
+======================================================================
+
+
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  SCENARIO                     │  RESULT        │  STATUS            │
+    ├───────────────────────────────┼────────────────┼────────────────────┤
+    │  1. Long Explanation          │  IGNORE        │  ✅ PASSED         │
+    │     ("yeah/ok/hmm" while      │                │                    │
+    │      agent speaking)          │                │                    │
+    ├───────────────────────────────┼────────────────┼────────────────────┤
+    │  2. Passive Affirmation       │  PASS_THROUGH  │  ✅ PASSED         │
+    │     ("yeah" when agent        │                │                    │
+    │      is silent)               │                │                    │
+    ├───────────────────────────────┼────────────────┼────────────────────┤
+    │  3. Correction                │  INTERRUPT     │  ✅ PASSED         │
+    │     ("no stop" while          │                │                    │
+    │      agent speaking)          │                │                    │
+    ├───────────────────────────────┼────────────────┼────────────────────┤
+    │  4. Mixed Input               │  INTERRUPT     │  ✅ PASSED         │
+    │     ("yeah okay but wait"     │                │                    │
+    │      - interrupted at "but")  │                │                    │
+    └───────────────────────────────┴────────────────┴────────────────────┘
+    
+    ✅ ALL 4 SCENARIOS PASSED - Interruption Filter Working Correctly!
+    
+
+======================================================================
+  LOG END - This output can be used as proof for submission
+======================================================================
+
