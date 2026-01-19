@@ -624,6 +624,97 @@ async def test_interrupt_during_on_user_turn_completed(
     assert conversation_events[2].item.text_content == "Here is a story about a firefighter..."
 
 
+# Backchannel detection tests
+
+@pytest.mark.parametrize("backchannel_word", ["yeah", "ok", "uh-huh", "mm", "right"])
+async def test_backchannel_while_speaking_no_interrupt(backchannel_word: str) -> None:
+    """Agent should continue speaking when user says a backchannel word."""
+    speed = 5.0
+    actions = FakeActions()
+    actions.add_user_speech(0.5, 2.5, "Tell me a long story.")
+    actions.add_llm("Here is a very long story for you... the end.")
+    actions.add_tts(10.0)
+    actions.add_user_speech(5.0, 5.5, backchannel_word)
+
+    session = create_session(actions, speed_factor=speed)
+    agent = MyAgent()
+
+    playback_finished_events: list[PlaybackFinishedEvent] = []
+    session.output.audio.on("playback_finished", playback_finished_events.append)
+
+    await asyncio.wait_for(run_session(session, agent), timeout=SESSION_TIMEOUT)
+
+    # Agent should NOT be interrupted
+    assert len(playback_finished_events) == 1
+    assert playback_finished_events[0].interrupted is False
+
+
+async def test_semantic_interrupt_with_backchannel() -> None:
+    """'Yeah wait a second' should still interrupt (contains 'wait')."""
+    speed = 5.0
+    actions = FakeActions()
+    actions.add_user_speech(0.5, 2.5, "Tell me a story.")
+    actions.add_llm("Here is a long story for you...")
+    actions.add_tts(10.0)
+    actions.add_user_speech(5.0, 6.0, "yeah wait a second")
+
+    session = create_session(actions, speed_factor=speed)
+    agent = MyAgent()
+
+    playback_finished_events: list[PlaybackFinishedEvent] = []
+    session.output.audio.on("playback_finished", playback_finished_events.append)
+
+    await asyncio.wait_for(run_session(session, agent), timeout=SESSION_TIMEOUT)
+
+    assert len(playback_finished_events) == 1
+    assert playback_finished_events[0].interrupted is True
+
+
+async def test_real_interruption_still_works() -> None:
+    """Non-backchannel words should still interrupt normally."""
+    speed = 5.0
+    actions = FakeActions()
+    actions.add_user_speech(0.5, 2.5, "Tell me a story.")
+    actions.add_llm("Here is a long story...")
+    actions.add_tts(10.0)
+    actions.add_user_speech(5.0, 6.0, "I have a question!")
+
+    session = create_session(actions, speed_factor=speed)
+    agent = MyAgent()
+
+    playback_finished_events: list[PlaybackFinishedEvent] = []
+    session.output.audio.on("playback_finished", playback_finished_events.append)
+
+    await asyncio.wait_for(run_session(session, agent), timeout=SESSION_TIMEOUT)
+
+    assert len(playback_finished_events) == 1
+    assert playback_finished_events[0].interrupted is True
+
+
+async def test_backchannel_disabled() -> None:
+    """When ignore_backchannel_while_speaking=False, backchannels should interrupt."""
+    speed = 5.0
+    actions = FakeActions()
+    actions.add_user_speech(0.5, 2.5, "Tell me a story.")
+    actions.add_llm("Here is a long story...")
+    actions.add_tts(10.0)
+    actions.add_user_speech(5.0, 5.5, "yeah")
+
+    session = create_session(
+        actions, speed_factor=speed, extra_kwargs={"ignore_backchannel_while_speaking": False}
+    )
+    agent = MyAgent()
+
+    playback_finished_events: list[PlaybackFinishedEvent] = []
+    session.output.audio.on("playback_finished", playback_finished_events.append)
+
+    await asyncio.wait_for(run_session(session, agent), timeout=SESSION_TIMEOUT)
+
+    # With feature disabled, backchannel SHOULD interrupt
+    assert len(playback_finished_events) == 1
+    assert playback_finished_events[0].interrupted is True
+
+
 # helpers
 
 
@@ -641,3 +732,4 @@ def check_timestamp(
     assert abs(t_event - t_target) <= max_abs_diff, (
         f"event timestamp {t_event} is not within {max_abs_diff} of target {t_target}"
     )
+

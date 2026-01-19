@@ -1240,6 +1240,16 @@ class AgentActivity(RecognitionHooks):
             # ignore vad inference done event if turn_detection is manual or realtime_llm
             return
 
+        # ZERO-PAUSE BACKCHANNEL: If agent is speaking, DON'T pause on VAD
+        # Let STT transcribe in parallel, we'll decide on interrupt when transcript arrives
+        if (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        ):
+            # Agent keeps speaking - we'll check transcript to decide
+            return
+
         if ev.speech_duration >= self._session.options.min_interruption_duration:
             self._interrupt_by_audio_activity()
 
@@ -1248,16 +1258,40 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript = ev.alternatives[0].text
+        
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript,
                 is_final=False,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
+        # BACKCHANNEL DETECTION while agent is speaking
+        if (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+        ):
+            # Check if it's a pure backchannel - if so, IGNORE completely
+            if self._is_backchannel_text(transcript) and not self._contains_interrupt_command(transcript):
+                logger.debug(
+                    "backchannel ignored on interim",
+                    extra={"transcript": transcript},
+                )
+                return  # Agent keeps speaking, no pause, nothing happens
+            
+            # NOT a backchannel - this is a real interruption!
+            logger.debug(
+                "user interruption detected",
+                extra={"transcript": transcript},
+            )
+            self._interrupt_by_audio_activity()
+            return
+
+        # Normal flow when agent is not speaking
+        if transcript and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
@@ -1276,18 +1310,42 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript = ev.alternatives[0].text
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript,
                 is_final=True,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
-        # agent speech might not be interrupted if VAD failed and a final transcript is received
-        # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
-        # which will also be immediately interrupted
 
+        # BACKCHANNEL DETECTION while agent is speaking
+        if (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+        ):
+            # Check if it's a pure backchannel - if so, IGNORE completely
+            if self._is_backchannel_text(transcript) and not self._contains_interrupt_command(transcript):
+                logger.debug(
+                    "backchannel ignored on final",
+                    extra={"transcript": transcript},
+                )
+                return  # Agent keeps speaking, nothing happens, no tasks created
+            
+            # NOT a backchannel - this is a real interruption!
+            logger.debug(
+                "user interruption on final",
+                extra={"transcript": transcript},
+            )
+            self._interrupt_by_audio_activity()
+            self._interrupt_paused_speech_task = asyncio.create_task(
+                self._interrupt_paused_speech(old_task=self._interrupt_paused_speech_task)
+            )
+            return
+
+        # Normal flow when agent is not speaking
         if self._audio_recognition and self._turn_detection not in (
             "manual",
             "realtime_llm",
@@ -1364,6 +1422,20 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(theomonnom): should we "forward" this new turn to the next agent/activity?
             return True
+
+        # Ignore backchannel turns while agent is speaking
+        if (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._is_backchannel_text(info.new_transcript)
+            and not self._contains_interrupt_command(info.new_transcript)
+        ):
+            self._cancel_preemptive_generation()
+            logger.debug(
+                "backchannel ignored in end_of_turn",
+                extra={"transcript": info.new_transcript},
+            )
+            return False
 
         if (
             self.stt is not None
@@ -2588,6 +2660,46 @@ class AgentActivity(RecognitionHooks):
 
         if self._session.options.resume_false_interruption and self._session.output.audio:
             self._session.output.audio.resume()
+
+    def _is_backchannel_text(self, text: str) -> bool:
+        """Check if text is PURELY a backchannel acknowledgement (no commands).
+        
+        Returns True only if ALL words in the text are backchannel words,
+        or if the entire text matches a multi-word phrase like "i see" or "got it".
+        """
+        normalized = text.strip().lower().rstrip('.,!?')
+        if not normalized:
+            return False
+        
+        backchannel_set = self._session.options.backchannel_words
+        
+        # First check: Does the entire phrase match? (handles "i see", "got it", etc.)
+        if normalized in backchannel_set:
+            return True
+            
+        # split_words returns list of (word, start, end) tuples
+        word_tuples = split_words(normalized, split_character=True)
+        
+        # Too many words = likely not a simple backchannel
+        if len(word_tuples) > 4:
+            return False
+        
+        # Check if ALL individual words are in the backchannel set
+        return all(w[0].rstrip('.,!?') in backchannel_set for w in word_tuples)
+
+    def _contains_interrupt_command(self, text: str) -> bool:
+        """Check if text contains explicit interrupt commands.
+        
+        Even if text starts with a backchannel word, if it contains
+        a command word like 'wait', 'stop', 'hold on', it should interrupt.
+        """
+        interrupt_commands = {
+            "wait", "stop", "hold", "pause", "no", "actually",
+            "but", "however", "hang on", "one sec", "question"
+        }
+        # split_words returns list of (word, start, end) tuples
+        word_tuples = split_words(text.strip().lower(), split_character=True)
+        return any(w[0].rstrip('.,!?') in interrupt_commands for w in word_tuples)
 
     # move them to the end to avoid shadowing the same named modules for mypy
     @property
