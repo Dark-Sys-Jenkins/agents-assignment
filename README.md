@@ -372,4 +372,60 @@ The Agents framework is under active development in a rapidly evolving field. We
 <tr><td>Resources</td><td><a href="https://docs.livekit.io">Docs</a> · <a href="https://github.com/livekit-examples">Example apps</a> · <a href="https://livekit.io/cloud">Cloud</a> · <a href="https://docs.livekit.io/home/self-hosting/deployment">Self-hosting</a> · <a href="https://github.com/livekit/livekit-cli">CLI</a></td></tr>
 </tbody>
 </table>
+
+
+---
+
+## 🔊 Intelligent Interruption Handling (Assignment Solution)
+
+### Problem
+LiveKit’s default Voice Activity Detection (VAD) interrupts agent speech even when
+the user provides passive acknowledgements such as “yeah”, “ok”, or “hmm”.
+
+This causes the agent to stop speaking abruptly during long explanations.
+
+---
+
+### Solution Overview
+This solution introduces a **logic-layer interruption filter** that distinguishes
+between passive acknowledgements and active interruption commands **without modifying
+the VAD kernel**.
+
+The approach is fully real-time and works within the existing LiveKit Agent framework.
+
+---
+
+### Key Ideas
+- **Backchannel filtering**: Soft acknowledgements are ignored while the agent is speaking.
+- **Semantic interruption**: Commands like “stop” or “cancel” interrupt immediately.
+- **State awareness**: The same word (“yeah”) is treated differently depending on whether
+  the agent is speaking or silent.
+- **False interruption prevention**: VAD interruptions are deferred until STT validation.
+
+---
+
+### Implementation Details
+- Uses `min_interruption_words=2` to prevent premature audio cutoff on backchannels
+- Uses STT transcript classification before interrupting speech
+- Uses `StopResponse` for semantic interruption
+- Does **not** modify low-level VAD behavior
+
+---
+
+### Example Behaviors
+
+| User Input | Agent State | Result |
+|-----------|-----------|--------|
+| “yeah” | Speaking | Ignored, audio continues |
+| “ok hmm” | Speaking | Ignored |
+| “stop” | Speaking | Immediate interruption |
+| “yeah stop” | Speaking | Immediate interruption |
+| “yeah” | Silent | Treated as valid response |
+
+---
+
+### How to Run
+```bash
+python test_agent.py console
+
 <!--END_REPO_NAV-->
