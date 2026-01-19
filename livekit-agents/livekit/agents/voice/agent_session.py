@@ -71,6 +71,19 @@ class SessionConnectOptions:
     max_unrecoverable_errors: int = 3
     """Maximum number of consecutive unrecoverable errors from llm or tts."""
 
+# Default backchannel words that should be ignored when agent is speaking
+DEFAULT_BACKCHANNEL_WORDS: list[str] = [
+    "yeah", "yea", "yep", "ya", "yes", "ok", "okay", "uh-huh", "uh huh", "uhuh",
+    "hmm", "hm", "mm", "mhm", "mm-hmm", "mmhmm", "right", "sure", "got it",
+    "i see", "ah", "aha", "oh", "alright", "all right"
+]
+
+# Default interrupt command words that should always trigger interruption
+DEFAULT_INTERRUPT_WORDS: list[str] = [
+    "stop", "wait", "hold on", "hold up", "pause", "no", "cancel",
+    "never mind", "nevermind", "shut up", "be quiet", "quiet", "enough",
+    "actually", "but", "however", "question", "hang on"
+]
 
 @dataclass
 class AgentSessionOptions:
@@ -89,6 +102,8 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    backchannel_words: list[str]
+    interrupt_words: list[str]
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +174,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        backchannel_words: NotGivenOr[list[str]] = NOT_GIVEN,
+        interrupt_words: NotGivenOr[list[str]] = NOT_GIVEN,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -288,6 +305,12 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            backchannel_words=backchannel_words
+            if is_given(backchannel_words)
+            else DEFAULT_BACKCHANNEL_WORDS.copy(),
+            interrupt_words=interrupt_words
+            if is_given(interrupt_words)
+            else DEFAULT_INTERRUPT_WORDS.copy(),
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False

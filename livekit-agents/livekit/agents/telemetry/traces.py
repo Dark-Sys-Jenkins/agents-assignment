@@ -15,13 +15,22 @@ from opentelemetry._logs.severity import SeverityNumber
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk._logs import (
-    LogData,
-    LoggerProvider,
-    LoggingHandler,
-    LogRecord,
-    LogRecordProcessor,
-)
+
+# OpenTelemetry logging types have shifted across SDK versions.
+# Some environments expose ReadableLogRecord but not LogData/LogRecord.
+try:
+    from opentelemetry.sdk._logs import (
+        LogData,
+        LoggerProvider,
+        LoggingHandler,
+        LogRecord,
+        LogRecordProcessor,
+    )
+except ImportError:  # pragma: no cover
+    from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler, LogRecordProcessor
+    from opentelemetry.sdk._logs import ReadableLogRecord as LogRecord
+
+    LogData = Any  # type: ignore[assignment]
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
@@ -77,20 +86,29 @@ class _MetadataLogProcessor(LogRecordProcessor):
     def __init__(self, metadata: dict[str, AttributeValue]) -> None:
         self._metadata = metadata
 
-    def emit(self, log_data: LogData) -> None:
-        if log_data.log_record.attributes:
-            log_data.log_record.attributes.update(self._metadata)  # type: ignore
-            log_data.log_record.attributes.update(  # type: ignore
-                {"logger.name": log_data.instrumentation_scope.name}
-            )
+    def _apply(self, log_data: Any) -> None:
+        # SDKs may pass either a LogData wrapper (with .log_record) or a ReadableLogRecord.
+        record = getattr(log_data, "log_record", log_data)
+        attrs = getattr(record, "attributes", None)
+        if attrs:
+            attrs.update(self._metadata)
         else:
-            log_data.log_record.attributes = self._metadata
+            setattr(record, "attributes", dict(self._metadata))
+
+        scope = getattr(log_data, "instrumentation_scope", None)
+        scope_name = getattr(scope, "name", None)
+        if scope_name:
+            # best-effort enrichment; ignore if attributes isn't writable
+            try:
+                getattr(record, "attributes").update({"logger.name": scope_name})
+            except Exception:
+                pass
+
+    def emit(self, log_data: LogData) -> None:
+        self._apply(log_data)
 
     def on_emit(self, log_data: LogData) -> None:
-        if log_data.log_record.attributes:
-            log_data.log_record.attributes.update(self._metadata)  # type: ignore
-        else:
-            log_data.log_record.attributes = self._metadata
+        self._apply(log_data)
 
     def shutdown(self) -> None:
         pass
