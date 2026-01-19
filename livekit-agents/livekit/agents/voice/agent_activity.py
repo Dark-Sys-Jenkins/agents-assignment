@@ -4,6 +4,7 @@ import asyncio
 import contextvars
 import heapq
 import json
+import re
 import time
 from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
@@ -125,6 +126,9 @@ class AgentActivity(RecognitionHooks):
         self._paused_speech: SpeechHandle | None = None
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
+        
+        # for intelligent interruption handling - block interrupts while waiting for STT
+        self._pending_backchannel_check: bool = False
 
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
@@ -1166,12 +1170,58 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
+    def _classify_interruption(self, text: str) -> tuple[bool, bool]:
+        """
+        Classify user transcript for intelligent interruption handling.
+        
+        Analyzes the transcript to determine if it contains only backchannel words
+        (passive acknowledgements like "yeah", "ok", "hmm") or if it contains
+        interrupt commands ("stop", "wait", "no").
+        
+        Args:
+            text: The user's transcript text to classify.
+            
+        Returns:
+            tuple[bool, bool]: (is_backchannel_only, has_interrupt_word)
+                - is_backchannel_only: True if all words are backchannel words
+                - has_interrupt_word: True if any word is an interrupt command
+        """
+        if not text:
+            return False, False
+        
+        opt = self._session.options
+        # Normalize: lowercase, remove punctuation, split on whitespace and hyphens
+        # Split on whitespace, hyphens, underscores - handle "uh-huh" -> ["uh", "huh"]
+        raw_tokens = re.split(r'[\s\-_]+', text.lower().strip())
+        # Remove punctuation from each token and filter empty
+        tokens = set()
+        for t in raw_tokens:
+            cleaned = re.sub(r'[^\w]', '', t)
+            if cleaned:
+                tokens.add(cleaned)
+        
+        if not tokens:
+            return False, False
+        
+        has_interrupt = bool(tokens & opt.interrupt_words)
+        is_backchannel = tokens.issubset(opt.backchannel_words)
+        
+        return is_backchannel, has_interrupt
+
     def _interrupt_by_audio_activity(self) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
             # ignore if realtime model has turn detection enabled
+            return
+        
+        # If we're waiting for STT to classify a potential backchannel, block all interrupts
+        if self._pending_backchannel_check:
+            logger.debug(
+                "blocking interrupt - pending backchannel classification",
+                extra={"action": "BLOCK"},
+            )
             return
 
         if (
@@ -1184,6 +1234,47 @@ class AgentActivity(RecognitionHooks):
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
                 return
+
+        # Intelligent interruption handling: filter backchannels when agent is speaking
+        if (
+            opt.ignore_backchannels_when_speaking
+            and self.stt is not None
+            and self._audio_recognition is not None
+            and self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        ):
+            text = self._audio_recognition.current_transcript
+            
+            # If no transcript is available yet, DEFER the interrupt decision to STT
+            # This handles the "false start" problem where VAD fires before STT transcribes
+            # Set flag to block subsequent VAD interrupts until STT provides transcript
+            if not text or not text.strip():
+                self._pending_backchannel_check = True
+                logger.debug(
+                    "deferring interrupt decision - waiting for STT transcript",
+                    extra={"action": "DEFER"},
+                )
+                return  # Don't interrupt yet - let on_interim_transcript or on_final_transcript decide
+            
+            # We have a transcript - classify it
+            is_backchannel, has_interrupt = self._classify_interruption(text)
+            
+            if is_backchannel and not has_interrupt:
+                # Pure backchannel while agent is speaking - ignore completely
+                # This ensures seamless continuation without pause, stutter, or hiccup
+                logger.debug(
+                    "ignoring backchannel while agent speaking",
+                    extra={"transcript": text, "action": "IGNORE"},
+                )
+                return
+            
+            if has_interrupt:
+                logger.debug(
+                    "interrupt command detected while agent speaking",
+                    extra={"transcript": text, "action": "INTERRUPT"},
+                )
+
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
@@ -1213,6 +1304,9 @@ class AgentActivity(RecognitionHooks):
 
     def on_start_of_speech(self, ev: vad.VADEvent | None) -> None:
         self._session._update_user_state("speaking")
+        
+        # Reset pending backchannel check for new speech
+        self._pending_backchannel_check = False
 
         if self._false_interruption_timer:
             # cancel the timer when user starts speaking but leave the paused state unchanged
@@ -1257,10 +1351,59 @@ class AgentActivity(RecognitionHooks):
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
+        text = ev.alternatives[0].text
+        if text and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
+            opt = self._session.options
+            
+            # Clear pending backchannel check - STT has now provided a transcript
+            was_pending = self._pending_backchannel_check
+            self._pending_backchannel_check = False
+            
+            # Intelligent backchannel handling: check if this is a backchannel while agent speaks
+            # We check both _paused_speech (if VAD paused) and _current_speech (if VAD deferred)
+            current_agent_speech = self._paused_speech or self._current_speech
+            if (
+                opt.ignore_backchannels_when_speaking
+                and current_agent_speech is not None
+                and not current_agent_speech.interrupted
+                and current_agent_speech.allow_interruptions
+            ):
+                is_backchannel, has_interrupt = self._classify_interruption(text)
+                
+                if is_backchannel and not has_interrupt:
+                    # Pure backchannel detected - don't interrupt at all
+                    # If speech is paused, resume it; if not paused, just skip interrupt
+                    if self._paused_speech is not None:
+                        if self._false_interruption_timer is not None:
+                            self._false_interruption_timer.cancel()
+                            self._false_interruption_timer = None
+                        
+                        if (
+                            opt.resume_false_interruption
+                            and (audio_output := self._session.output.audio)
+                            and audio_output.can_pause
+                            and not self._paused_speech.done()
+                        ):
+                            audio_output.resume()
+                            self._session._update_agent_state("speaking")
+                        self._paused_speech = None
+                    
+                    logger.debug(
+                        "backchannel detected - skipping interrupt",
+                        extra={"transcript": text, "action": "IGNORE"},
+                    )
+                    return  # Don't call _interrupt_by_audio_activity
+                
+                # Has interrupt word - proceed to interrupt
+                if has_interrupt:
+                    logger.debug(
+                        "interrupt command in transcript - proceeding to interrupt",
+                        extra={"transcript": text, "action": "INTERRUPT"},
+                    )
+            
             self._interrupt_by_audio_activity()
 
             if (
@@ -1270,6 +1413,7 @@ class AgentActivity(RecognitionHooks):
             ):
                 # schedule a resume timer if interrupted after end_of_speech
                 self._start_false_interruption_timer(timeout)
+
 
     def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
@@ -1288,6 +1432,47 @@ class AgentActivity(RecognitionHooks):
         # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
         # which will also be immediately interrupted
 
+        text = ev.alternatives[0].text
+        
+        # Clear pending backchannel check - STT has now provided a final transcript
+        self._pending_backchannel_check = False
+        
+        # Intelligent backchannel handling: for pure backchannels, don't trigger any interrupt
+        opt = self._session.options
+        current_agent_speech = self._paused_speech or self._current_speech
+        if (
+            opt.ignore_backchannels_when_speaking
+            and text
+            and current_agent_speech is not None
+            and not current_agent_speech.interrupted
+            and current_agent_speech.allow_interruptions
+        ):
+            is_backchannel, has_interrupt = self._classify_interruption(text)
+            
+            if is_backchannel and not has_interrupt:
+                # Final backchannel - don't interrupt at all
+                # If speech is paused, resume it; otherwise just skip interrupt
+                if self._paused_speech is not None:
+                    if self._false_interruption_timer is not None:
+                        self._false_interruption_timer.cancel()
+                        self._false_interruption_timer = None
+                    
+                    if (
+                        opt.resume_false_interruption
+                        and (audio_output := self._session.output.audio)
+                        and audio_output.can_pause
+                        and not self._paused_speech.done()
+                    ):
+                        audio_output.resume()
+                        self._session._update_agent_state("speaking")
+                    self._paused_speech = None
+                
+                logger.debug(
+                    "backchannel final transcript - skipping all interrupt logic",
+                    extra={"transcript": text, "action": "IGNORE"},
+                )
+                return  # Skip both interrupt_by_audio_activity AND interrupt_paused_speech
+
         if self._audio_recognition and self._turn_detection not in (
             "manual",
             "realtime_llm",
@@ -1305,6 +1490,7 @@ class AgentActivity(RecognitionHooks):
         self._interrupt_paused_speech_task = asyncio.create_task(
             self._interrupt_paused_speech(old_task=self._interrupt_paused_speech_task)
         )
+
 
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None:
         if (
@@ -1364,6 +1550,43 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(theomonnom): should we "forward" this new turn to the next agent/activity?
             return True
+
+        # Intelligent backchannel handling: if user's turn was just a backchannel
+        # while agent was speaking, ignore it completely - don't trigger a new turn
+        opt = self._session.options
+        current_agent_speech = self._paused_speech or self._current_speech
+        if (
+            opt.ignore_backchannels_when_speaking
+            and current_agent_speech is not None
+            and not current_agent_speech.interrupted
+            and current_agent_speech.allow_interruptions
+        ):
+            is_backchannel, has_interrupt = self._classify_interruption(info.new_transcript)
+            if is_backchannel and not has_interrupt:
+                # Pure backchannel - don't start a new turn, just resume if paused
+                self._cancel_preemptive_generation()
+                
+                if self._paused_speech is not None:
+                    # Resume paused speech if possible
+                    if self._false_interruption_timer is not None:
+                        self._false_interruption_timer.cancel()
+                        self._false_interruption_timer = None
+                    
+                    if (
+                        opt.resume_false_interruption
+                        and (audio_output := self._session.output.audio)
+                        and audio_output.can_pause
+                        and not self._paused_speech.done()
+                    ):
+                        audio_output.resume()
+                        self._session._update_agent_state("speaking")
+                    self._paused_speech = None
+                
+                logger.debug(
+                    "ignoring backchannel at end of turn - not starting new turn",
+                    extra={"transcript": info.new_transcript, "action": "IGNORE"},
+                )
+                return False  # Don't process this turn
 
         if (
             self.stt is not None

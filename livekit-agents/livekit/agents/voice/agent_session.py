@@ -89,6 +89,10 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    # Intelligent interruption handling options
+    backchannel_words: frozenset[str]
+    interrupt_words: frozenset[str]
+    ignore_backchannels_when_speaking: bool
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -130,6 +134,17 @@ class VoiceActivityVideoSampler:
 
 DEFAULT_TTS_TEXT_TRANSFORMS: list[TextTransforms] = ["filter_markdown", "filter_emoji"]
 
+# Default words for intelligent interruption handling
+DEFAULT_BACKCHANNEL_WORDS: frozenset[str] = frozenset({
+    "yeah", "yep", "yes", "ok", "okay", "hmm", "mhm", "uhuh", "uh-huh",
+    "right", "sure", "mm", "aha", "gotcha", "alright", "yea", "yup",
+    "hm", "mmm", "mhmm", "uh", "huh",
+})
+DEFAULT_INTERRUPT_WORDS: frozenset[str] = frozenset({
+    "stop", "wait", "no", "cancel", "pause", "hold", "quit", "end",
+    "enough", "silence", "shut", "quiet", "halt", "abort",
+})
+
 
 class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
     def __init__(
@@ -161,6 +176,10 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         ivr_detection: bool = False,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
+        # Intelligent interruption handling
+        backchannel_words: frozenset[str] = DEFAULT_BACKCHANNEL_WORDS,
+        interrupt_words: frozenset[str] = DEFAULT_INTERRUPT_WORDS,
+        ignore_backchannels_when_speaking: bool = False,
         # deprecated
         agent_false_interruption_timeout: NotGivenOr[float | None] = NOT_GIVEN,
     ) -> None:
@@ -288,6 +307,9 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            backchannel_words=backchannel_words,
+            interrupt_words=interrupt_words,
+            ignore_backchannels_when_speaking=ignore_backchannels_when_speaking,
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False
