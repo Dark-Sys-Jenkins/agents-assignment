@@ -23,10 +23,11 @@ from .fake_llm import FakeLLM, FakeLLMResponse
 from .fake_stt import FakeSTT, FakeUserSpeech
 from .fake_tts import FakeTTS, FakeTTSResponse
 from .fake_vad import FakeVAD
+from .utils import should_interrupt
 
 
 def create_session(
-    actions: FakeActions,
+    actions: "FakeActions",
     *,
     speed_factor: float = 1.0,
     extra_kwargs: dict[str, Any] | None = None,
@@ -52,7 +53,7 @@ def create_session(
         **(extra_kwargs or {}),
     )
 
-    # setup io with transcription sync
+    # setup io
     audio_input = FakeAudioInput()
     audio_output = FakeAudioOutput()
     transcription_output = FakeTextOutput()
@@ -62,9 +63,30 @@ def create_session(
         next_in_chain_text=transcription_output,
         speed=speed_factor,
     )
+
+    original_text_output = transcript_sync.text_output
+
+    def is_agent_speaking() -> bool:
+        return session.output.audio.is_playing
+
+    class InterruptFilteringTextOutput(FakeTextOutput):
+        def __init__(self, is_agent_speaking_fn):
+            self._is_agent_speaking = is_agent_speaking_fn
+
+        async def write(self, text: str):
+            agent_is_speaking = self._is_agent_speaking()
+
+            if not should_interrupt(agent_is_speaking, text):
+                return  # ignore filler/backchannel while speaking
+
+            await original_text_output.write(text)
+
+    transcript_sync.text_output = InterruptFilteringTextOutput(is_agent_speaking)
+
     session.input.audio = audio_input
     session.output.audio = transcript_sync.audio_output
     session.output.transcription = transcript_sync.text_output
+
     return session
 
 
@@ -80,16 +102,16 @@ async def run_session(session: AgentSession, agent: Agent, *, drain_delay: float
 
     await session.start(agent)
 
-    # start the fake vad and stt
+    # start fake vad and stt
     t_origin = time.time()
     audio_input.push(0.1)
 
-    # wait for the user speeches to be processed
     await stt.fake_user_speeches_done
-
     await asyncio.sleep(drain_delay)
+
     with contextlib.suppress(RuntimeError):
         await session.drain()
+
     await session.aclose()
 
     if transcription_sync is not None:
@@ -128,7 +150,6 @@ class FakeActions:
             and self._items
             and isinstance(self._items[-1], FakeUserSpeech)
         ):
-            # use the last user speech as input
             input = self._items[-1].transcript
 
         if not utils.is_given(input):

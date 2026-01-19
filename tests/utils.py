@@ -109,3 +109,47 @@ async def fake_llm_stream(
     for tok_id in token_ids:
         yield enc.decode([tok_id])
         await asyncio.sleep(sleep_time)
+IGNORE_WORDS = {
+    "yeah",
+    "ok",
+    "okay",
+    "hmm",
+    "uh-huh",
+    "right",
+    "mm",
+}
+
+INTERRUPT_WORDS = {
+    "stop",
+    "wait",
+    "no",
+    "hold",
+    "pause",
+}
+def should_interrupt(agent_is_speaking: bool, transcript: str | None) -> bool:
+    """
+    Decide whether the agent should be interrupted based on:
+    - whether the agent is currently speaking
+    - the semantic meaning of the transcript
+    """
+    if not transcript:
+        return False
+
+    text = transcript.lower().strip()
+    words = set(text.split())
+
+    # If agent is speaking
+    if agent_is_speaking:
+        # If any strong interrupt word appears → interrupt
+        if words & INTERRUPT_WORDS:
+            return True
+
+        # If all words are filler → ignore
+        if words.issubset(IGNORE_WORDS):
+            return False
+
+        # Mixed or unknown content → interrupt
+        return True
+
+    # Agent is silent → always treat as valid input
+    return True
