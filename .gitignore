@@ -6,10 +6,21 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+<<<<<<< HEAD
+=======
+# Ignore LiveKit plugin binaries
+
+**/*.onnx
+
+>>>>>>> ca7ccf37 (final)
 # C extensions
 *.so
 
 # Distribution / packaging
+<<<<<<< HEAD
+=======
+venv311/
+>>>>>>> ca7ccf37 (final)
 .Python
 build/
 develop-eggs/

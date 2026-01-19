@@ -1,0 +1,21 @@
+﻿PROJECT FILES LOCATION MAP
+==========================
+
+Main Implementation Files:
+ livekit-agents/livekit/agents/voice/interruption_filter.py
+ livekit-agents/livekit/agents/voice/agent_activity.py (modified)
+
+Test Files:
+ test_filter_minimal.py
+ tests/test_interruption_filter.py
+ tests/test_interruption_filter_standalone.py
+ test_results_final.log
+
+Documentation Files:
+ IMPLEMENTATION_GUIDE.txt
+ PROJECT_COMPLETION_REPORT.txt
+ DELIVERABLES_CHECKLIST.txt
+
+Python Environment:
+ venv311/ (Python 3.11.9)
+

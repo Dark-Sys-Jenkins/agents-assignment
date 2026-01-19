@@ -1,0 +1,129 @@
+[000.00s] [INFO    ] ================================================================================
+[000.00s] [INFO    ] STARTING COMPREHENSIVE TEST SUITE FOR INTERRUPTION FILTER
+[000.00s] [INFO    ] ================================================================================
+
+[000.00s] [TEST    ] === START: Scenario 1: The Long Explanation ===
+[000.00s] [INFO    ] Evaluating: 'Okay' → FilterDecision(type=ignore, transcript='Okay', reason='Passive acknowledgement detected: 'okay'', agent_speaking=True, matched_word=okay)
+[000.00s] [INFO    ] ✓ Assert passed: Filler word 'Okay' should be ignored
+[000.00s] [INFO    ] Evaluating: 'Yeah' → FilterDecision(type=ignore, transcript='Yeah', reason='Passive acknowledgement detected: 'yeah'', agent_speaking=True, matched_word=yeah)
+[000.00s] [INFO    ] ✓ Assert passed: Filler word 'Yeah' should be ignored
+[000.00s] [INFO    ] Evaluating: 'Uhhhh' → FilterDecision(type=ignore, transcript='Uhhhh', reason='Passive acknowledgement detected: 'uhhhh'', agent_speaking=True, matched_word=uhhhh)
+[000.00s] [INFO    ] ✓ Assert passed: Filler word 'Uhhhh' should be ignored
+[000.00s] [INFO    ] Evaluating: 'Okay yeah' → FilterDecision(type=ignore, transcript='Okay yeah', reason='Passive acknowledgement detected: 'okay'', agent_speaking=True, matched_word=okay)
+[000.00s] [INFO    ] ✓ Assert passed: Filler word 'Okay yeah' should be ignored
+[000.01s] [INFO    ] Evaluating: 'Yeah okay uhhhh' → FilterDecision(type=ignore, transcript='Yeah okay uhhhh', reason='Passive acknowledgement detected: 'uhhhh'', agent_speaking=True, matched_word=uhhhh)
+[000.01s] [INFO    ] ✓ Assert passed: Filler word 'Yeah okay uhhhh' should be ignored
+[000.01s] [TEST    ] === END: Scenario 1: The Long Explanation - [PASS] ===
+
+[000.01s] [TEST    ] === START: Scenario 2: The Passive Affirmation ===
+[000.01s] [INFO    ] Evaluating: 'Yeah' (agent silent) → FilterDecision(type=respond, transcript='Yeah', reason='Agent not speaking/playing - valid user input', agent_speaking=False, matched_word=None)
+[000.01s] [INFO    ] ✓ Assert passed: When agent is silent, 'Yeah' should be treated as valid input (RESPOND)
+[000.01s] [TEST    ] === END: Scenario 2: The Passive Affirmation - [PASS] ===
+
+[000.01s] [TEST    ] === START: Scenario 3: The Correction ===
+[000.01s] [INFO    ] Evaluating: 'No stop' → FilterDecision(type=interrupt, transcript='No stop', reason='Strong interrupt command detected: 'no stop'', agent_speaking=True, matched_word=no stop)
+[000.01s] [INFO    ] ✓ Assert passed: 'No stop' should trigger immediate interruption
+[000.01s] [TEST    ] === END: Scenario 3: The Correction - [PASS] ===
+
+[000.01s] [TEST    ] === START: Scenario 4: The Mixed Input ===
+[000.01s] [INFO    ] Evaluating: 'Yeah okay but wait' → FilterDecision(type=interrupt, transcript='Yeah okay but wait', reason='Strong interrupt command detected: 'but wait'', agent_speaking=True, matched_word=but wait)
+[000.01s] [INFO    ] ✓ Assert passed: 'Yeah okay but wait' contains 'but' which indicates interruption intent
+[000.01s] [TEST    ] === END: Scenario 4: The Mixed Input - [PASS] ===
+
+[000.01s] [TEST    ] === START: Configurable Ignore List ===
+[000.01s] [INFO    ] Custom ignore list test: 'Hello' → FilterDecision(type=ignore, transcript='Hello', reason='Passive acknowledgement detected: 'hello'', agent_speaking=True, matched_word=hello)
+[000.01s] [INFO    ] ✓ Assert passed: Custom ignore list should work
+[000.01s] [INFO    ] Added 'custom' and 'word' to ignore list
+[000.01s] [INFO    ] After adding: 'custom' → FilterDecision(type=ignore, transcript='custom', reason='Passive acknowledgement detected: 'custom'', agent_speaking=True, matched_word=custom)
+[000.01s] [INFO    ] ✓ Assert passed: Dynamically added word should be ignored
+[000.01s] [TEST    ] === END: Configurable Ignore List - [PASS] ===
+
+[000.01s] [TEST    ] === START: State-Based Filtering ===
+[000.01s] [INFO    ] Agent speaking, input 'Yeah' → FilterDecision(type=ignore, transcript='Yeah', reason='Passive acknowledgement detected: 'yeah'', agent_speaking=True, matched_word=yeah)
+[000.01s] [INFO    ] ✓ Assert passed: Filler should be ignored when agent speaking
+[000.01s] [INFO    ] Agent playing audio, input 'Yeah' → FilterDecision(type=ignore, transcript='Yeah', reason='Passive acknowledgement detected: 'yeah'', agent_speaking=True, matched_word=yeah)
+[000.01s] [INFO    ] ✓ Assert passed: Filler should be ignored when agent playing audio
+[000.01s] [INFO    ] Agent silent, input 'Yeah' → FilterDecision(type=respond, transcript='Yeah', reason='Agent not speaking/playing - valid user input', agent_speaking=False, matched_word=None)
+[000.01s] [INFO    ] ✓ Assert passed: Filler should be responded to when agent silent
+[000.01s] [TEST    ] === END: State-Based Filtering - [PASS] ===
+
+[000.01s] [TEST    ] === START: Semantic Interruption Detection ===
+[000.01s] [INFO    ] Semantic test: 'Yeah I have a question' → FilterDecision(type=interrupt, transcript='Yeah I have a question', reason='Semantic interruption detected: contains 'i have'', agent_speaking=True, matched_word=yeah)
+[000.01s] [INFO    ] ✓ Assert passed: 'Yeah I have a question' should be interrupt
+[000.01s] [INFO    ] Semantic test: 'Yeah but I want to say' → FilterDecision(type=interrupt, transcript='Yeah but I want to say', reason='Semantic interruption detected: contains 'i want'', agent_speaking=True, matched_word=yeah)
+[000.01s] [INFO    ] ✓ Assert passed: 'Yeah but I want to say' should be interrupt
+[000.01s] [INFO    ] Semantic test: 'OK actually wait' → FilterDecision(type=interrupt, transcript='OK actually wait', reason='Strong interrupt command detected: 'actually wait'', agent_speaking=True, matched_word=actually wait)
+[000.01s] [INFO    ] ✓ Assert passed: 'OK actually wait' should be interrupt
+[000.01s] [INFO    ] Semantic test: 'Yeah let me tell you' → FilterDecision(type=interrupt, transcript='Yeah let me tell you', reason='Semantic interruption detected: contains 'let me'', agent_speaking=True, matched_word=yeah)
+[000.01s] [INFO    ] ✓ Assert passed: 'Yeah let me tell you' should be interrupt
+[000.01s] [TEST    ] === END: Semantic Interruption Detection - [PASS] ===
+
+[000.01s] [TEST    ] === START: Strong Interrupt Words Override ===
+[000.01s] [INFO    ] Strong command test: 'stop' → FilterDecision(type=interrupt, transcript='stop', reason='Strong interrupt command detected: 'stop'', agent_speaking=True, matched_word=stop)
+[000.01s] [INFO    ] ✓ Assert passed: Strong command 'stop' should always interrupt
+[000.01s] [INFO    ] Strong command test: 'wait' → FilterDecision(type=interrupt, transcript='wait', reason='Strong interrupt command detected: 'wait'', agent_speaking=True, matched_word=wait)
+[000.01s] [INFO    ] ✓ Assert passed: Strong command 'wait' should always interrupt
+[000.01s] [INFO    ] Strong command test: 'hold on' → FilterDecision(type=interrupt, transcript='hold on', reason='Strong interrupt command detected: 'hold on'', agent_speaking=True, matched_word=hold on)
+[000.01s] [INFO    ] ✓ Assert passed: Strong command 'hold on' should always interrupt
+[000.01s] [INFO    ] Strong command test: 'pause' → FilterDecision(type=interrupt, transcript='pause', reason='Strong interrupt command detected: 'pause'', agent_speaking=True, matched_word=pause)
+[000.01s] [INFO    ] ✓ Assert passed: Strong command 'pause' should always interrupt
+[000.01s] [INFO    ] Strong command test: 'no wait' → FilterDecision(type=interrupt, transcript='no wait', reason='Strong interrupt command detected: 'no wait'', agent_speaking=True, matched_word=no wait)
+[000.01s] [INFO    ] ✓ Assert passed: Strong command 'no wait' should always interrupt
+[000.01s] [INFO    ] Strong command test: 'hold it' → FilterDecision(type=interrupt, transcript='hold it', reason='Strong interrupt command detected: 'hold it'', agent_speaking=True, matched_word=hold it)
+[000.01s] [INFO    ] ✓ Assert passed: Strong command 'hold it' should always interrupt
+[000.01s] [INFO    ] Strong command test: 'shut up' → FilterDecision(type=interrupt, transcript='shut up', reason='Strong interrupt command detected: 'shut up'', agent_speaking=True, matched_word=shut up)
+[000.01s] [INFO    ] ✓ Assert passed: Strong command 'shut up' should always interrupt
+[000.01s] [TEST    ] === END: Strong Interrupt Words Override - [PASS] ===
+
+[000.01s] [TEST    ] === START: Decision History Tracking ===
+[000.01s] [INFO    ] Decision history size: 3
+[000.01s] [INFO    ] ✓ Assert passed: Should have 3 decisions in history
+[000.01s] [INFO    ] ✓ Assert passed: First decision should be IGNORE
+[000.01s] [INFO    ] ✓ Assert passed: Second decision should be INTERRUPT
+[000.01s] [INFO    ] ✓ Assert passed: Third decision should be RESPOND
+[000.01s] [INFO    ] Cleared history
+[000.01s] [INFO    ] ✓ Assert passed: History should be empty after clear
+[000.01s] [TEST    ] === END: Decision History Tracking - [PASS] ===
+
+[000.01s] [TEST    ] === START: Text Normalization ===
+[000.01s] [INFO    ] Normalization test: 'Yeah' → InterruptionType.IGNORE
+[000.01s] [INFO    ] ✓ Assert passed: Variation 'Yeah' should be normalized and ignored
+[000.01s] [INFO    ] Normalization test: 'YEAH' → InterruptionType.IGNORE
+[000.01s] [INFO    ] ✓ Assert passed: Variation 'YEAH' should be normalized and ignored
+[000.01s] [INFO    ] Normalization test: 'Yeah!' → InterruptionType.IGNORE
+[000.01s] [INFO    ] ✓ Assert passed: Variation 'Yeah!' should be normalized and ignored
+[000.01s] [INFO    ] Normalization test: 'Yeah?' → InterruptionType.IGNORE
+[000.01s] [INFO    ] ✓ Assert passed: Variation 'Yeah?' should be normalized and ignored
+[000.01s] [INFO    ] Normalization test: 'Yeah...' → InterruptionType.IGNORE
+[000.01s] [INFO    ] ✓ Assert passed: Variation 'Yeah...' should be normalized and ignored
+[000.01s] [INFO    ] Normalization test: '  Yeah  ' → InterruptionType.IGNORE
+[000.01s] [INFO    ] ✓ Assert passed: Variation '  Yeah  ' should be normalized and ignored
+[000.01s] [TEST    ] === END: Text Normalization - [PASS] ===
+
+[000.01s] [TEST    ] === START: Edge Cases ===
+[000.02s] [INFO    ] Empty string test → FilterDecision(type=interrupt, transcript='', reason='User provided substantial input while agent speaking', agent_speaking=True, matched_word=None)
+[000.02s] [ERROR   ] ✗ Assert failed: Empty string should not crash
+[000.02s] [INFO    ] Long filler test → FilterDecision(type=ignore, transcript='Yeah yeah yeah yeah yeah', reason='Passive acknowledgement detected: 'yeah'', agent_speaking=True, matched_word=yeah)
+[000.02s] [INFO    ] ✓ Assert passed: Repeated filler words should be ignored
+[000.02s] [INFO    ] Mixed content test: 'Yeah 123 okay' → FilterDecision(type=ignore, transcript='Yeah 123 okay', reason='Passive acknowledgement detected: 'okay'', agent_speaking=True, matched_word=okay)
+[000.02s] [INFO    ] ✓ Assert passed: Mixed content with only filler words should be ignored
+[000.02s] [TEST    ] === END: Edge Cases - [FAIL] ===
+
+[000.02s] [INFO    ] ================================================================================
+[000.02s] [INFO    ] TEST SUMMARY
+[000.02s] [INFO    ] ================================================================================
+[000.02s] [INFO    ] [PASS] | Scenario 1: The Long Explanation (5/5 assertions)
+[000.02s] [INFO    ] [PASS] | Scenario 2: The Passive Affirmation (1/1 assertions)
+[000.02s] [INFO    ] [PASS] | Scenario 3: The Correction (1/1 assertions)
+[000.02s] [INFO    ] [PASS] | Scenario 4: The Mixed Input (1/1 assertions)
+[000.02s] [INFO    ] [PASS] | Configurable Ignore List (2/2 assertions)
+[000.02s] [INFO    ] [PASS] | State-Based Filtering (3/3 assertions)
+[000.02s] [INFO    ] [PASS] | Semantic Interruption Detection (4/4 assertions)
+[000.02s] [INFO    ] [PASS] | Strong Interrupt Words Override (7/7 assertions)
+[000.02s] [INFO    ] [PASS] | Decision History Tracking (5/5 assertions)
+[000.02s] [INFO    ] [PASS] | Text Normalization (6/6 assertions)
+[000.02s] [INFO    ] [FAIL] | Edge Cases (2/3 assertions)
+[000.02s] [INFO    ]       Error: Empty string should not crash
+[000.02s] [INFO    ] ================================================================================
+[000.02s] [SUCCESS ] RESULTS: 10/11 tests passed
+[000.02s] [INFO    ] ================================================================================
