@@ -5,6 +5,8 @@ import contextvars
 import heapq
 import json
 import time
+import os
+import re
 from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
@@ -163,6 +165,115 @@ class AgentActivity(RecognitionHooks):
 
         # speeches that audio playout finished but not done because of tool calls
         self._background_speeches: set[SpeechHandle] = set()
+
+    
+    # Intelligent interruption handling
+
+    def _get_ignore_words(self) -> set[str]:
+        """
+        Configurable ignore list.
+        You can override using env:
+        LK_IGNORE_WORDS="yeah,ok,hmm,aha,uh-huh,right"
+        """
+        env_val = os.getenv("LK_IGNORE_WORDS", "").strip().lower()
+        if env_val:
+            return {w.strip() for w in env_val.split(",") if w.strip()}
+
+        return {
+            "yeah",
+            "yea",
+            "yep",
+            "ok",
+            "okay",
+            "k",
+            "kk",
+            "hmm",
+            "hm",
+            "aha",
+            "uh",
+            "uhh",
+            "uh-huh",
+            "uh huh",
+            "mm",
+            "mmm",
+            "right",
+            "alright",
+            "sure",
+        }
+
+    def _get_interrupt_words(self) -> set[str]:
+        """
+        Strong interruption commands.
+        If any of these appear in user speech while agent is speaking -> INTERRUPT.
+        """
+        env_val = os.getenv("LK_INTERRUPT_WORDS", "").strip().lower()
+        if env_val:
+            return {w.strip() for w in env_val.split(",") if w.strip()}
+
+        return {
+            "stop",
+            "wait",
+            "hold",
+            "pause",
+            "cancel",
+            "no",
+            "listen",
+            "excuse me",
+        }
+
+    def _normalize_text(self, text: str) -> str:
+        text = text.lower().strip()
+        text = re.sub(r"[^a-z0-9\s\-']", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    def _text_has_interrupt_command(self, text: str) -> bool:
+        t = self._normalize_text(text)
+        if not t:
+            return False
+
+        interrupt_words = self._get_interrupt_words()
+        words = t.split()
+
+        for w in words:
+            if w in interrupt_words:
+                return True
+
+        for cmd in interrupt_words:
+            if " " in cmd and cmd in t:
+                return True
+
+        return False
+
+    def _text_is_filler_only(self, text: str) -> bool:
+        t = self._normalize_text(text)
+        if not t:
+            return True
+
+        ignore_words = self._get_ignore_words()
+        words = t.split()
+
+        return all(w in ignore_words for w in words)
+
+    def _should_ignore_user_input_while_speaking(self, text: str) -> bool:
+        if not text:
+            return False
+
+        # mixed sentence like "yeah wait" must interrupt
+        if self._text_has_interrupt_command(text):
+            return False
+
+        return self._text_is_filler_only(text)
+
+    def _agent_is_actively_speaking(self) -> bool:
+        if self._session.agent_state == "speaking":
+            return True
+
+        if self._current_speech is not None and not self._current_speech.done():
+            return True
+
+        return False
+
 
     def _validate_turn_detection(
         self, turn_detection: TurnDetectionMode | None
@@ -1174,6 +1285,19 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
+        # NEW: intelligent ignore logic
+        current_text = ""
+        if self._audio_recognition is not None:
+            current_text = self._audio_recognition.current_transcript or ""
+
+        # If agent is speaking and user said filler words -> IGNORE completely
+        # Strict requirement: do NOT pause, do NOT interrupt, do NOT stutter
+        if self._agent_is_actively_speaking() and self._should_ignore_user_input_while_speaking(
+            current_text
+        ):
+            return
+
+        # Existing logic: minimum interruption words check
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
@@ -1181,9 +1305,10 @@ class AgentActivity(RecognitionHooks):
         ):
             text = self._audio_recognition.current_transcript
 
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
-                return
+            # If it's filler-only, don't enforce min word interruption check here
+            if not self._text_is_filler_only(text):
+                if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                    return
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
@@ -1208,6 +1333,7 @@ class AgentActivity(RecognitionHooks):
                     self._rt_session.interrupt()
 
                 self._current_speech.interrupt()
+
 
     # region recognition hooks
 
@@ -1261,7 +1387,14 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # NEW: ignore filler-only while agent is speaking
+            if self._agent_is_actively_speaking() and self._should_ignore_user_input_while_speaking(
+                ev.alternatives[0].text
+            ):
+                return
+
             self._interrupt_by_audio_activity()
+
 
             if (
                 speaking is False
@@ -1292,7 +1425,14 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # NEW: ignore filler-only while agent is speaking
+            if self._agent_is_actively_speaking() and self._should_ignore_user_input_while_speaking(
+                ev.alternatives[0].text
+            ):
+                return
+
             self._interrupt_by_audio_activity()
+
 
             if (
                 speaking is False
