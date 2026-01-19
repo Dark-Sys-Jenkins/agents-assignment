@@ -15,14 +15,14 @@ from opentelemetry._logs.severity import SeverityNumber
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk._logs import (
+'''from opentelemetry.sdk._logs import (
     LogData,
     LoggerProvider,
     LoggingHandler,
     LogRecord,
     LogRecordProcessor,
-)
-from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+)'''
+#from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -73,30 +73,30 @@ class _MetadataSpanProcessor(SpanProcessor):
         span.set_attributes(self._metadata)
 
 
-class _MetadataLogProcessor(LogRecordProcessor):
-    def __init__(self, metadata: dict[str, AttributeValue]) -> None:
-        self._metadata = metadata
+# class _MetadataLogProcessor(LogRecordProcessor):
+#     def __init__(self, metadata: dict[str, AttributeValue]) -> None:
+#         self._metadata = metadata
 
-    def emit(self, log_data: LogData) -> None:
-        if log_data.log_record.attributes:
-            log_data.log_record.attributes.update(self._metadata)  # type: ignore
-            log_data.log_record.attributes.update(  # type: ignore
-                {"logger.name": log_data.instrumentation_scope.name}
-            )
-        else:
-            log_data.log_record.attributes = self._metadata
+#     def emit(self, log_data: LogData) -> None:
+#         if log_data.log_record.attributes:
+#             log_data.log_record.attributes.update(self._metadata)  # type: ignore
+#             log_data.log_record.attributes.update(  # type: ignore
+#                 {"logger.name": log_data.instrumentation_scope.name}
+#             )
+#         else:
+#             log_data.log_record.attributes = self._metadata
 
-    def on_emit(self, log_data: LogData) -> None:
-        if log_data.log_record.attributes:
-            log_data.log_record.attributes.update(self._metadata)  # type: ignore
-        else:
-            log_data.log_record.attributes = self._metadata
+#     def on_emit(self, log_data: LogData) -> None:
+#         if log_data.log_record.attributes:
+#             log_data.log_record.attributes.update(self._metadata)  # type: ignore
+#         else:
+#             log_data.log_record.attributes = self._metadata
 
-    def shutdown(self) -> None:
-        pass
+#     def shutdown(self) -> None:
+#         pass
 
-    def force_flush(self, timeout_millis: int = 30000) -> bool:
-        return True
+#     def force_flush(self, timeout_millis: int = 30000) -> bool:
+#         return True
 
 
 def set_tracer_provider(
@@ -147,20 +147,20 @@ def _setup_cloud_tracer(*, room_id: str, job_id: str, cloud_hostname: str) -> No
     tracer_provider.add_span_processor(_MetadataSpanProcessor(metadata))
     tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
 
-    logger_provider = LoggerProvider()
-    set_logger_provider(logger_provider)
+    # logger_provider = LoggerProvider()
+    # set_logger_provider(logger_provider)
 
-    log_exporter = OTLPLogExporter(
-        endpoint=f"https://{cloud_hostname}/observability/logs/otlp/v0",
-        headers=headers,
-        compression=otlp_compression,
-    )
-    logger_provider.add_log_record_processor(_MetadataLogProcessor(metadata))
-    logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
-    handler = LoggingHandler(level=logging.NOTSET, logger_provider=logger_provider)
+    # log_exporter = OTLPLogExporter(
+    #     endpoint=f"https://{cloud_hostname}/observability/logs/otlp/v0",
+    #     headers=headers,
+    #     compression=otlp_compression,
+    # )
+    # logger_provider.add_log_record_processor(_MetadataLogProcessor(metadata))
+    # logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+    # handler = LoggingHandler(level=logging.NOTSET, logger_provider=logger_provider)
 
-    root = logging.getLogger()
-    root.addHandler(handler)
+    # root = logging.getLogger()
+    # root.addHandler(handler)
 
 
 def _to_proto_chat_item(item: ChatItem) -> dict:  # agent_pb.agent_session.ChatContext.ChatItem:
@@ -265,119 +265,123 @@ def _to_rfc3339(value: int | float | datetime) -> str:
     return dt.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-async def _upload_session_report(
-    *,
-    agent_name: str,
-    cloud_hostname: str,
-    report: SessionReport,
-    http_session: aiohttp.ClientSession,
-) -> None:
-    chat_logger = get_logger_provider().get_logger(
-        name="chat_history",
-        attributes={
-            "room_id": report.room_id,
-            "job_id": report.job_id,
-            "room": report.room,
-        },
-    )
+# async def _upload_session_report(
+#     *,
+#     agent_name: str,
+#     cloud_hostname: str,
+#     report: SessionReport,
+#     http_session: aiohttp.ClientSession,
+# ) -> None:
+#     chat_logger = get_logger_provider().get_logger(
+#         name="chat_history",
+#         attributes={
+#             "room_id": report.room_id,
+#             "job_id": report.job_id,
+#             "room": report.room,
+#         },
+#     )
 
-    def _log(
-        body: str,
-        timestamp: int,
-        attributes: dict,
-        severity: SeverityNumber = SeverityNumber.UNSPECIFIED,
-        severity_text: str = "unspecified",
-    ) -> None:
-        chat_logger.emit(
-            LogRecord(
-                body=body,
-                timestamp=timestamp,
-                attributes=attributes,
-                trace_id=0,
-                span_id=0,
-                severity_number=severity,
-                severity_text=severity_text,
-                trace_flags=TraceFlags.get_default(),
-            )
-        )
+#     def _log(
+#         body: str,
+#         timestamp: int,
+#         attributes: dict,
+#         severity: SeverityNumber = SeverityNumber.UNSPECIFIED,
+#         severity_text: str = "unspecified",
+#     ) -> None:
+#         # chat_logger.emit(
+#         #     LogRecord(
+#         #         body=body,
+#         #         timestamp=timestamp,
+#         #         attributes=attributes,
+#         #         trace_id=0,
+#         #         span_id=0,
+#         #         severity_number=severity,
+#         #         severity_text=severity_text,
+#         #         trace_flags=TraceFlags.get_default(),
+#         #     )
+#         # )
 
-    _log(
-        body="session report",
-        timestamp=int((report.started_at or report.timestamp or 0) * 1e9),
-        attributes={
-            "session.options": vars(report.options),
-            "session.report_timestamp": report.timestamp,
-            "agent_name": agent_name,
-        },
-    )
+#     # def _log(
+#     #     body="session report",
+#     #     timestamp=int((report.started_at or report.timestamp or 0) * 1e9),
+#     #     attributes={
+#     #         "session.options": vars(report.options),
+#     #         "session.report_timestamp": report.timestamp,
+#     #         "agent_name": agent_name,
+#     #     },
+#     #     )
+#     def _log(*args, **kwargs):
+#     pass
 
-    for item in report.chat_history.items:
-        item_log = _to_proto_chat_item(item)
-        severity: SeverityNumber = SeverityNumber.UNSPECIFIED
-        severity_text: str = "unspecified"
+#     for item in report.chat_history.items:
+#         item_log = _to_proto_chat_item(item)
+#         severity: SeverityNumber = SeverityNumber.UNSPECIFIED
+#         severity_text: str = "unspecified"
 
-        if item.type == "function_call_output" and item.is_error:
-            severity = SeverityNumber.ERROR
-            severity_text = "error"
+#         if item.type == "function_call_output" and item.is_error:
+#             severity = SeverityNumber.ERROR
+#             severity_text = "error"
 
-        _log(
-            body="chat item",
-            timestamp=int(item.created_at * 1e9),
-            attributes={"chat.item": item_log},
-            severity=severity,
-            severity_text=severity_text,
-        )
+#         _log(
+#             body="chat item",
+#             timestamp=int(item.created_at * 1e9),
+#             attributes={"chat.item": item_log},
+#             severity=severity,
+#             severity_text=severity_text,
+#         )
 
-    # emit recording
-    access_token = (
-        api.AccessToken()
-        .with_observability_grants(api.ObservabilityGrants(write=True))
-        .with_ttl(timedelta(hours=6))
-    )
-    jwt = access_token.to_jwt()
+#     # emit recording
+#     access_token = (
+#         api.AccessToken()
+#         .with_observability_grants(api.ObservabilityGrants(write=True))
+#         .with_ttl(timedelta(hours=6))
+#     )
+#     jwt = access_token.to_jwt()
 
-    header_msg = proto_metrics.MetricsRecordingHeader(
-        room_id=report.room_id,
-        duration=int((report.duration or 0) * 1000),
-    )
-    header_msg.start_time.FromMilliseconds(int((report.audio_recording_started_at or 0) * 1000))
-    header_bytes = header_msg.SerializeToString()
+#     header_msg = proto_metrics.MetricsRecordingHeader(
+#         room_id=report.room_id,
+#         duration=int((report.duration or 0) * 1000),
+#     )
+#     header_msg.start_time.FromMilliseconds(int((report.audio_recording_started_at or 0) * 1000))
+#     header_bytes = header_msg.SerializeToString()
 
-    mp = aiohttp.MultipartWriter("form-data")
+#     mp = aiohttp.MultipartWriter("form-data")
 
-    part = mp.append(header_bytes)
-    part.set_content_disposition("form-data", name="header", filename="header.binpb")
-    part.headers["Content-Type"] = "application/protobuf"
-    part.headers["Content-Length"] = str(len(header_bytes))
+#     part = mp.append(header_bytes)
+#     part.set_content_disposition("form-data", name="header", filename="header.binpb")
+#     part.headers["Content-Type"] = "application/protobuf"
+#     part.headers["Content-Length"] = str(len(header_bytes))
 
-    chat_history_json = json.dumps(report.chat_history.to_dict(exclude_timestamp=False))
-    part = mp.append(chat_history_json)
-    part.set_content_disposition("form-data", name="chat_history", filename="chat_history.json")
-    part.headers["Content-Type"] = "application/json"
-    part.headers["Content-Length"] = str(len(chat_history_json))
+#     chat_history_json = json.dumps(report.chat_history.to_dict(exclude_timestamp=False))
+#     part = mp.append(chat_history_json)
+#     part.set_content_disposition("form-data", name="chat_history", filename="chat_history.json")
+#     part.headers["Content-Type"] = "application/json"
+#     part.headers["Content-Length"] = str(len(chat_history_json))
 
-    if report.audio_recording_path and report.audio_recording_started_at:
-        try:
-            async with aiofiles.open(report.audio_recording_path, "rb") as f:
-                audio_bytes = await f.read()
-        except Exception:
-            audio_bytes = b""
+#     if report.audio_recording_path and report.audio_recording_started_at:
+#         try:
+#             async with aiofiles.open(report.audio_recording_path, "rb") as f:
+#                 audio_bytes = await f.read()
+#         except Exception:
+#             audio_bytes = b""
 
-        if audio_bytes:
-            part = mp.append(audio_bytes)
-            part.set_content_disposition("form-data", name="audio", filename="recording.ogg")
-            part.headers["Content-Type"] = "audio/ogg"
-            part.headers["Content-Length"] = str(len(audio_bytes))
-            part.headers["Created-At"] = _to_rfc3339(report.audio_recording_started_at)
+#         if audio_bytes:
+#             part = mp.append(audio_bytes)
+#             part.set_content_disposition("form-data", name="audio", filename="recording.ogg")
+#             part.headers["Content-Type"] = "audio/ogg"
+#             part.headers["Content-Length"] = str(len(audio_bytes))
+#             part.headers["Created-At"] = _to_rfc3339(report.audio_recording_started_at)
 
-    url = f"https://{cloud_hostname}/observability/recordings/v0"
-    headers = {
-        "Authorization": f"Bearer {jwt}",
-        "Content-Type": mp.content_type,
-    }
+#     url = f"https://{cloud_hostname}/observability/recordings/v0"
+#     headers = {
+#         "Authorization": f"Bearer {jwt}",
+#         "Content-Type": mp.content_type,
+#     }
 
-    logger.debug("uploading session report to LiveKit Cloud")
-    async with http_session.post(url, data=mp, headers=headers) as resp:
-        resp.raise_for_status()
+#     logger.debug("uploading session report to LiveKit Cloud")
+#     async with http_session.post(url, data=mp, headers=headers) as resp:
+#         resp.raise_for_status()
 
-    logger.debug("finished uploading")
+#     logger.debug("finished uploading")
+async def _upload_session_report(*args, **kwargs):
+    return

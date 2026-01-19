@@ -21,6 +21,32 @@ from . import io
 from ._utils import _set_participant_attributes
 from .agent import ModelSettings
 
+IGNORE_WORDS = {"yeah", "ok", "hmm", "uh-huh", "right"}
+INTERRUPT_WORDS = {"stop", "wait", "no"}
+
+def should_interrupt(text: str, agent_speaking: bool) -> bool:
+    """
+    Decide whether user input should interrupt the agent.
+    """
+    text = text.lower().strip()
+
+    # If agent is silent → always allow
+    if not agent_speaking:
+        return True
+
+    words = set(text.split())
+
+    # If any strong interrupt word present → interrupt
+    if words & INTERRUPT_WORDS:
+        return True
+
+    # If only ignore words → ignore
+    if words and words.issubset(IGNORE_WORDS):
+        return False
+
+    # Mixed or unknown input while speaking → interrupt
+    return True
+
 if TYPE_CHECKING:
     from .agent_session import AgentSession
 
@@ -347,6 +373,25 @@ class AudioRecognition:
             transcript = ev.alternatives[0].text
             language = ev.alternatives[0].language
             confidence = ev.alternatives[0].confidence
+                        # ------------------------------
+            # Intelligent interruption logic
+            # ------------------------------
+            decision = should_interrupt(transcript, self._speaking)
+
+            if self._speaking and not decision:
+                logger.debug(
+                    "Ignoring filler input while agent is speaking",
+                    extra={"transcript": transcript},
+                )
+                return  # Ignore filler words completely
+
+            if self._speaking and decision:
+                logger.debug(
+                    "Interrupting agent due to user command",
+                    extra={"transcript": transcript},
+                )
+                # Signal interruption
+                self._hooks.on_end_of_speech(None)
 
             if not self._last_language or (
                 language and len(transcript) > MIN_LANGUAGE_DETECTION_LENGTH
