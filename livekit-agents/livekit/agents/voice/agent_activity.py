@@ -1188,6 +1188,60 @@ class AgentActivity(RecognitionHooks):
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
 
+        # ---- BEGIN: intelligent interruption filter (added) ----
+        # When there's an active speech handle, consult partial STT and swallow
+        # purely-backchannel filler words while the agent is speaking.
+        try:
+            from .interruption_config import IGNORE_WORDS, INTERRUPT_WORDS, FILLER_WORDS
+        except Exception:
+            # fallback defaults (safe)
+            IGNORE_WORDS = {"yeah", "ok", "okay", "hmm", "uh-huh", "right", "yep", "mmhmm"}
+            INTERRUPT_WORDS = {"stop", "wait", "no", "hold", "cancel", "pause"}
+            FILLER_WORDS = {"but", "and", "or", "like", "you know", "so"}
+
+        # If there is a current speech that can be interrupted, check the partial transcript.
+        if (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        ):
+            # Try to get the partial transcript (if available)
+            transcript = ""
+            try:
+                if getattr(self, "_audio_recognition", None) is not None:
+                    transcript = (self._audio_recognition.current_transcript or "").strip().lower()
+            except Exception:
+                transcript = ""
+
+            # Tokenize conservatively (strip common punctuation)
+            tokens = [t.strip(".,!?;:()[]\"'") for t in transcript.split() if t.strip()]
+
+            # Filter out empty tokens and articles
+            tokens = [t for t in tokens if t and t not in {"a", "an", "the", "to", "in", "on", "at"}]
+
+            # If no meaningful tokens yet (no partial STT) -> swallow short VAD blips by default.
+            # This avoids audible pauses/stutters when STT hasn't arrived.
+            if not tokens:
+                # Do not interrupt; return early so we don't call existing interrupt logic.
+                return
+
+            # Check for interrupt words first (highest priority)
+            if any(tok in INTERRUPT_WORDS for tok in tokens):
+                # fall through to normal interrupt handling below
+                pass
+            else:
+                # No interrupt words found. Check if all tokens are acceptable passive content
+                # Acceptable = IGNORE_WORDS or FILLER_WORDS
+                acceptable_tokens = IGNORE_WORDS | FILLER_WORDS
+                
+                if all(tok in acceptable_tokens for tok in tokens):
+                    # All tokens are passive/filler - swallow interruption
+                    return
+                # Otherwise fall through to normal interrupt handling
+        # ---- END: intelligent interruption filter (added) ----
+
+        # Original behavior: if the agent is speaking and interruptions are allowed, pause/interrupt
+
         if (
             self._current_speech is not None
             and not self._current_speech.interrupted
