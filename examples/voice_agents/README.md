@@ -76,3 +76,40 @@ This directory contains a comprehensive collection of voice-based agent examples
 - [LiveKit Agents Documentation](https://docs.livekit.io/agents/)
 - [Agents Starter Example](https://github.com/livekit-examples/agent-starter-python)
 - [More Agents Examples](https://github.com/livekit-examples/python-agents-examples)
+
+
+## Semantic Interruption Handling (Assignment Submission)
+
+### Problem
+In real-time voice agents, short filler words like **“yeah”, “okay”, “uh-huh”** trigger the Voice Activity Detector (VAD), causing the agent to cut off abruptly. This creates a choppy, unnatural user experience because the agent treats passive listening as an interruption.
+
+### Solution
+This solution implements a **"Logic Layer"** strategy in **`basic_agent.py`**.
+
+Instead of relying on acoustic VAD to pause the agent, we:
+1.  **Disable Auto-Interruption:** The agent is configured in "Deaf Mode" (`turn_detection=None`, `vad=None`). It does not pause for noise.
+2.  **Analyze Transcripts:** We process final transcripts in real-time.
+3.  **Apply Semantic Logic:**
+    * **Fillers ("Yeah", "Uh-huh"):** Ignored completely. The agent keeps speaking.
+    * **Commands ("Stop", "Wait"):** Trigger a manual, immediate interruption.
+    * **Mixed Intent ("Yeah but wait"):** Detected as an interruption.
+
+### Files Included
+
+* **`examples/voice_agents/basic_agent.py`** (The Solution)
+    * Contains the modified `MyAgent` class with the `InterruptionController` logic.
+    * Demonstrates the "Deaf Agent" configuration + Manual Transcript Handler.
+
+* **`examples/voice_agents/resume_interrupted_agent.py`**
+    * Restored to original state (as a baseline for comparison).
+
+* **`semantic_interrupt_handler.py`** & **`audio_timeline_demo.py`**
+    * Logic proof scripts used to generate the log transcripts and timeline demonstrations.
+
+### Configuration
+The logic uses configurable sets in `basic_agent.py` for easy tuning:
+```python
+# Words to ignore (agent keeps talking)
+FILLER_WORDS = {"yeah", "uh-huh", "ok", ...}
+# Words to stop (agent cuts off)
+STOP_WORDS = {"stop", "wait", "cancel", ...}

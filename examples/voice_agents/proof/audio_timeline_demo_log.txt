@@ -1,0 +1,89 @@
+PS C:\Users\HARDIK\agents-assignment> python examples/voice_agents/audio_timeline_demo.py
+>>
+-- AUDIO TIMELINE DEMO ---
+
+[t=0.0s] Agent starts speaking
+[t=0.1s] 🔊 audio chunk
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] User says 'yeah' → IGNORE
+[t=0.3s] 🔊 audio chunk
+[t=0.4s] 🔊 audio chunk
+[t=0.4s] User says 'stop' → INTERRUPT
+
+--- END DEMO ---
+
+PS C:\Users\HARDIK\agents-assignment>
+>>
+
+--- AUDIO TIMELINE DEMO ---
+
+[t=0.0s] Agent starts speaking
+[t=0.1s] 🔊 audio chunk
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] User says 'yeah' → IGNORE
+[t=0.3s] 🔊 audio chunk
+>>
+
+--- AUDIO TIMELINE DEMO ---
+
+[t=0.0s] Agent starts speaking
+
+--- AUDIO TIMELINE DEMO ---
+
+
+[t=0.0s] Agent starts speaking
+[t=0.1s] 🔊 audio chunk
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] User says 'yeah' → IGNORE
+[t=0.3s] 🔊 audio chunk
+[t=0.4s] 🔊 audio chunk
+[t=0.4s] User says 'stop' → INTERRUPT
+
+--- END DEMO ---
+
+PS C:\Users\HARDIK\agents-assignment>
+
+
+
+
+
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] User says 'yeah' → IGNORE
+[t=0.3s] 🔊 audio chunk
+[t=0.4s] 🔊 audio chunk
+[t=0.4s] User says 'stop' → INTERRUPT
+
+--- END DEMO ---
+
+PS C:\Users\HARDIK\agents-assignment>
+
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] User says 'yeah' → IGNORE
+[t=0.3s] 🔊 audio chunk
+[t=0.4s] 🔊 audio chunk
+[t=0.4s] User says 'stop' → INTERRUPT
+
+--- END DEMO ---
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] User says 'yeah' → IGNORE
+[t=0.3s] 🔊 audio chunk
+[t=0.4s] 🔊 audio chunk
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] User says 'yeah' → IGNORE
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] User says 'yeah' → IGNORE
+[t=0.3s] 🔊 audio chunk
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] User says 'yeah' → IGNORE
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] User says 'yeah' → IGNORE
+[t=0.2s] 🔊 audio chunk
+[t=0.2s] 🔊 audio chunk
+[t=0.3s] 🔊 audio chunk
+[t=0.4s] 🔊 audio chunk
+[t=0.4s] User says 'stop' → INTERRUPT
+
+--- END DEMO ---
