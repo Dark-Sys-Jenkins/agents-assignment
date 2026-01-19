@@ -11,11 +11,14 @@ from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from opentelemetry import context as otel_context, trace
 
+import os
 from livekit import rtc
 from livekit.agents.llm.realtime import MessageGeneration
 from livekit.agents.metrics.base import Metadata
 
 from .. import llm, stt, tts, utils, vad
+from .interruption_logic import should_ignore_interruption
+
 from ..llm.tool_context import (
     StopResponse,
     ToolFlag,
@@ -1185,7 +1188,22 @@ class AgentActivity(RecognitionHooks):
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
                 return
 
+        # --- Intelligent Interruption Logic ---
+        # Check if the text matches the "Ignore List" (Backchanneling)
+        if self._audio_recognition and self._audio_recognition.current_transcript:
+            # Default list if env var is not set. Includes components of "uh-huh" to handle STT variations.
+            default_ignore = "yeah,ok,okay,hmm,uh-huh,uh,huh,right,sure,yep,yup"
+            ignore_words_str = os.getenv("LIVEKIT_IGNORE_WORDS", default_ignore)
+
+            ignore_words = [w.strip().lower() for w in ignore_words_str.split(",") if w.strip()]
+            
+            if should_ignore_interruption(self._audio_recognition.current_transcript, ignore_words):
+                logger.info(f"Ignoring interruption for input: '{self._audio_recognition.current_transcript}'")
+                return
+        # --------------------------------------
+
         if self._rt_session is not None:
+
             self._rt_session.start_user_activity()
 
         if (
@@ -1241,7 +1259,12 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
-            self._interrupt_by_audio_activity()
+            
+            # We disable VAD-based interruption to allow STT to filter out "ignored words" (backchanneling).
+            # If we interrupt here, we cut off the audio before we know what the user said.
+            # self._interrupt_by_audio_activity()
+            pass
+
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
@@ -1276,6 +1299,20 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        # ANTIGRAVITY: Core Challenge Logic
+        # If Agent is SPEAKING, and User says "Yeah" (Ignore word) -> FULLY IGNORE (Do not send to LLM)
+        # If Agent is SILENT, and User says "Yeah" -> Process as normal turn (Send to LLM)
+        is_speaking = self._current_speech is not None and not self._current_speech.done()
+        if is_speaking and self._audio_recognition and ev.alternatives and ev.alternatives[0].text:
+             # Default list if env var is not set
+            default_ignore = "yeah,ok,okay,hmm,uh-huh,uh,huh,right,sure,yep,yup"
+            ignore_words_str = os.getenv("LIVEKIT_IGNORE_WORDS", default_ignore)
+            ignore_words = [w.strip().lower() for w in ignore_words_str.split(",") if w.strip()]
+            
+            if should_ignore_interruption(ev.alternatives[0].text, ignore_words):
+                logger.info(f"Fully ignoring backchannel '{ev.alternatives[0].text}' while speaking.")
+                return
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
@@ -1284,6 +1321,7 @@ class AgentActivity(RecognitionHooks):
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
+
         # agent speech might not be interrupted if VAD failed and a final transcript is received
         # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
         # which will also be immediately interrupted

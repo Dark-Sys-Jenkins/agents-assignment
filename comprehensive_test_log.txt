@@ -1,0 +1,61 @@
+TEST RUN TIMESTAMP: 3.13.3 (tags/v3.13.3:6280bb5, Apr  8 2025, 14:47:33) [MSC v.1943 64 bit (AMD64)]
+TOTAL SCENARIOS: 54
+------------------------------------------------------------
+TRANSCRIPT                | EXPECTED   | ACTUAL     | RESULT
+------------------------------------------------------------
+Yeah                      | IGNORE     | IGNORE     | PASS
+ok                        | IGNORE     | IGNORE     | PASS
+OKAY                      | IGNORE     | IGNORE     | PASS
+Uh-huh                    | IGNORE     | IGNORE     | PASS
+Hmm                       | IGNORE     | IGNORE     | PASS
+Right                     | IGNORE     | IGNORE     | PASS
+Sure                      | IGNORE     | IGNORE     | PASS
+Yep                       | IGNORE     | IGNORE     | PASS
+Yup                       | IGNORE     | IGNORE     | PASS
+Gotcha                    | IGNORE     | IGNORE     | PASS
+Aha                       | IGNORE     | IGNORE     | PASS
+Mhmm                      | IGNORE     | IGNORE     | PASS
+Yeah.                     | IGNORE     | IGNORE     | PASS
+Ok!!!                     | IGNORE     | IGNORE     | PASS
+...hmm...                 | IGNORE     | IGNORE     | PASS
+Right?                    | IGNORE     | IGNORE     | PASS
+  Okay                    | IGNORE     | IGNORE     | PASS
+YeAH                      | IGNORE     | IGNORE     | PASS
+Yeah ok                   | IGNORE     | IGNORE     | PASS
+Right sure                | IGNORE     | IGNORE     | PASS
+Uh-huh okay               | IGNORE     | IGNORE     | PASS
+Hmm right yeah            | IGNORE     | IGNORE     | PASS
+Yep gotcha                | IGNORE     | IGNORE     | PASS
+Stop                      | INT        | INT        | PASS
+Wait                      | INT        | INT        | PASS
+Cancel                    | INT        | INT        | PASS
+No                        | INT        | INT        | PASS
+Hold on                   | INT        | INT        | PASS
+Pause                     | INT        | INT        | PASS
+Quit                      | INT        | INT        | PASS
+Silence                   | INT        | INT        | PASS
+Yeah but                  | INT        | INT        | PASS
+Okay wait                 | INT        | INT        | PASS
+Sure stop                 | INT        | INT        | PASS
+Right... no               | INT        | INT        | PASS
+Hmm actually              | INT        | INT        | PASS
+Uh-huh wait a sec         | INT        | INT        | PASS
+Yeah I have a question    | INT        | INT        | PASS
+Ok turn it off            | INT        | INT        | PASS
+Right but... wrong        | INT        | INT        | PASS
+Yep hold on               | INT        | INT        | PASS
+I don't understand        | INT        | INT        | PASS
+Can you repeat?           | INT        | INT        | PASS
+What was that?            | INT        | INT        | PASS
+Go back                   | INT        | INT        | PASS
+That is wrong             | INT        | INT        | PASS
+Change volume             | INT        | INT        | PASS
+Who are you?              | INT        | INT        | PASS
+Tell me more              | INT        | INT        | PASS
+Yeah...                   | IGNORE     | IGNORE     | PASS
+Okay!!!!!                 | IGNORE     | IGNORE     | PASS
+Yeah NO                   | INT        | INT        | PASS
+Um                        | INT        | INT        | PASS
+Well                      | INT        | INT        | PASS
+------------------------------------------------------------
+FINAL RESULT: 54/54 PASSED
