@@ -76,3 +76,7 @@ This directory contains a comprehensive collection of voice-based agent examples
 - [LiveKit Agents Documentation](https://docs.livekit.io/agents/)
 - [Agents Starter Example](https://github.com/livekit-examples/agent-starter-python)
 - [More Agents Examples](https://github.com/livekit-examples/python-agents-examples)
+
+
+## How to Run
+"This repository features an advanced AI voice agent, Kelly, built on the LiveKit Agents framework and integrated with Deepgram, GPT-4o-mini, and Cartesia to provide a natural and low-latency conversational experience. The project’s core innovation is an Intelligent Interruption Logic system that utilizes a custom-built "Logic Matrix" to differentiate between user inputs. By processing real-time transcripts through a state-aware event handler, the agent is engineered to ignore passive acknowledgments like "yeah" or "right" while it is speaking, ensuring an uninterrupted flow of information. Conversely, the system remains highly responsive to active commands such as "stop" or "wait," immediately halting speech to prioritize user control. This sophisticated balance between persistence and reactivity is achieved through case-insensitive text normalization and robust VAD (Voice Activity Detection) prewarming, resulting in a voice assistant that feels truly context-aware and human-like in its interaction."
