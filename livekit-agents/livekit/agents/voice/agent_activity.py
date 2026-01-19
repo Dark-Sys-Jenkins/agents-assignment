@@ -53,6 +53,7 @@ from .audio_recognition import (
     _EndOfTurnInfo,
     _PreemptiveGenerationInfo,
 )
+from .backchannel_filter import BackchannelFilter
 from .events import (
     AgentFalseInterruptionEvent,
     ErrorEvent,
@@ -141,6 +142,14 @@ class AgentActivity(RecognitionHooks):
 
         self._on_enter_task: asyncio.Task | None = None
         self._on_exit_task: asyncio.Task | None = None
+
+        # Initialize backchannel filter with custom ignore words from session options
+        ignore_words = (
+            list(self._session.options.backchannel_ignore_words)
+            if self._session.options.backchannel_ignore_words is not None
+            else None
+        )
+        self._backchannel_filter = BackchannelFilter(ignore_words=ignore_words)
 
         if (
             isinstance(self.llm, llm.RealtimeModel)
@@ -1174,12 +1183,33 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
+        # Check if agent is currently speaking
+        agent_is_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._session._agent_state == "speaking"
+        )
+
+        # Get current transcript if available
+        text = ""
+        if self._audio_recognition is not None:
+            text = self._audio_recognition.current_transcript
+
+        # Apply backchannel filter when agent is speaking and we have transcript text
+        if agent_is_speaking and text:
+            # Check if this should be ignored based on backchanneling filter
+            if not self._backchannel_filter.should_interrupt(text, agent_is_speaking=True):
+                # User input contains only filler words, ignore the interruption
+                return
+
+        # Existing min_interruption_words check
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
             and self._audio_recognition is not None
         ):
-            text = self._audio_recognition.current_transcript
+            if not text:
+                text = self._audio_recognition.current_transcript
 
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
@@ -1241,6 +1271,22 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
+            # Check if agent is speaking - if so, we need transcript text to apply backchannel filter
+            agent_is_speaking = (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._session._agent_state == "speaking"
+            )
+            
+            # If agent is speaking, check if we have transcript text
+            # VAD may trigger before STT has transcribed, so wait for interim transcript
+            if agent_is_speaking and self._audio_recognition is not None:
+                text = self._audio_recognition.current_transcript
+                if not text or not text.strip():
+                    # No transcript yet, wait for interim transcript to make decision
+                    # The interruption will be handled in on_interim_transcript()
+                    return
+            
             self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
@@ -1261,6 +1307,21 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # Check backchannel filter before interrupting
+            # This handles the case where VAD triggered before STT had text
+            agent_is_speaking = (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._session._agent_state == "speaking"
+            )
+            
+            if agent_is_speaking:
+                transcript_text = ev.alternatives[0].text
+                # Apply backchannel filter - if only filler words, don't interrupt
+                if not self._backchannel_filter.should_interrupt(transcript_text, agent_is_speaking=True):
+                    # User input contains only filler words, ignore the interruption
+                    return
+            
             self._interrupt_by_audio_activity()
 
             if (
@@ -1292,6 +1353,20 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # Check backchannel filter before interrupting
+            agent_is_speaking = (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._session._agent_state == "speaking"
+            )
+            
+            if agent_is_speaking:
+                transcript_text = ev.alternatives[0].text
+                # Apply backchannel filter - if only filler words, don't interrupt
+                if not self._backchannel_filter.should_interrupt(transcript_text, agent_is_speaking=True):
+                    # User input contains only filler words, ignore the interruption
+                    return
+            
             self._interrupt_by_audio_activity()
 
             if (
