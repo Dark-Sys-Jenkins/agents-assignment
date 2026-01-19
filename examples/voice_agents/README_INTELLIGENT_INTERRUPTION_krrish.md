@@ -92,7 +92,7 @@ This satisfies the latency requirement of the assignment.
 - **pyttsx3** – local, offline text-to-speech
 - **AsyncIO** – non-blocking concurrency
 
-No LLM is used for the interruption logic.
+No LLM is used for the interruption logic. An LLM would increase network and tokenization latency and reduce determinism for a task that explicitly requires neither.
 
 ---
 
