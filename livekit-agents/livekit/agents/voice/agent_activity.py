@@ -27,6 +27,7 @@ from ..llm.tool_context import (
     is_raw_function_tool,
 )
 from ..log import logger
+from .interrupt_handler import InterruptHandler, create_interrupt_handler_from_env
 from ..metrics import (
     EOUMetrics,
     LLMMetrics,
@@ -141,6 +142,9 @@ class AgentActivity(RecognitionHooks):
 
         self._on_enter_task: asyncio.Task | None = None
         self._on_exit_task: asyncio.Task | None = None
+
+        # Initialize the smart interrupt handler
+        self._interrupt_handler = create_interrupt_handler_from_env()
 
         if (
             isinstance(self.llm, llm.RealtimeModel)
@@ -287,6 +291,13 @@ class AgentActivity(RecognitionHooks):
     @property
     def current_speech(self) -> SpeechHandle | None:
         return self._current_speech
+
+    @property
+    def agent_is_speaking(self) -> bool:
+        """Check if the agent is currently generating or playing audio."""
+        if self._current_speech is None:
+            return False
+        return not self._current_speech.done()
 
     @property
     def tools(self) -> list[llm.FunctionTool | llm.RawFunctionTool | mcp.MCPTool]:
@@ -1180,6 +1191,15 @@ class AgentActivity(RecognitionHooks):
             and self._audio_recognition is not None
         ):
             text = self._audio_recognition.current_transcript
+
+            # Smart interrupt handler: check if this is just backchanneling
+            if self._interrupt_handler.should_ignore_for_backchanneling(
+                text, self.agent_is_speaking
+            ):
+                logger.debug(
+                    f"Ignoring backchanneling input: '{text}' (agent_is_speaking={self.agent_is_speaking})"
+                )
+                return
 
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
