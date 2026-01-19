@@ -76,6 +76,56 @@ from .generation import (
 )
 from .speech_handle import SpeechHandle
 
+
+_COMMAND_KEYWORDS = {
+    "stop",
+    "wait",
+    "pause",
+    "no",
+    "halt",
+    "hold",
+    "dont",
+    "don't",
+}
+def _normalize_token(tok: str) -> str:
+    """Lowercase and strip common punctuation from a token for comparison."""
+    return tok.lower().strip("\"'.,!?;:-()")
+
+
+def _is_filler_only(text: str, filler_words: list[str]) -> bool:
+    """Return True if the provided transcript consists only of filler words.
+    Uses `split_words` to handle character-based languages; compares normalized
+    token text against a normalized filler set. Empty transcripts return False.
+    """
+    if not text:
+        return False
+
+    words = split_words(text, split_character=True)
+    if not words:
+        return False
+
+    filler_set = {_normalize_token(w) for w in filler_words}
+    for w in words:
+        token = _normalize_token(w[0])
+        if token == "":
+            return False
+        if token not in filler_set:
+            return False
+
+    return True
+
+def _contains_command_word(text: str) -> bool:
+    """Return True if any token in `text` matches a command keyword."""
+    if not text:
+        return False
+
+    words = split_words(text, split_character=True)
+    for w in words:
+        token = _normalize_token(w[0])
+        if token in _COMMAND_KEYWORDS:
+            return True
+    return False
+
 if TYPE_CHECKING:
     from ..llm import mcp
     from .agent_session import AgentSession
@@ -1109,13 +1159,28 @@ class AgentActivity(RecognitionHooks):
         if self.vad is None:
             self._session._update_user_state("speaking")
 
-        # self.interrupt() is going to raise when allow_interruptions is False, llm.InputSpeechStartedEvent is only fired by the server when the turn_detection is enabled.  # noqa: E501
-        # When using the server-side turn_detection, we don't allow allow_interruptions to be False.
+        # Historically we called `self.interrupt()` immediately on this event.
+        # That causes an immediate pause even when the user's utterance is a
+        # single filler word (e.g., "yeah") and no STT transcript is yet
+        # available. To avoid spurious interruptions, only perform the
+        # immediate interrupt for the server-side realtime model when either:
+        #  - the agent is not currently speaking, or
+        #  - STT is not available (so we cannot validate the transcript content).
+        # Otherwise, defer interruption until we have a transcript (interim/final)
+        # which can be validated against filler/command checks.
+        
         try:
-            self.interrupt()  # input_speech_started is also interrupting on the serverside realtime session  # noqa: E501
+            if not (self._session.agent_state == "speaking" and self.stt is not None):
+                # safe to interrupt immediately
+                self.interrupt()  # input_speech_started may interrupt on server-side realtime sessions
+            else:
+                logger.debug(
+                    "deferring interrupt on input_speech_started until STT transcript is available",
+                    extra={"agent_state": self._session.agent_state},
+                )
         except RuntimeError:
             logger.exception(
-                "RealtimeAPI input_speech_started, but current speech is not interruptable, this should never happen!"  # noqa: E501
+                "RealtimeAPI input_speech_started, but current speech is not interruptable, this should never happen!"
             )
 
     def _on_input_speech_stopped(self, ev: llm.InputSpeechStoppedEvent) -> None:
@@ -1173,7 +1238,29 @@ class AgentActivity(RecognitionHooks):
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
             # ignore if realtime model has turn detection enabled
             return
-
+        
+        # If the agent is speaking and STT is enabled, prefer STT transcript
+        # over raw VAD activity — ignore VAD-only events unless there is a
+        # transcript that is either non-filler or contains a command word.
+        if (
+            self._session.agent_state == "speaking"
+            and self.stt is not None
+            and self._audio_recognition is not None
+        ):
+            cur = (self._audio_recognition.current_transcript or "").strip()
+            if not cur:
+                # no transcript yet — ignore this VAD-triggered interruption
+                return
+            # if contains a command word, allow interrupt
+            if _contains_command_word(cur):
+                logger.debug("VAD event with command in transcript, allowing interrupt", extra={"transcript": cur})
+                pass
+            else:
+                # if it's filler-only, ignore
+                if _is_filler_only(cur, opt.filler_words):
+                    logger.debug("VAD event ignored: transcript is filler-only", extra={"transcript": cur})
+                    return
+                
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
@@ -1185,6 +1272,24 @@ class AgentActivity(RecognitionHooks):
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
                 return
 
+        # Check if agent is speaking and user input contains only filler words
+        # or contains an explicit command word. Only apply filler-ignore while
+        # the agent is actively speaking.
+        if self._session.agent_state == "speaking" and self._audio_recognition is not None:
+            text = (self._audio_recognition.current_transcript or "").strip()
+            if text:
+                # If the user utterance contains a command keyword, treat it as
+                # a semantic interruption and proceed to interrupt.
+                if _contains_command_word(text):
+                    logger.debug("user utterance contains command word, will interrupt", extra={"transcript": text})
+                    pass
+                else:
+                    # If the utterance is only filler words, ignore it while the
+                    # agent is speaking.
+                    if _is_filler_only(text, opt.filler_words):
+                        logger.debug("ignoring filler-only utterance while speaking", extra={"transcript": text})
+                        return
+                    
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
 
@@ -2583,7 +2688,11 @@ class AgentActivity(RecognitionHooks):
             return
 
         if not self._paused_speech.interrupted and self._paused_speech.allow_interruptions:
-            await self._paused_speech.interrupt()  # ensure the speech is done
+            # mark the paused speech as interrupted immediately; do not await the
+            # SpeechHandle because awaiting would wait for playout to finish
+            # (SpeechHandle.__await__ waits for playout) which blocks when
+            # the audio is currently paused and prevents resuming/cleanup.
+            self._paused_speech.interrupt()
         self._paused_speech = None
 
         if self._session.options.resume_false_interruption and self._session.output.audio:
