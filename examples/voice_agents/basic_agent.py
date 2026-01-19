@@ -1,5 +1,5 @@
 import logging
-
+import asyncio
 from dotenv import load_dotenv
 
 from livekit.agents import (
@@ -8,124 +8,130 @@ from livekit.agents import (
     AgentSession,
     JobContext,
     JobProcess,
-    MetricsCollectedEvent,
-    RunContext,
     cli,
-    metrics,
     room_io,
 )
-from livekit.agents.llm import function_tool
+from livekit.agents.llm import ChatContext, ChatMessage, StopResponse
+from livekit.agents.voice import UserInputTranscribedEvent
 from livekit.plugins import silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-# uncomment to enable Krisp background voice/noise cancellation
-# from livekit.plugins import noise_cancellation
-
+load_dotenv()
 logger = logging.getLogger("basic-agent")
 
-load_dotenv()
+# -------------------------
+# Backchannel logic
+# -------------------------
 
+SOFT_WORDS = {
+    "yeah", "yep", "yes", "yup", "ok", "okay", "right",
+    "uh-huh", "hmm", "sure", "got it", "mhm",
+    "ah", "oh", "i see",
+}
+
+def normalize(text: str) -> str:
+    return (
+        text.lower()
+        .replace(".", "")
+        .replace(",", "")
+        .replace("!", "")
+        .replace("?", "")
+        .strip()
+    )
+
+def should_interrupt(text: str) -> bool:
+    clean = normalize(text)
+    if not clean:
+        return False
+    words = clean.split()
+    # Interrupt if ANY word is NOT a soft word
+    return any(word not in SOFT_WORDS for word in words)
+
+
+# -------------------------
+# Agent
+# -------------------------
 
 class MyAgent(Agent):
     def __init__(self) -> None:
         super().__init__(
-            instructions="Your name is Kelly. You would interact with users via voice."
-            "with that in mind keep your responses concise and to the point."
-            "do not use emojis, asterisks, markdown, or other special characters in your responses."
-            "You are curious and friendly, and have a sense of humor."
-            "you will speak english to the user",
+            instructions=(
+                "Your name is Kelly. You are a helpful voice assistant. "
+                "Speak clearly and naturally. Keep responses concise."
+            ),
         )
+        self._was_speaking_during_input = False
 
-    async def on_enter(self):
-        # when the agent is added to the session, it'll generate a reply
-        # according to its instructions
-        self.session.generate_reply()
+    def set_context(self, was_speaking: bool):
+        self._was_speaking_during_input = was_speaking
 
-    # all functions annotated with @function_tool will be passed to the LLM when this
-    # agent is active
-    @function_tool
-    async def lookup_weather(
-        self, context: RunContext, location: str, latitude: str, longitude: str
-    ):
-        """Called when the user asks for weather related information.
-        Ensure the user's location (city or region) is provided.
-        When given a location, please estimate the latitude and longitude of the location and
-        do not ask the user for them.
+    async def on_user_completed(
+        self,
+        turn_ctx: ChatContext,
+        new_message: ChatMessage,
+    ) -> None:
+        user_text = (new_message.text_content or "").strip()
 
-        Args:
-            location: The location they are asking for
-            latitude: The latitude of the location, do not ask user for it
-            longitude: The longitude of the location, do not ask user for it
-        """
+        # Ignore backchannels ONLY if agent was speaking
+        if self._speaking_during_input and not should_interrupt(user_text):
+            logger.info(f"IGNORING BACKCHANNEL: '{user_text}'")
+            self._speaking_during_input = False
+            raise StopResponse()
 
-        logger.info(f"Looking up weather for {location}")
+        # Otherwise accept normally
+        self._speaking_during_input = False
+        logger.info(f"ACCEPTED INPUT: '{user_text}'")
 
-        return "sunny with a temperature of 70 degrees."
 
+# -------------------------
+# Server
+# -------------------------
 
 server = AgentServer()
 
-
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
-
 
 server.setup_fnc = prewarm
 
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext):
-    # each log entry will include these fields
-    ctx.log_context_fields = {
-        "room": ctx.room.name,
-    }
     session = AgentSession(
-        # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
+        # REQUIRED MODELS (DO NOT REMOVE)
         stt="deepgram/nova-3",
-        # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-        # See all available models at https://docs.livekit.io/agents/models/llm/
         llm="openai/gpt-4.1-mini",
-        # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-        # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-        # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
-        # See more at https://docs.livekit.io/agents/build/turns
-        turn_detection=MultilingualModel(),
+
         vad=ctx.proc.userdata["vad"],
-        # allow the LLM to generate a response while waiting for the end of turn
-        # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
+        turn_detection=MultilingualModel(),
+
+        # REQUIRED FOR CHAT VISIBILITY
         preemptive_generation=True,
-        # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
-        # when it's detected, you may resume the agent's speech
-        resume_false_interruption=True,
-        false_interruption_timeout=1.0,
+
+        # CRITICAL FOR CHALLENGE
+        allow_interruptions=False,
+        discard_audio_if_uninterruptible=False,
     )
 
-    # log metrics as they are emitted, and total usage after session is over
-    usage_collector = metrics.UsageCollector()
+    agent = MyAgent()
 
-    @session.on("metrics_collected")
-    def _on_metrics_collected(ev: MetricsCollectedEvent):
-        metrics.log_metrics(ev.metrics)
-        usage_collector.collect(ev.metrics)
+    @session.on("user_input_transcribed")
+    def on_transcribed(ev: UserInputTranscribedEvent):
+        if not ev.is_final:
+            return
 
-    async def log_usage():
-        summary = usage_collector.get_summary()
-        logger.info(f"Usage: {summary}")
+        is_speaking = session.current_speech is not None
+        agent.set_context(is_speaking)
 
-    # shutdown callbacks are triggered when the session is over
-    ctx.add_shutdown_callback(log_usage)
+        if is_speaking and should_interrupt(ev.transcript):
+            logger.info(f"HARD INTERRUPT: '{ev.transcript}'")
+            asyncio.ensure_future(session.interrupt(force=True))
 
     await session.start(
-        agent=MyAgent(),
+        agent=agent,
         room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                # uncomment to enable the Krisp BVC noise cancellation
-                # noise_cancellation=noise_cancellation.BVC(),
-            ),
-        ),
+        room_options=room_io.RoomOptions(),
     )
 
 
