@@ -75,6 +75,7 @@ from .generation import (
     update_instructions,
 )
 from .speech_handle import SpeechHandle
+from .backchannel_handler import BackchannelHandler
 
 if TYPE_CHECKING:
     from ..llm import mcp
@@ -125,7 +126,14 @@ class AgentActivity(RecognitionHooks):
         self._paused_speech: SpeechHandle | None = None
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
-
+        
+        self._backchannel_handler = BackchannelHandler(
+            backchannel_words=sess.options.backchannel_words,
+            interrupt_commands=sess.options.interrupt_commands,
+        )
+        self._pending_vad_event: vad.VADEvent | None = None
+        self._agent_asked_question: bool = False
+        # event
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
         self._q_updated = asyncio.Event()
@@ -1241,7 +1249,11 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
-            self._interrupt_by_audio_activity()
+            #self._interrupt_by_audio_activity()
+            if self._session.options.ignore_backchanneling:
+                self._pending_vad_event = ev
+            else:
+                self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
@@ -1261,6 +1273,15 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            if self._session.options.ignore_backchanneling:
+                self._pending_vad_event = None
+                decision = self._backchannel_handler.should_interrupt(
+                    transcript=ev.alternatives[0].text,
+                    agent_is_speaking=(self._session.agent_state == "speaking"),
+                    agent_asked_question=self._agent_asked_question,
+                )
+                if not decision.should_interrupt:
+                    return
             self._interrupt_by_audio_activity()
 
             if (
@@ -1271,10 +1292,29 @@ class AgentActivity(RecognitionHooks):
                 # schedule a resume timer if interrupted after end_of_speech
                 self._start_false_interruption_timer(timeout)
 
-    def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> None:
+    def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> bool:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
-            return
+            return True
+
+        self._pending_vad_event = None
+
+        if (
+            self._session.options.ignore_backchanneling
+            and self._audio_recognition
+            and self._turn_detection not in ("manual", "realtime_llm")
+        ):
+            decision = self._backchannel_handler.should_interrupt(
+                transcript=ev.alternatives[0].text,
+                agent_is_speaking=(self._session.agent_state == "speaking"),
+                agent_asked_question=self._agent_asked_question,
+            )
+
+            if not decision.should_interrupt:
+                return False
+
+            if decision.reason == "question_response_detected":
+                self._agent_asked_question = False
 
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
@@ -1305,6 +1345,8 @@ class AgentActivity(RecognitionHooks):
         self._interrupt_paused_speech_task = asyncio.create_task(
             self._interrupt_paused_speech(old_task=self._interrupt_paused_speech_task)
         )
+        
+        return True
 
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None:
         if (
@@ -1712,7 +1754,8 @@ class AgentActivity(RecognitionHooks):
         _previous_tools_messages: Sequence[llm.FunctionCall | llm.FunctionCallOutput] | None = None,
     ) -> None:
         from .agent import ModelSettings
-
+        
+        self._agent_asked_question = False
         current_span = trace.get_current_span()
         current_span.set_attribute(trace_types.ATTR_SPEECH_ID, speech_handle.id)
         if instructions is not None:
@@ -1814,6 +1857,8 @@ class AgentActivity(RecognitionHooks):
             async for chunk in llm_output:
                 if isinstance(chunk, FlushSentinel):
                     continue
+                if "?" in chunk:
+                    self._agent_asked_question = True
                 yield chunk
 
         tr_node = self._agent.transcription_node(_read_text(tr_input), model_settings)
@@ -2119,6 +2164,7 @@ class AgentActivity(RecognitionHooks):
         model_settings: ModelSettings,
         instructions: str | None = None,
     ) -> None:
+        self._agent_asked_question = False
         current_span = trace.get_current_span()
         current_span.set_attribute(trace_types.ATTR_SPEECH_ID, speech_handle.id)
 
