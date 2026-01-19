@@ -1,0 +1,203 @@
+Smart Interrupt Agent – Demo Logs
+--------------------------------
+Environment: Windows + Python (venv)
+Execution: Manual terminal capture
+Purpose: Validate intelligent interruption handling
+
+Scenarios covered:
+- Backchannel ignored during speech
+- Question during speaking (intent detected)
+- Polite interruption
+- State-based interruption resolution
+
+🚀 Starting demonstration...
+
+
+============================================================
+🎯 INTELLIGENT INTERRUPTION HANDLER DEMO
+============================================================
+[HANDLER] 🚀 Initialized with 25 backchannel words
+[HANDLER] 🚀 Monitoring 18 command words
+
+📚 Loaded Configuration:
+   • 25 backchannel words
+   • 18 command words
+   • 0.5s STT grace period
+
+============================================================
+📋 Scenario: The Long Explanation
+============================================================
+Agent State: 🗣️  SPEAKING
+User Says: "yeah"
+[STATE] 🗣️  Agent started speaking at 1768816620.135
+[STATE] 🎤 Registered potential interruption: b44b0be8-8768-4bef-b201-98c54a691eec
+[HANDLER] 🎧 User speech detected, waiting for transcription... (event: b44b0be8)
+[STATE] 📝 Updated interruption b44b0be8-8768-4bef-b201-98c54a691eec with text: 'yeah'
+[HANDLER] ✅ IGNORE: 'yeah' (backchannel, agent still speaking)
+[STATE] ✅ Resolved b44b0be8-8768-4bef-b201-98c54a691eec: IGNORE (text: 'yeah')
+
+📊 Decision: ✅ IGNORE/CONTINUE
+   → Agent continues speaking (backchannel ignored)
+
+💡 Reasoning:
+   • Pure backchannel - ignore during speech
+[STATE] 🔇 Agent stopped speaking (duration: 0.119s)
+[HANDLER] ✓ STT completed before timeout for b44b0be8
+
+============================================================
+📋 Scenario: The Passive Affirmation
+============================================================
+Agent State: 🔇 SILENT
+User Says: "yeah"
+[STATE] 🔇 Agent stopped speaking (duration: 0.181s)
+[STATE] 🎤 Registered potential interruption: 946b7b5c-db3b-499c-a261-d843c75656f3
+[HANDLER] 🎧 User speech detected, waiting for transcription... (event: 946b7b5c)
+[STATE] 📝 Updated interruption 946b7b5c-db3b-499c-a261-d843c75656f3 with text: 'yeah'
+[HANDLER] 💬 PROCESS: 'yeah' (agent was silent)
+[STATE] ⛔ Resolved 946b7b5c-db3b-499c-a261-d843c75656f3: INTERRUPT (text: 'yeah')
+
+📊 Decision: ⛔ INTERRUPT
+   → Agent will stop and process user input
+
+💡 Reasoning:
+   • Agent was silent - always process input
+[STATE] 🔇 Agent stopped speaking (duration: 0.292s)
+[HANDLER] ✓ STT completed before timeout for 946b7b5c
+
+============================================================
+📋 Scenario: The Correction
+============================================================
+Agent State: 🗣️  SPEAKING
+User Says: "no stop"
+[STATE] 🗣️  Agent started speaking at 1768816620.488
+[STATE] 🎤 Registered potential interruption: 5d8dff7d-2552-412a-bdff-a09ad577461a
+[HANDLER] 🎧 User speech detected, waiting for transcription... (event: 5d8dff7d)
+[STATE] 📝 Updated interruption 5d8dff7d-2552-412a-bdff-a09ad577461a with text: 'no stop'
+[HANDLER] ⛔ INTERRUPT: 'no stop' (agent was speaking)
+[STATE] ⛔ Resolved 5d8dff7d-2552-412a-bdff-a09ad577461a: INTERRUPT (text: 'no stop')
+
+📊 Decision: ⛔ INTERRUPT
+   → Agent will stop and process user input
+[STATE] 🛑 Force stopping agent speech
+
+💡 Reasoning:
+   • Contains command word(s)
+[STATE] 🔇 Agent stopped speaking (duration: 0.109s)
+[HANDLER] ✓ STT completed before timeout for 5d8dff7d
+
+============================================================
+📋 Scenario: The Mixed Input
+============================================================
+Agent State: 🗣️  SPEAKING
+User Says: "yeah okay but wait"
+[STATE] 🗣️  Agent started speaking at 1768816620.659
+[STATE] 🎤 Registered potential interruption: 81b425d2-0b3e-4180-9d1f-df8a132ea097
+[HANDLER] 🎧 User speech detected, waiting for transcription... (event: 81b425d2)
+[STATE] 📝 Updated interruption 81b425d2-0b3e-4180-9d1f-df8a132ea097 with text: 'yeah okay but wait'
+[HANDLER] ⛔ INTERRUPT: 'yeah okay but wait' (agent was speaking)
+[STATE] ⛔ Resolved 81b425d2-0b3e-4180-9d1f-df8a132ea097: INTERRUPT (text: 'yeah okay but wait')
+
+📊 Decision: ⛔ INTERRUPT
+   → Agent will stop and process user input
+[STATE] 🛑 Force stopping agent speech
+
+💡 Reasoning:
+   • Contains command word(s)
+[STATE] 🔇 Agent stopped speaking (duration: 0.111s)
+[HANDLER] ✓ STT completed before timeout for 81b425d2
+
+============================================================
+📋 Scenario: Multiple Backchannels
+============================================================
+Agent State: 🗣️  SPEAKING
+User Says: "ok hmm right"
+[STATE] 🗣️  Agent started speaking at 1768816620.830
+[STATE] 🎤 Registered potential interruption: 5ac6d075-5ad2-47b4-a5c4-3e7a3b1492af
+[HANDLER] 🎧 User speech detected, waiting for transcription... (event: 5ac6d075)
+[STATE] 📝 Updated interruption 5ac6d075-5ad2-47b4-a5c4-3e7a3b1492af with text: 'ok hmm right'
+[HANDLER] ✅ IGNORE: 'ok hmm right' (backchannel, agent still speaking)
+[STATE] ✅ Resolved 5ac6d075-5ad2-47b4-a5c4-3e7a3b1492af: IGNORE (text: 'ok hmm right')
+
+📊 Decision: ✅ IGNORE/CONTINUE
+   → Agent continues speaking (backchannel ignored)
+
+💡 Reasoning:
+   • Pure backchannel - ignore during speech
+[STATE] 🔇 Agent stopped speaking (duration: 0.112s)
+[HANDLER] ✓ STT completed before timeout for 5ac6d075
+
+============================================================
+📋 Scenario: Question While Speaking
+============================================================
+Agent State: 🗣️  SPEAKING
+User Says: "what about the other option"
+[STATE] 🗣️  Agent started speaking at 1768816621.003
+[STATE] 🎤 Registered potential interruption: ad767125-e206-4b43-9d47-6dbdadd928ce
+[HANDLER] 🎧 User speech detected, waiting for transcription... (event: ad767125)
+[STATE] 📝 Updated interruption ad767125-e206-4b43-9d47-6dbdadd928ce with text: 'what about the other option'
+[HANDLER] ⛔ INTERRUPT: 'what about the other option' (agent was speaking)
+[STATE] ⛔ Resolved ad767125-e206-4b43-9d47-6dbdadd928ce: INTERRUPT (text: 'what about the other option')
+
+📊 Decision: ⛔ INTERRUPT
+   → Agent will stop and process user input
+[STATE] 🛑 Force stopping agent speech
+
+💡 Reasoning:
+   • Multiple words (5) - likely has intent
+[STATE] 🔇 Agent stopped speaking (duration: 0.112s)
+[HANDLER] ✓ STT completed before timeout for ad767125
+
+============================================================
+📋 Scenario: Polite Interruption
+============================================================
+Agent State: 🗣️  SPEAKING
+User Says: "excuse me"
+[STATE] 🗣️  Agent started speaking at 1768816621.176
+[STATE] 🎤 Registered potential interruption: 48947563-08cc-45ee-9062-267038d48470
+[HANDLER] 🎧 User speech detected, waiting for transcription... (event: 48947563)
+[STATE] 📝 Updated interruption 48947563-08cc-45ee-9062-267038d48470 with text: 'excuse me'
+[HANDLER] ⛔ INTERRUPT: 'excuse me' (agent was speaking)
+[STATE] ⛔ Resolved 48947563-08cc-45ee-9062-267038d48470: INTERRUPT (text: 'excuse me')
+
+📊 Decision: ⛔ INTERRUPT
+   → Agent will stop and process user input
+[STATE] 🛑 Force stopping agent speech
+
+💡 Reasoning:
+   • Contains command word(s)
+[STATE] 🔇 Agent stopped speaking (duration: 0.115s)
+[HANDLER] ✓ STT completed before timeout for 48947563
+
+============================================================
+📋 Scenario: Short Answer When Silent
+============================================================
+Agent State: 🔇 SILENT
+User Says: "ok"
+[STATE] 🔇 Agent stopped speaking (duration: 0.176s)
+[STATE] 🎤 Registered potential interruption: 48116055-0a13-4f16-afd5-97abbab8caf5
+[HANDLER] 🎧 User speech detected, waiting for transcription... (event: 48116055)
+[STATE] 📝 Updated interruption 48116055-0a13-4f16-afd5-97abbab8caf5 with text: 'ok'
+[HANDLER] 💬 PROCESS: 'ok' (agent was silent)
+[STATE] ⛔ Resolved 48116055-0a13-4f16-afd5-97abbab8caf5: INTERRUPT (text: 'ok')
+
+📊 Decision: ⛔ INTERRUPT
+   → Agent will stop and process user input
+
+💡 Reasoning:
+   • Agent was silent - always process input
+[STATE] 🔇 Agent stopped speaking (duration: 0.284s)
+[HANDLER] ✓ STT completed before timeout for 48116055
+
+============================================================
+✅ Demo Complete!
+============================================================
+
+📊 Final State:
+   • state: idle
+   • is_speaking: False
+   • pending_interruptions: 0
+   • last_speech_duration: 0.2838253974914551
+   • time_since_last_interruption: 0.0645132064819336
+[HANDLER] 🧹 Cleaning up 0 pending tasks
+
+👋 Demo finished. Check the output above to see how decisions are made.
