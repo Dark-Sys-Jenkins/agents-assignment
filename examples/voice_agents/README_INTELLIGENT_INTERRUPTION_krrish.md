@@ -7,18 +7,6 @@ The primary goal is to ensure that **filler words never interrupt the agent whil
 
 ---
 
-## Core Idea
-
-The agent does **not** rely on raw audio activity (VAD) to decide interruptions.  
-Instead, it uses a **semantic gating layer** built on top of finalized Speech-to-Text (STT) results.
-
-This prevents false interruptions caused by:
-- short acknowledgements,
-- background noise,
-- brief vocal confirmations.
-
----
-
 ## Features
 
 - **Context-Aware Interruption Logic**  
@@ -30,26 +18,15 @@ This prevents false interruptions caused by:
 - **Zero-Hiccup Backchannel Handling**  
   Passive words such as “yeah”, “ok”, or “uh-huh” are ignored *without pausing, stuttering, or restarting audio*.
 
-- **Immediate Hard Interruption**  
-  Explicit or mixed commands (e.g., “stop”, “yeah wait”) interrupt speech (delay < 1000ms).
-
 - **Pause–Resume with State Memory**  
   The agent stores its current playback position and resumes from the correct frame when instructed.
-
-- **Repeat / Restart Support**  
-  Commands such as “repeat” or “start again” always restart speech from the beginning, regardless of current position.
 
 - **Frame-Level Audio Control**  
   Speech is streamed as PCM frames, enabling precise interruption without buffer corruption.
 
-- **Configurable Ignore List**  
-  Ignored (filler) words can be modified easily.
+- **Configurable Words List**  
+  All types of words can be modified easily.
 
-- **Fully Local TTS (Offline-Safe)**  
-  Uses `pyttsx3` for deterministic, offline text-to-speech generation.
-
-- **Additional bridging sentence** 
-  To make converation more natural agent will add "Alright. I hope you understood till now. Continuing..." or anything similar. 
 ---
 
 ## High-Level Flow
@@ -82,10 +59,9 @@ The agent follows strict, state-dependent rules:
 
 | User Input | Agent State | Action | Reason |
 |-----------|------------|--------|--------|
-| "yeah", "ok", "hmm" | Speaking | IGNORE | Passive backchannel |
-| "stop", "wait" | Speaking | INTERRUPT | Explicit command |
-| "yeah wait" | Speaking | INTERRUPT | Contains non-filler word |
-| "yeah" | Silent | PROCESS | Valid conversational input |
+| filler words | Speaking | IGNORE | Passive backchannel |
+| hard words | Speaking | INTERRUPT | Explicit command |
+| compound words (including hard + filler words) | Speaking | INTERRUPT | Contains non-filler word |
 
 This logic ensures **no pauses, hiccups, or restarts** occur due to filler words.
 
@@ -99,7 +75,7 @@ Interrupting based on VAD alone would cause false stops.
 To avoid this:
 - VAD is **not used** to interrupt speech.
 - Interruption decisions are made **only after STT text is finalized**.
-- The delay is imperceptible and remains real-time.
+- The delay is imperceptible and remains real-time (delay < 1000ms).
 
 This satisfies the latency requirement of the assignment.
 
@@ -171,4 +147,4 @@ The logic can be verified against the following test cases:
 
 ## Video Link
 https://drive.google.com/file/d/1uLiqhjhvFoRPE2KmiZFDXJj2T_vvJc59/view?usp=sharing
-(Link attached covers all the test cases mentioned in the assignment)
+(Video attached covers all the test cases mentioned in the assignment)
