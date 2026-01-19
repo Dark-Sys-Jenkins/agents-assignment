@@ -1174,16 +1174,27 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
-        if (
-            self.stt is not None
-            and opt.min_interruption_words > 0
-            and self._audio_recognition is not None
-        ):
-            text = self._audio_recognition.current_transcript
+        if self.stt is not None and self._audio_recognition is not None:
+            # check for interruption ignore list
+            ignore_list = self._agent.interruption_ignore_list
+            if is_given(ignore_list) and ignore_list:
+                text = self._audio_recognition.current_transcript
+                if not text.strip():
+                    # wait for stt transcript
+                    return
 
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
-                return
+                # split_words returns list[(word, start, end)]
+                words = [w[0].lower() for w in split_words(text.lower(), split_character=True)]
+                ignored_words = {w.lower() for w in ignore_list}
+                if all(w in ignored_words for w in words):
+                    return
+
+            if opt.min_interruption_words > 0:
+                text = self._audio_recognition.current_transcript
+
+                # TODO(long): better word splitting for multi-language
+                if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                    return
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
@@ -1364,6 +1375,23 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(theomonnom): should we "forward" this new turn to the next agent/activity?
             return True
+
+        # check for interruption ignore list
+        ignore_list = self._agent.interruption_ignore_list
+        if (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and is_given(ignore_list)
+            and ignore_list
+        ):
+            words = [
+                w[0].lower()
+                for w in split_words(info.new_transcript.lower(), split_character=True)
+            ]
+            ignored_words = {w.lower() for w in ignore_list}
+            if all(w in ignored_words for w in words):
+                self._cancel_preemptive_generation()
+                return True
 
         if (
             self.stt is not None

@@ -10,7 +10,6 @@ livekit-plugins-aws = { workspace = true }
 livekit-plugins-azure = { workspace = true }
 livekit-plugins-baseten = { workspace = true }
 livekit-plugins-bey = { workspace = true }
-livekit-plugins-bithuman = { workspace = true }
 livekit-plugins-cartesia = { workspace = true }
 livekit-plugins-clova = { workspace = true }
 livekit-plugins-deepgram = { workspace = true }
@@ -53,6 +52,7 @@ members = ["livekit-plugins/*", "livekit-agents"]
 exclude = [
     "livekit-plugins/livekit-plugins-browser",
     "livekit-plugins/livekit-blingfire",
+    "livekit-plugins/livekit-plugins-bithuman",
 ]
 
 [dependency-groups]
@@ -65,6 +65,7 @@ dev = [
     "jiwer>=3.1.0",
     "scipy>=1.13.1",
     "tiktoken>=0.9.0",
+    "pyaudio>=0.2.14",
 ]
 docs = ["pdoc3", "setuptools"]
 

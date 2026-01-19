@@ -1,0 +1,14 @@
+2026-01-17 15:45:10,337 INFO: --- Starting Proof Demo ---
+2026-01-17 15:45:10,341 INFO: 
+[Scene 1] Agent ignores 'yeah' while speaking
+2026-01-17 15:45:10,344 INFO: Running session...
+2026-01-17 15:45:10,350 INFO: livekit_ffi::server:139:livekit_ffi::server - initializing ffi server v0.12.42
+2026-01-17 15:45:10,351 INFO: livekit_ffi::cabi:50:livekit_ffi::cabi - initializing ffi server v0.12.42
+2026-01-17 15:45:10,358 WARNING: resume_false_interruption is enabled but audio output does not support pause, it will be ignored
+2026-01-17 15:45:13,011 INFO: 
+[Scene 2] Agent stops for 'stop'
+2026-01-17 15:45:13,014 WARNING: resume_false_interruption is enabled but audio output does not support pause, it will be ignored
+2026-01-17 15:45:15,148 INFO: 
+[Scene 3] Agent responds to 'yeah' when silent
+2026-01-17 15:45:15,150 WARNING: resume_false_interruption is enabled but audio output does not support pause, it will be ignored
+2026-01-17 15:45:16,694 INFO: --- Proof Demo Completed ---

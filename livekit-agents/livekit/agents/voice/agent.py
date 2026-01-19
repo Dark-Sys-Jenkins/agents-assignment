@@ -56,6 +56,7 @@ class Agent:
         use_tts_aligned_transcript: NotGivenOr[bool] = NOT_GIVEN,
         min_endpointing_delay: NotGivenOr[float] = NOT_GIVEN,
         max_endpointing_delay: NotGivenOr[float] = NOT_GIVEN,
+        interruption_ignore_list: NotGivenOr[list[str] | None] = NOT_GIVEN,
     ) -> None:
         tools = tools or []
         if type(self) is Agent:
@@ -86,6 +87,7 @@ class Agent:
         self._use_tts_aligned_transcript = use_tts_aligned_transcript
         self._min_endpointing_delay = min_endpointing_delay
         self._max_endpointing_delay = max_endpointing_delay
+        self._interruption_ignore_list = interruption_ignore_list
 
         if isinstance(mcp_servers, list) and len(mcp_servers) == 0:
             mcp_servers = None  # treat empty list as None (but keep NOT_GIVEN)
@@ -601,6 +603,14 @@ class Agent:
         return self._max_endpointing_delay
 
     @property
+    def interruption_ignore_list(self) -> NotGivenOr[list[str] | None]:
+        """
+        A list of words that should be ignored when interrupting the agent's speech.
+        If the user says *only* these words while the agent is speaking, the agent will NOT stop.
+        """
+        return self._interruption_ignore_list
+
+    @property
     def min_consecutive_speech_delay(self) -> NotGivenOr[float]:
         """
         Retrieves the minimum consecutive speech delay for the agent.
@@ -657,6 +667,7 @@ class AgentTask(Agent, Generic[TaskResult_T]):
         allow_interruptions: NotGivenOr[bool] = NOT_GIVEN,
         min_endpointing_delay: NotGivenOr[float] = NOT_GIVEN,
         max_endpointing_delay: NotGivenOr[float] = NOT_GIVEN,
+        interruption_ignore_list: NotGivenOr[list[str] | None] = NOT_GIVEN,
     ) -> None:
         tools = tools or []
         super().__init__(
@@ -672,6 +683,7 @@ class AgentTask(Agent, Generic[TaskResult_T]):
             allow_interruptions=allow_interruptions,
             min_endpointing_delay=min_endpointing_delay,
             max_endpointing_delay=max_endpointing_delay,
+            interruption_ignore_list=interruption_ignore_list,
         )
 
         self.__started = False
