@@ -30,6 +30,40 @@ if TYPE_CHECKING:
     from .audio_recognition import TurnDetectionMode
     from .io import TimedString
 
+# =========================================================
+# Intelligent Interruption Configuration
+# =========================================================
+
+IGNORE_WORDS = {
+    "yeah",
+    "ok",
+    "okay",
+    "hmm",
+    "uh-huh",
+    "right",
+}
+
+INTERRUPT_WORDS = {
+    "stop",
+    "wait",
+    "no",
+    "hold",
+    "pause",
+}
+
+
+def _normalize(text: str) -> str:
+    return text.lower().strip()
+
+
+def _is_passive_ack(text: str) -> bool:
+    words = _normalize(text).split()
+    return bool(words) and all(w in IGNORE_WORDS for w in words)
+
+
+def _contains_interrupt(text: str) -> bool:
+    t = _normalize(text)
+    return any(w in t for w in INTERRUPT_WORDS)
 
 @dataclass
 class ModelSettings:
@@ -92,6 +126,12 @@ class Agent:
 
         self._mcp_servers = mcp_servers
         self._activity: AgentActivity | None = None
+        # =====================================================
+        # Intelligent Interruption State
+        # =====================================================
+        self._is_speaking: bool = False
+        self._pending_interrupt: bool = False
+        self._pending_interrupt_task: asyncio.Task | None = None
 
     @property
     def id(self) -> str:
@@ -228,6 +268,63 @@ class Agent:
         sent to the LLM.
         """
         pass
+
+    # =====================================================
+    # Speaking State Hooks
+    # =====================================================
+
+    def _on_tts_start(self) -> None:
+        self._is_speaking = True
+
+    def _on_tts_end(self) -> None:
+        self._is_speaking = False
+        self._pending_interrupt = False
+
+    # =====================================================
+    # Interruption Validation
+    # =====================================================
+
+    def _schedule_interrupt_validation(self, speech_handle: SpeechHandle) -> None:
+        if self._pending_interrupt_task:
+            return
+
+        async def _validate():
+            try:
+                # Wait briefly for STT text
+                await asyncio.sleep(0.15)
+                if self._pending_interrupt:
+                    speech_handle.stop()
+            finally:
+                self._pending_interrupt = False
+                self._pending_interrupt_task = None
+
+        self._pending_interrupt_task = asyncio.create_task(_validate())
+
+    def on_user_stt_text(self, text: str, speech_handle: SpeechHandle | None) -> None:
+        """
+        Called when final STT text is available.
+        """
+        if not self._pending_interrupt:
+            return
+
+        if not self._is_speaking:
+            self._pending_interrupt = False
+            return
+
+        # Passive acknowledgement → IGNORE
+        if _is_passive_ack(text):
+            self._pending_interrupt = False
+            if speech_handle:
+                speech_handle.resume()
+            return
+
+        # Real interruption → STOP
+        if _contains_interrupt(text):
+            if speech_handle:
+                self._pending_interrupt = True
+                self._schedule_interrupt_validation(speech_handle)
+
+        self._pending_interrupt = False
 
     def stt_node(
         self, audio: AsyncIterable[rtc.AudioFrame], model_settings: ModelSettings
