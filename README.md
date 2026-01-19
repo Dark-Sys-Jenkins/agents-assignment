@@ -373,3 +373,24 @@ The Agents framework is under active development in a rapidly evolving field. We
 </tbody>
 </table>
 <!--END_REPO_NAV-->
+## Intelligent Interruption Handling
+
+### Problem
+LiveKit VAD interrupts the agent even when users say filler words
+like "yeah", "ok", or "hmm" while the agent is speaking.
+
+### Solution
+Implemented a logic-layer interruption filter that:
+- Ignores passive acknowledgements while the agent is speaking
+- Interrupts immediately on semantic commands like "stop" or "wait"
+- Responds normally when the agent is silent
+- Does not modify the VAD kernel
+
+### Key Features
+- Configurable ignore list via environment variables
+- State-aware interruption handling
+- Handles mixed inputs like "yeah but wait"
+
+### How to Configure
+```bash
+export IGNORE_WORDS="yeah,ok,hmm"
