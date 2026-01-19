@@ -310,6 +310,42 @@ class AgentActivity(RecognitionHooks):
 
         return use_aligned_transcript is True
 
+    @property
+    def interrupt_ignore_words(self) -> list[str]:
+        return (
+            self._agent.interrupt_ignore_words
+            if is_given(self._agent.interrupt_ignore_words)
+            else self._session.options.interrupt_ignore_words
+        )
+
+    def _should_ignore_transcript(self, transcript: str) -> bool:
+        """Check if transcript contains only ignore words and no interrupt commands.
+        
+        Returns True if the transcript should be ignored for interruption purposes,
+        i.e., it contains only backchanneling words like "yeah", "ok", "hmm".
+        Returns False if transcript contains interrupt commands like "stop", "wait", "no".
+        """
+        ignore_words = self.interrupt_ignore_words
+        if not ignore_words:
+            return False
+        
+        # Define interrupt commands that should NEVER be ignored
+        interrupt_commands = {"stop", "wait", "no", "hold", "pause", "cancel", "quiet", "silence"}
+        
+        # Normalize and split the transcript
+        words = set(word.lower().strip(".,!?'\"") for word in transcript.split() if word.strip())
+        
+        if not words:
+            return False
+        
+        # If any interrupt command is present, do NOT ignore
+        if words & interrupt_commands:
+            return False
+        
+        # If ALL words are in ignore list, ignore the transcript
+        ignore_set = set(w.lower() for w in ignore_words)
+        return words.issubset(ignore_set)
+
     async def update_instructions(self, instructions: str) -> None:
         self._agent._instructions = instructions
 
@@ -1261,6 +1297,16 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # Check if this is backchanneling (e.g., "yeah", "ok") while agent is speaking
+            # If so, ignore it to avoid interrupting the agent
+            is_agent_speaking = (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+            )
+            if is_agent_speaking and self._should_ignore_transcript(ev.alternatives[0].text):
+                # Don't interrupt - this is backchanneling
+                return
+            
             self._interrupt_by_audio_activity()
 
             if (
@@ -1292,6 +1338,14 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # Check if this is backchanneling while agent is speaking
+            is_agent_speaking = (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+            )
+            if is_agent_speaking and self._should_ignore_transcript(ev.alternatives[0].text):
+                return
+            
             self._interrupt_by_audio_activity()
 
             if (
@@ -1377,6 +1431,15 @@ class AgentActivity(RecognitionHooks):
         ):
             self._cancel_preemptive_generation()
             # avoid interruption if the new_transcript is too short
+            return False
+
+        # Check if this is backchanneling while agent is speaking
+        is_agent_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+        )
+        if is_agent_speaking and self._should_ignore_transcript(info.new_transcript):
+            self._cancel_preemptive_generation()
             return False
 
         old_task = self._user_turn_completed_atask

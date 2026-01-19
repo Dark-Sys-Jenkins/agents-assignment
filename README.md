@@ -38,6 +38,7 @@ agents that can see, hear, and understand.
 - **Telephony integration**: Works seamlessly with LiveKit's [telephony stack](https://docs.livekit.io/sip/), allowing your agent to make calls to or receive calls from phones.
 - **Exchange data with clients**: Use [RPCs](https://docs.livekit.io/home/client/data/rpc/) and other [Data APIs](https://docs.livekit.io/home/client/data/) to seamlessly exchange data with clients.
 - **Semantic turn detection**: Uses a transformer model to detect when a user is done with their turn, helps to reduce interruptions.
+- **Context-aware backchanneling**: Intelligently handles user feedback like "yeah", "ok", "hmm" - ignoring them while speaking to avoid interruptions, but processing them as valid input when silent.
 - **MCP support**: Native support for MCP. Integrate tools provided by MCP servers with one loc.
 - **Builtin test framework**: Write tests and use judges to ensure your agent is performing as expected.
 - **Open-source**: Fully open-source, allowing you to run the entire stack on your own servers, including [LiveKit server](https://github.com/livekit/livekit), one of the most widely used WebRTC media servers.
@@ -117,6 +118,32 @@ You'll need the following environment variables for this example:
 - DEEPGRAM_API_KEY
 - OPENAI_API_KEY
 - ELEVEN_API_KEY
+
+### Configuring Backchanneling Support
+
+---
+
+The agent can be configured to ignore user feedback like "yeah", "ok", "hmm" while speaking, preventing interruptions from passive acknowledgements. It will still respond to these words when silent, treating them as valid input.
+
+```python
+session = AgentSession(
+    vad=silero.VAD.load(),
+    stt=deepgram.STT(model="nova-3"),
+    llm=openai.LLM(model="gpt-4o-mini"),
+    tts=elevenlabs.TTS(),
+    # Configure words to ignore while speaking (backchanneling)
+    interrupt_ignore_words=["yeah", "ok", "okay", "hmm", "uh-huh", "right", "aha", "mhm", "yep", "sure"],
+)
+```
+
+**Behavior Matrix:**
+
+| User Says | Agent State | Behavior |
+|-----------|-------------|----------|
+| "yeah" / "ok" / "hmm" | Speaking | **IGNORE** - Agent continues without pause |
+| "stop" / "wait" / "no" | Speaking | **INTERRUPT** - Agent stops immediately |
+| "yeah" / "ok" / "hmm" | Silent | **RESPOND** - Treated as valid input |
+| "yeah wait" (mixed) | Speaking | **INTERRUPT** - Contains command word |
 
 ### Multi-agent handoff
 

@@ -52,6 +52,7 @@ class Agent:
         tts: NotGivenOr[tts.TTS | TTSModels | str | None] = NOT_GIVEN,
         mcp_servers: NotGivenOr[list[mcp.MCPServer] | None] = NOT_GIVEN,
         allow_interruptions: NotGivenOr[bool] = NOT_GIVEN,
+        interrupt_ignore_words: NotGivenOr[list[str]] = NOT_GIVEN,
         min_consecutive_speech_delay: NotGivenOr[float] = NOT_GIVEN,
         use_tts_aligned_transcript: NotGivenOr[bool] = NOT_GIVEN,
         min_endpointing_delay: NotGivenOr[float] = NOT_GIVEN,
@@ -82,6 +83,7 @@ class Agent:
         self._tts = tts
         self._vad = vad
         self._allow_interruptions = allow_interruptions
+        self._interrupt_ignore_words = interrupt_ignore_words
         self._min_consecutive_speech_delay = min_consecutive_speech_delay
         self._use_tts_aligned_transcript = use_tts_aligned_transcript
         self._min_endpointing_delay = min_endpointing_delay
@@ -580,6 +582,19 @@ class Agent:
             NotGivenOr[bool]: Whether interruptions are permitted.
         """
         return self._allow_interruptions
+
+    @property
+    def interrupt_ignore_words(self) -> NotGivenOr[list[str]]:
+        """
+        A list of words that should be ignored when determining whether to interrupt the agent.
+
+        If the user says only words from this list while the agent is speaking,
+        the agent will continue speaking without interruption (backchanneling support).
+
+        Returns:
+            NotGivenOr[list[str]]: The list of words to ignore for interruption.
+        """
+        return self._interrupt_ignore_words
 
     @property
     def min_endpointing_delay(self) -> NotGivenOr[float]:
