@@ -1,0 +1,12 @@
+# Interruption Handler Requirements
+# For testing the Intelligent Interruption Handler implementation
+
+# Core testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# LiveKit agents (if using with actual agent)
+livekit-agents>=0.14.0
+
+# Logging and utilities
+colorama>=0.4.6
