@@ -87,6 +87,7 @@ EventTypes = Literal[
     "user_input_transcribed",
     "conversation_item_added",
     "agent_false_interruption",
+    "backchannel_detected",
     "function_tools_executed",
     "metrics_collected",
     "speech_created",
@@ -137,6 +138,29 @@ class AgentFalseInterruptionEvent(BaseModel):
                 f"AgentFalseInterruptionEvent.{name} is deprecated, automatic resume is now supported"
             )
         return super().__getattribute__(name)
+
+
+class BackchannelDetectedEvent(BaseModel):
+    """Event emitted when a backchannel signal is detected and the agent continues speaking.
+
+    Backchannels are acknowledgment signals from the user (like "yeah", "okay", "uh-huh")
+    that indicate they are following along but don't want to interrupt the agent.
+    """
+
+    type: Literal["backchannel_detected"] = "backchannel_detected"
+    transcript: str
+    """The user's spoken text that was classified as a backchannel."""
+    action: str
+    """The action taken: 'ignore' (continued speaking), 'interrupt', or 'respond'."""
+    confidence: float
+    """Confidence score (0.0 to 1.0) for the classification."""
+    matched_words: list[str]
+    """Words from the transcript that matched backchannel or command patterns."""
+    is_backchannel_only: bool
+    """True if the input contained only backchannel signals (no command words)."""
+    has_command_words: bool
+    """True if the input contained command words like 'stop', 'wait', etc."""
+    created_at: float = Field(default_factory=time.time)
 
 
 class MetricsCollectedEvent(BaseModel):
@@ -231,6 +255,7 @@ AgentEvent = Annotated[
         UserStateChangedEvent,
         AgentStateChangedEvent,
         AgentFalseInterruptionEvent,
+        BackchannelDetectedEvent,
         MetricsCollectedEvent,
         ConversationItemAddedEvent,
         FunctionToolsExecutedEvent,
