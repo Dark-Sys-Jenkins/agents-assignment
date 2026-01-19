@@ -10,6 +10,19 @@ This agent implements a smart interruption logic layer that distinguishes betwee
     -   If the transcript contains only "soft" words (e.g., "yeah", "ok", "uh-huh"), the interruption is **ignored**, and the agent continues speaking seamlessly.
     -   If the transcript contains other words (e.g., "stop", "wait", "yeah but..."), the standard interruption logic proceeds.
 
+## Prerequisites
+
+To run this agent, you need the following API keys in your `.env` file:
+
+-   `LIVEKIT_URL`
+-   `LIVEKIT_API_KEY`
+-   `LIVEKIT_API_SECRET`
+-   `OPENAI_API_KEY` (For LLM and TTS)
+-   `DEEPGRAM_API_KEY` (For STT)
+
+> [!NOTE]
+> **ElevenLabs is NOT required**. This agent implementation uses `openai.TTS()` by default to minimize dependencies.
+
 ## Running the Agent
 
 1.  Navigate to the project root.
