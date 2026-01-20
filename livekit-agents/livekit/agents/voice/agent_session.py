@@ -62,6 +62,10 @@ if TYPE_CHECKING:
     from ..llm import mcp
     from .transcription.filters import TextTransforms
 
+from .backchanneling_config import (
+    BackchannelingConfig,
+    DEFAULT_BACKCHANNELING_CONFIG,
+)
 
 @dataclass
 class SessionConnectOptions:
@@ -89,6 +93,7 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    backchanneling_config: BackchannelingConfig
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -161,6 +166,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         ivr_detection: bool = False,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
+        backchanneling_config: NotGivenOr[BackchannelingConfig] = NOT_GIVEN,
         # deprecated
         agent_false_interruption_timeout: NotGivenOr[float | None] = NOT_GIVEN,
     ) -> None:
@@ -176,7 +182,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
 
         Args:
             turn_detection (TurnDetectionMode, optional): Strategy for deciding
-                when the user has finifshed speaking.
+                when the user has fini5shed speaking.
 
                 * ``"stt"`` – rely on speech-to-text end-of-utterance cues
                 * ``"vad"`` – rely on Voice Activity Detection start/stop cues
@@ -288,6 +294,11 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            backchanneling_config=(
+                backchanneling_config
+                if is_given(backchanneling_config)
+                else DEFAULT_BACKCHANNELING_CONFIG
+            ),
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False
