@@ -1,78 +1,197 @@
-# Voice Agents Examples
+# Backchannel-Aware Voice Agent
 
-This directory contains a comprehensive collection of voice-based agent examples demonstrating various capabilities and integrations with the LiveKit Agents framework.
+A LiveKit voice agent that intelligently handles user interruptions by distinguishing between **backchannel words** (yeah, ok, hmm) and **real commands** (stop, wait, pause).
 
-## 📋 Table of Contents
+## Problem Solved
 
-### 🚀 Getting Started
+Normal voice agents stop when you say *anything* — even filler words like "yeah" or "ok". This breaks the natural flow of conversation.
 
-- [`basic_agent.py`](./basic_agent.py) - A fundamental voice agent with metrics collection
+**This agent:**
+- Ignores soft words ("yeah", "ok", "hmm") while speaking
+- Stops immediately on hard commands ("stop", "wait", "pause")
+- Responds to soft words when silent (treats as valid input)
+- Supports continue/resume after stopping
+- Handles new questions with fresh context
 
-### 🛠️ Tool Integration & Function Calling
+---
 
-- [`annotated_tool_args.py`](./annotated_tool_args.py) - Using Python type annotations for tool arguments
-- [`dynamic_tool_creation.py`](./dynamic_tool_creation.py) - Creating and registering tools dynamically at runtime
-- [`raw_function_description.py`](./raw_function_description.py) - Using raw JSON schema definitions for tool descriptions
-- [`silent_function_call.py`](./silent_function_call.py) - Executing function calls without verbal responses to user
-- [`long_running_function.py`](./long_running_function.py) - Handling long running function calls with interruption support
+## File Structure
 
-### ⚡ Real-time Models
+```
+examples/voice_agents/
+├── backchannel_simple.py       # Main agent implementation
+├── interruption_handler/
+│   ├── __init__.py             # Exports InterruptionFilter
+│   └── filter.py               # Word classification logic
+└── requirements.txt            # Dependencies
+```
 
-- [`weather_agent.py`](./weather_agent.py) - OpenAI Realtime API with function calls for weather information
-- [`realtime_video_agent.py`](./realtime_video_agent.py) - Google Gemini with multimodal video and voice capabilities
-- [`realtime_joke_teller.py`](./realtime_joke_teller.py) - Amazon Nova Sonic real-time model with function calls
-- [`realtime_load_chat_history.py`](./realtime_load_chat_history.py) - Loading previous chat history into real-time models
-- [`realtime_turn_detector.py`](./realtime_turn_detector.py) - Using LiveKit's turn detection with real-time models
-- [`realtime_with_tts.py`](./realtime_with_tts.py) - Combining external TTS providers with real-time models
+---
 
-### 🎯 Pipeline Nodes & Hooks
+## How It Works
 
-- [`fast-preresponse.py`](./fast-preresponse.py) - Generating quick responses using the `on_user_turn_completed` node
-- [`flush_llm_node.py`](./flush_llm_node.py) - Flushing partial LLM output to TTS in `llm_node`
-- [`structured_output.py`](./structured_output.py) - Structured data and JSON outputs from agent responses
-- [`speedup_output_audio.py`](./speedup_output_audio.py) - Dynamically adjusting agent audio playback speed
-- [`timed_agent_transcript.py`](./timed_agent_transcript.py) - Reading timestamped transcripts from `transcription_node`
-- [`inactive_user.py`](./inactive_user.py) - Handling inactive users with the `user_state_changed` event hook
-- [`resume_interrupted_agent.py`](./resume_interrupted_agent.py) - Resuming agent speech after false interruption detection
-- [`toggle_io.py`](./toggle_io.py) - Dynamically toggling audio input/output during conversations
+### 1. Speech Handle Wrapping (Core Mechanism)
 
-### 🤖 Multi-agent & AgentTask Use Cases
+When the agent starts speaking, we wrap `speech_handle.interrupt()`:
 
-- [`restaurant_agent.py`](./restaurant_agent.py) - Multi-agent system for restaurant ordering and reservation management
-- [`multi_agent.py`](./multi_agent.py) - Collaborative storytelling with multiple specialized agents
-- [`email_example.py`](./email_example.py) - Using AgentTask to collect and validate email addresses
+```python
+def _wrap_speech_handle(self, handle):
+    original_interrupt = handle.interrupt
+    
+    async def filtered_interrupt(**kwargs):
+        if self.filter.should_ignore(self._last_user_text, is_agent_speaking=True):
+            return  # BLOCK - agent continues speaking
+        
+        self._paused = True
+        await original_interrupt(**kwargs)  # ALLOW - agent stops
+    
+    handle.interrupt = filtered_interrupt
+```
 
-### 🔗 MCP & External Integrations
+**Key insight:** Interruptions are *prevented*, not undone. No resume_speech() or VAD hacks.
 
-- [`web_search.py`](./web_search.py) - Integrating web search capabilities into voice agents
-- [`langgraph_agent.py`](./langgraph_agent.py) - LangGraph integration
-- [`mcp/`](./mcp/) - Model Context Protocol (MCP) integration examples
-  - [`mcp-agent.py`](./mcp/mcp-agent.py) - MCP agent integration
-  - [`server.py`](./mcp/server.py) - MCP server example
-- [`zapier_mcp_integration.py`](./zapier_mcp_integration.py) - Automating workflows with Zapier through MCP
+### 2. Word Classification
 
-### 💾 RAG & Knowledge Management
+```python
+# filter.py
+soft_words = {"yeah", "ok", "okay", "hmm", "uh-huh", "right", "aha", ...}
+hard_words = {"stop", "wait", "pause", "no", "hold", "but", ...}
 
-- [`llamaindex-rag/`](./llamaindex-rag/) - Complete RAG implementation with LlamaIndex
-  - [`chat_engine.py`](./llamaindex-rag/chat_engine.py) - Chat engine integration
-  - [`query_engine.py`](./llamaindex-rag/query_engine.py) - Query engine used in a function tool
-  - [`retrieval.py`](./llamaindex-rag/retrieval.py) - Document retrieval
+def should_ignore(text, is_agent_speaking):
+    if not is_agent_speaking:
+        return False  # Always process when silent
+    
+    # Check for hard phrases first
+    for phrase in hard_words:
+        if phrase in text:
+            return False  # Don't ignore - allow interrupt
+    
+    # Ignore only if ALL tokens are soft
+    return all(token in soft_words for token in text.split())
+```
 
-### 🎵 Specialized Use Cases
+### 3. State Management
 
-- [`background_audio.py`](./background_audio.py) - Playing background audio or ambient sounds during conversations
-- [`push_to_talk.py`](./push_to_talk.py) - Push-to-talk interaction
-- [`tts_text_pacing.py`](./tts_text_pacing.py) - Pacing control for TTS requests
-- [`speaker_id_multi_speaker.py`](./speaker_id_multi_speaker.py) - Multi-speaker identification
+| State | User Input | Action |
+|-------|------------|--------|
+| Speaking | Soft word | Ignore (continue) |
+| Speaking | Hard word | Stop + Pause |
+| Paused | Continue | Resume previous |
+| Paused | New question | Clear context + Fresh response |
+| Silent | Any input | Process normally |
 
-### 📊 Tracing & Error Handling
+---
 
-- [`langfuse_trace.py`](./langfuse_trace.py) - LangFuse integration for conversation tracing
-- [`error_callback.py`](./error_callback.py) - Error handling callback
-- [`session_close_callback.py`](./session_close_callback.py) - Session lifecycle management
+## Quick Start
 
-## 📖 Additional Resources
+### Prerequisites
+- Python 3.11+
+- LiveKit Cloud account (or local server)
+- Deepgram API key
+- Google Gemini API key
 
-- [LiveKit Agents Documentation](https://docs.livekit.io/agents/)
-- [Agents Starter Example](https://github.com/livekit-examples/agent-starter-python)
-- [More Agents Examples](https://github.com/livekit-examples/python-agents-examples)
+### Setup
+
+```bash
+cd examples/voice_agents
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure API keys
+cp .env.example .env
+# Edit .env with your keys:
+# LIVEKIT_URL=wss://your-project.livekit.cloud
+# LIVEKIT_API_KEY=...
+# LIVEKIT_API_SECRET=...
+# DEEPGRAM_API_KEY=...
+# GOOGLE_API_KEY=...
+```
+
+### Run
+
+```bash
+# Development mode (auto-reload + playground)
+python backchannel_simple.py dev
+
+# Console mode (local testing)
+python backchannel_simple.py console
+```
+
+Then open [agents-playground.livekit.io](https://agents-playground.livekit.io) and click Connect.
+
+---
+
+## Test Scenarios
+
+| Test | User Action | Expected Result |
+|------|-------------|-----------------|
+| Soft word while speaking | Say "yeah" while agent talks | Agent continues seamlessly |
+| Multiple soft words | Say "hmm ok yeah" | Agent continues |
+| Hard word | Say "stop" | Agent stops immediately |
+| Mixed input | Say "yeah but wait" | Agent stops ("but wait" = hard) |
+| Continue after stop | Say "continue" | Agent resumes topic |
+| New question after stop | Say "Tell me about X" | Fresh response (context cleared) |
+| Soft word when silent | Say "yeah" to a question | Agent processes as answer |
+
+---
+
+## Configuration
+
+### Modifying Word Lists
+
+Edit `interruption_handler/filter.py`:
+
+```python
+soft_words = {
+    "yeah", "ok", "okay", "hmm", "uh-huh", "right", "aha", "mhm",
+    "sure", "gotcha", "yep", "yup", "mhmm", "alright", "cool", "nice"
+}
+
+hard_words = {
+    "stop", "wait", "pause", "no", "hold", "hold on",
+    "but wait", "hang on", "actually", "but", "however", "excuse me"
+}
+```
+
+### VAD Settings
+
+In `backchannel_simple.py`:
+
+```python
+vad=silero.VAD.load(
+    min_speech_duration=0.3,    # Minimum speech to trigger
+    min_silence_duration=0.6,   # Wait before end-of-turn
+    activation_threshold=0.5    # Voice detection sensitivity
+)
+```
+
+---
+
+## Logs
+
+The agent outputs detailed logs:
+
+```
+12:30:01 | INFO  | User: Yeah okay
+12:30:01 | INFO  | Blocked interrupt for: Yeah okay
+12:30:05 | INFO  | User: Stop
+12:30:05 | INFO  | Allowing interrupt for: Stop
+12:30:05 | WARN  | Hard interrupt: stop - entering paused state
+12:30:08 | INFO  | User: Continue
+12:30:08 | INFO  | CONTINUE detected - resuming paused content
+```
+
+---
+
+## Key Design Decisions
+
+1. **Prevention over Resumption**: We block interrupts before they happen, not after
+2. **No VAD Modification**: All logic lives in the agent, not in speech detection
+3. **Single Source of Truth**: `InterruptionFilter.should_ignore()` decides everything
+4. **Context Isolation**: New questions after stop get fresh conversation context
+
