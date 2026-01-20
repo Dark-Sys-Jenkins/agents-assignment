@@ -10,7 +10,7 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 logger = logging.getLogger("realtime-turn-detector")
 logger.setLevel(logging.INFO)
 
-load_dotenv()
+()
 
 ## This example demonstrates how to use LiveKit's turn detection model with a realtime LLM.
 ## Since the current turn detection model runs in text space, it will need to be combined
