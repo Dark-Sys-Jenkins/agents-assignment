@@ -1270,6 +1270,33 @@ class AgentActivity(RecognitionHooks):
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
+        
+        transcript = ev.alternatives[0].text or ""
+
+        # 2️⃣ Determine if agent is actively speaking
+        agent_is_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+            and self._session._agent_state == "speaking"
+        )
+
+        filter = self._backchannel_filter
+
+        # 3️⃣ SINGLE DECISION POINT
+        if agent_is_speaking:
+            # Explicit interruption (stop / wait / mixed input)
+            if filter.should_interrupt(agent_speaking=True, text=transcript):
+                if self._rt_session is not None:
+                    self._rt_session.interrupt()
+                if self._current_speech is not None:
+                    self._current_speech.interrupt()
+                return
+            
+            # Pure backchannel (okay / uh / mm)
+            if filter.is_backchannel_only(transcript):
+                return
+
 
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
@@ -1278,40 +1305,6 @@ class AgentActivity(RecognitionHooks):
                 is_final=True,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
-        )
-        # agent speech might not be interrupted if VAD failed and a final transcript is received
-        # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
-        # which will also be immediately interrupted
-
-        if self._audio_recognition and self._turn_detection not in (
-            "manual",
-            "realtime_llm",
-        ):
-             # Check backchannel filter before interrupting
-            agent_is_speaking = (
-                self._current_speech is not None
-                and not self._current_speech.interrupted
-                and self._session._agent_state == "speaking"
-            )
-
-            if agent_is_speaking:
-                transcript_text = ev.alternatives[0].text
-                # Apply backchannel filter - if only filler words, don't interrupt
-                if not self._backchannel_filter.should_interrupt(transcript_text, agent_is_speaking=True):
-                    # User input contains only filler words, ignore the interruption
-                    return
-            self._interrupt_by_audio_activity()
-
-            if (
-                speaking is False
-                and self._paused_speech
-                and (timeout := self._session.options.false_interruption_timeout) is not None
-            ):
-                # schedule a resume timer if interrupted after end_of_speech
-                self._start_false_interruption_timer(timeout)
-
-        self._interrupt_paused_speech_task = asyncio.create_task(
-            self._interrupt_paused_speech(old_task=self._interrupt_paused_speech_task)
         )
 
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None:
