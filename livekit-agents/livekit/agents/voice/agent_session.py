@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import copy
 import time
+from typing import Iterable
+from .backchannel_filter import BackchannelFilter
 from collections.abc import AsyncIterable, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
@@ -89,6 +91,7 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    backchannel_ignore_words: Iterable[str] | None
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +162,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        backchannel_ignore_words: NotGivenOr[Iterable[str] | None] = NOT_GIVEN,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -276,6 +280,9 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             max_tool_steps=max_tool_steps,
             user_away_timeout=user_away_timeout,
             false_interruption_timeout=false_interruption_timeout,
+            backchannel_ignore_words=backchannel_ignore_words
+            if is_given(backchannel_ignore_words)
+            else None,
             resume_false_interruption=resume_false_interruption,
             min_consecutive_speech_delay=min_consecutive_speech_delay,
             tts_text_transforms=(
