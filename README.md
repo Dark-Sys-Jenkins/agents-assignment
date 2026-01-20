@@ -10,7 +10,7 @@ without modifying the VAD kernel.
 
 ---
 
-## Key Features (Rubric Mapping)
+## Key Features 
 
 ### 1. Configurable Ignore List
 - Implemented via `IGNORE_WORDS` and `INTERRUPT_WORDS`
@@ -28,18 +28,6 @@ without modifying the VAD kernel.
 - Uses LiveKit event hooks (`agent_state_changed`, `user_input_transcribed`)
 - No changes to low-level VAD or STT components
 
----
-
-## Test Scenarios
-
-| Scenario | Expected Behavior | Result |
-|--------|------------------|--------|
-| "yeah / mhmm" while speaking | Ignored | ✅ |
-| "yeah" while silent | Processed | ✅ |
-| "stop" | Immediate stop | ✅ |
-| "yeah okay but wait" | Immediate stop | ✅ |
-
----
 
 ## How Stop Is Handled
 - `session.cancel_answer()` immediately halts speech

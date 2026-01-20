@@ -9,17 +9,11 @@ from livekit.agents import JobContext, cli, WorkerOptions, Agent
 from livekit.agents.voice import AgentSession
 from livekit.plugins import deepgram, openai, silero, cartesia
 
-# --------------------------------------------------
-# Setup
-# --------------------------------------------------
 
 logger = logging.getLogger("interrupt-handler")
 logger.setLevel(logging.INFO)
 load_dotenv()
 
-# --------------------------------------------------
-# CONFIGURABLE WORD LISTS (PDF Requirement 1)
-# --------------------------------------------------
 
 IGNORE_WORDS = {
     "yeah", "ok", "okay", "hmm", "uh", "uh-huh",
@@ -30,9 +24,9 @@ INTERRUPT_WORDS = {
     "stop", "wait", "no", "cancel", "hold", "but", "however"
 }
 
-# --------------------------------------------------
+
 # Helper functions
-# --------------------------------------------------
+
 
 def normalize(text: str) -> list[str]:
     if not text:
@@ -49,24 +43,19 @@ def is_only_filler(transcript: str) -> bool:
     words = normalize(transcript)
     return bool(words) and all(w in IGNORE_WORDS for w in words)
 
-# --------------------------------------------------
 # Main entrypoint
-# --------------------------------------------------
+
 
 async def entrypoint(ctx: JobContext):
-    """
-    FINAL implementation satisfying ALL PDF requirements.
-    """
 
-    # -----------------------------
+
     # State tracking
     # -----------------------------
     agent_state = "listening"
-    answer_cancelled = False   # 🔥 FIX: properly defined state
+    answer_cancelled = False   
 
-    # -----------------------------
     # Session setup
-    # -----------------------------
+
     session = AgentSession(
         vad=silero.VAD.load(),
         llm=openai.LLM(
@@ -77,7 +66,7 @@ async def entrypoint(ctx: JobContext):
         stt=deepgram.STT(),
         tts=cartesia.TTS(),
 
-        # Interruption behavior (PDF-aligned)
+ 
         false_interruption_timeout=1.0,
         resume_false_interruption=True,
         min_interruption_duration=0.3,
@@ -85,9 +74,8 @@ async def entrypoint(ctx: JobContext):
         allow_interruptions=True,
     )
 
-    # --------------------------------------------------
     # Event handlers (logic layer, NOT VAD)
-    # --------------------------------------------------
+
 
     def on_agent_state_changed(event):
         nonlocal agent_state
@@ -108,13 +96,13 @@ async def entrypoint(ctx: JobContext):
         has_interrupt = contains_interrupt_command(transcript)
         only_filler = is_only_filler(transcript)
 
-        # -----------------------------
+
         # Agent WAS speaking
-        # -----------------------------
+ 
         if was_speaking:
 
             if only_filler:
-                # ✅ Scenario 1: Ignore filler while speaking
+      
                 logger.info("✋ IGNORE filler while speaking")
                 session.clear_user_turn()
                 return
@@ -124,13 +112,14 @@ async def entrypoint(ctx: JobContext):
 
                 answer_cancelled = True
 
-                # 🔥 IMMEDIATE hard stop (THIS is why stop now works)
-                session.cancel_answer()
+
+                session.agent.interrupt()
+
 
                 # Prevent resume
                 session.clear_user_turn()
 
-                # 🔁 Schedule follow-up safely (NO await here)
+         
                 asyncio.create_task(
                     session.generate_reply(
                         instructions=(
@@ -149,9 +138,7 @@ async def entrypoint(ctx: JobContext):
             answer_cancelled = True
             return
 
-        # -----------------------------
-        # Agent was NOT speaking
-        # -----------------------------
+
         else:
             if answer_cancelled:
                 # Prevent continuation of cancelled answer
@@ -159,16 +146,12 @@ async def entrypoint(ctx: JobContext):
                 answer_cancelled = False
                 return
 
-            # ✅ Scenario 2: Process input normally
+    
             logger.info("✅ PROCESS input while silent")
 
-    # Register handlers
     session.on("agent_state_changed", on_agent_state_changed)
     session.on("user_input_transcribed", on_user_input_transcribed)
 
-    # --------------------------------------------------
-    # Agent
-    # --------------------------------------------------
 
     agent = Agent(
         instructions=(
@@ -180,13 +163,11 @@ async def entrypoint(ctx: JobContext):
         )
     )
 
-    # Start session
     logger.info("🚀 Starting agent session")
     await session.start(room=ctx.room, agent=agent)
 
     await asyncio.sleep(0.5)
 
-    # Initial greeting
     await session.generate_reply(
         instructions=(
             "Hello! I'm your AI assistant. "
@@ -195,9 +176,7 @@ async def entrypoint(ctx: JobContext):
         )
     )
 
-# --------------------------------------------------
-# Run worker
-# --------------------------------------------------
+
 
 if __name__ == "__main__":
     cli.run_app(
