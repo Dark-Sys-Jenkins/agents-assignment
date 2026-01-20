@@ -1736,7 +1736,14 @@ class RealtimeSession(
             recoverable=True,
         )
 
-        # TODO: set exception for the response future if it exists
+        # Set exception for the response future if it exists
+        if self._response_future and not self._response_future.done():
+            error_exception = APIError(
+                message="OpenAI Realtime API returned an error",
+                body=event.error,
+                retryable=True,
+            )
+            self._response_future.set_exception(error_exception)
 
     def _emit_error(self, error: Exception, recoverable: bool) -> None:
         self.emit(

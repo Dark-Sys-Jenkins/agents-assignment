@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import os
 import asyncio
 import copy
 import time
@@ -89,6 +89,9 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    # New: list of acknowledgement/soft words that should be ignored while agent is speaking.
+    # If None, the agent will use a built-in default list.
+    ignore_words: Sequence[str] | None = None
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -163,6 +166,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
         agent_false_interruption_timeout: NotGivenOr[float | None] = NOT_GIVEN,
+        ignore_words: Sequence[str] | None = None,
     ) -> None:
         """`AgentSession` is the LiveKit Agents runtime that glues together
         media streams, speech/LLM components, and tool orchestration into a
@@ -266,6 +270,12 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
 
         # This is the "global" chat_context, it holds the entire conversation history
         self._chat_ctx = ChatContext.empty()
+        env_ignore = os.getenv("LIVEKIT_ACK_WORDS")
+        if env_ignore:
+            # parse CSV-like, strip whitespace
+            env_list = [w.strip() for w in env_ignore.split(",") if w.strip()]
+        else:
+            env_list = None
         self._opts = AgentSessionOptions(
             allow_interruptions=allow_interruptions,
             discard_audio_if_uninterruptible=discard_audio_if_uninterruptible,
@@ -288,6 +298,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            # choose explicit arg first, then env var, else None (AgentActivity will apply defaults)
+            ignore_words=ignore_words if ignore_words is not None else env_list,
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False
