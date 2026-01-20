@@ -1,0 +1,20 @@
+nment$ python3 agents/test_interrupt_handler.py
+
+--- TEST 1: Backchannel while speaking ---
+[STT] 'yeah ok hmm'
+[DECISION] backchannel detected → ignoring
+>>> AGENT CONTINUES
+
+--- TEST 2: Mixed input while speaking ---
+[STT] 'yeah but wait'
+[DECISION] interrupt detected → stopping agent
+>>> AGENT STOPPED
+
+--- TEST 3: Hard stop while speaking ---
+[STT] 'stop'
+[DECISION] interrupt detected → stopping agent
+>>> AGENT STOPPED
+
+--- TEST 4: Backchannel while silent ---
+[STT] 'yeah'
+[DECISION] agent silent → respond normally
