@@ -149,8 +149,9 @@ By:
 
 the agent achieves stable, natural, human-like conversation behavior.
 
-## 12. How to Run the Example
-python examples/voice_agents/interrupt_handler.py
+## 12. Run the Example and test the model
+- python examples/voice_agents/basic_agent.py
+- python examples/voice_agents/interrupt_handler.py
 
 
 
