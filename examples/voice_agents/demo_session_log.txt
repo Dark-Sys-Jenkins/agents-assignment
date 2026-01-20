@@ -1,0 +1,56 @@
+12:45:57 | INFO     | livekit.agents       | received job request
+                                         {"job_id": "AJ_zoTFsVRXPkND", "dispatch_id": "AD_vfgGC7So4xCb", "room": "playground-EDpq-tzXi"}
+12:45:58 | INFO     | filler-detector      | InterruptionFilter initialized: 23 soft words, 14 hard words
+12:45:58 | INFO     | backchannel-agent    | Agent ready - backchannel filtering active
+12:46:09 | INFO     | backchannel-agent    | User: Could you please share a story with me?
+12:46:09 | INFO     | backchannel-agent    | Processing user input: could you please share a story with me
+12:46:15 | INFO     | backchannel-agent    | User: Yeah.
+12:46:15 | INFO     | backchannel-agent    | Blocked interrupt for: Yeah.
+12:46:15 | INFO     | backchannel-agent    | Soft word ignored: yeah
+12:46:19 | INFO     | backchannel-agent    | User: Okay.
+12:46:19 | INFO     | backchannel-agent    | Blocked interrupt for: Okay.
+12:46:19 | INFO     | backchannel-agent    | Soft word ignored: okay
+12:46:29 | INFO     | backchannel-agent    | User: Stop.
+12:46:29 | INFO     | backchannel-agent    | Allowing interrupt for: Stop.
+12:46:29 | INFO     | backchannel-agent    | Still paused (hard word repeated): stop
+12:46:41 | INFO     | backchannel-agent    | User: Who is the prime minister of India?
+12:46:41 | INFO     | backchannel-agent    | New request (aborting paused content + clearing context): who is the prime minister of india
+12:46:41 | INFO     | backchannel-agent    | Conversation history cleared
+12:46:47 | INFO     | backchannel-agent    | User: Wait.
+12:46:47 | INFO     | backchannel-agent    | Allowing interrupt for: Wait.
+12:46:47 | INFO     | backchannel-agent    | Still paused (hard word repeated): wait
+12:46:54 | INFO     | backchannel-agent    | User: Please tell me a two hundred word story.
+12:46:54 | INFO     | backchannel-agent    | New request (aborting paused content + clearing context): please tell me a two hundred word story
+12:46:54 | INFO     | backchannel-agent    | Conversation history cleared
+12:47:05 | INFO     | backchannel-agent    | User: Stop.
+12:47:05 | INFO     | backchannel-agent    | Allowing interrupt for: Stop.
+12:47:05 | INFO     | backchannel-agent    | Still paused (hard word repeated): stop
+12:47:09 | INFO     | backchannel-agent    | User: Continue.
+12:47:09 | INFO     | backchannel-agent    | CONTINUE detected - resuming paused content
+12:47:22 | INFO     | backchannel-agent    | User: Stop.
+12:47:22 | INFO     | backchannel-agent    | Allowing interrupt for: Stop.
+12:47:22 | INFO     | backchannel-agent    | Still paused (hard word repeated): stop
+12:47:26 | INFO     | backchannel-agent    | User: Who is Missy?
+12:47:26 | INFO     | backchannel-agent    | New request (aborting paused content + clearing context): who is missy
+12:47:26 | INFO     | backchannel-agent    | Conversation history cleared
+12:47:37 | INFO     | backchannel-agent    | User: Yeah.
+12:47:37 | INFO     | backchannel-agent    | Blocked interrupt for: Yeah.
+12:47:40 | INFO     | backchannel-agent    | User: Okay.
+12:47:40 | INFO     | backchannel-agent    | Blocked interrupt for: Okay.
+12:47:43 | INFO     | backchannel-agent    | User: Mhmm.
+12:47:43 | INFO     | backchannel-agent    | Blocked interrupt for: Mhmm.
+12:47:46 | INFO     | backchannel-agent    | Soft word ignored: yeah
+12:47:46 | INFO     | backchannel-agent    | Soft word ignored: okay
+12:47:46 | INFO     | backchannel-agent    | Soft word ignored: mhmm
+12:47:49 | INFO     | backchannel-agent    | User: Yeah.
+12:47:49 | INFO     | backchannel-agent    | Blocked interrupt for: Yeah.
+12:47:49 | INFO     | backchannel-agent    | Soft word ignored: yeah
+12:47:57 | INFO     | backchannel-agent    | User: Stop.
+12:47:57 | INFO     | backchannel-agent    | Allowing interrupt for: Stop.
+12:47:57 | INFO     | backchannel-agent    | Still paused (hard word repeated): stop
+12:48:00 | INFO     | backchannel-agent    | User: Thank you.
+12:48:00 | INFO     | backchannel-agent    | New request (aborting paused content + clearing context): thank you
+12:48:00 | INFO     | backchannel-agent    | Conversation history cleared
+12:48:05 | INFO     | backchannel-agent    | User: Yeah.
+12:48:05 | INFO     | backchannel-agent    | Processing user input: yeah
+12:48:09 | INFO     | livekit.agents       | session closed
