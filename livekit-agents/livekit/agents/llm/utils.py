@@ -256,13 +256,13 @@ def to_response_format_param(
     response_format: type | dict[str, Any],
 ) -> tuple[str, type[BaseModel] | TypeAdapter[Any]]:
     if isinstance(response_format, dict):
-        # TODO(theomonnom): better type validation, copy TypedDict from OpenAI
-        if response_format.get("type", "") not in ("text", "json_schema", "json_object"):
-            raise TypeError("Unsupported response_format type")
+        # Validate response_format type
+        fmt_type = response_format.get("type", "text")
+        if fmt_type not in ("text", "json_schema", "json_object"):
+            raise TypeError(f"Unsupported response_format type: {fmt_type}. Must be one of: 'text', 'json_schema', 'json_object'")
 
-        # TODO(long): fix return value
-        raise TypeError("Unsupported response_format type")
-        return response_format
+        # Return validated format
+        return fmt_type, response_format
 
     # add support for TypedDict
     if is_typed_dict(response_format):

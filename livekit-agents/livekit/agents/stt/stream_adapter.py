@@ -115,6 +115,7 @@ class StreamAdapterWrapper(RecognizeStream):
                     self._event_ch.send_nowait(
                         SpeechEvent(
                             type=SpeechEventType.END_OF_SPEECH,
+                            segment_id=self._current_segment_id,
                         )
                     )
 
@@ -134,6 +135,7 @@ class StreamAdapterWrapper(RecognizeStream):
                         SpeechEvent(
                             type=SpeechEventType.FINAL_TRANSCRIPT,
                             alternatives=[t_event.alternatives[0]],
+                            segment_id=self._current_segment_id,
                         )
                     )
 

@@ -80,6 +80,23 @@ if TYPE_CHECKING:
     from ..llm import mcp
     from .agent_session import AgentSession
 
+DEFAULT_ACK_WORDS: list[str] = [
+    "yeah",
+    "yea",
+    "ok",
+    "okay",
+    "hmm",
+    "uh-huh",
+    "uh huh",
+    "uh",
+    "mm",
+    "mmhmm",
+    "right",
+    "yup",
+    "yep",
+    "gotcha",
+    "alright",
+]
 _AgentActivityContextVar = contextvars.ContextVar["AgentActivity"]("agents_activity")
 _SpeechHandleContextVar = contextvars.ContextVar["SpeechHandle"]("agents_speech_handle")
 
@@ -1166,6 +1183,49 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
+    # def _interrupt_by_audio_activity(self) -> None:
+    #     opt = self._session.options
+    #     use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
+
+    #     if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
+    #         # ignore if realtime model has turn detection enabled
+    #         return
+
+    #     if (
+    #         self.stt is not None
+    #         and opt.min_interruption_words > 0
+    #         and self._audio_recognition is not None
+    #     ):
+    #         text = self._audio_recognition.current_transcript
+
+    #         # TODO(long): better word splitting for multi-language
+    #         if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+    #             return
+
+    #     if self._rt_session is not None:
+    #         self._rt_session.start_user_activity()
+
+    #     if (
+    #         self._current_speech is not None
+    #         and not self._current_speech.interrupted
+    #         and self._current_speech.allow_interruptions
+    #     ):
+    #         self._paused_speech = self._current_speech
+
+    #         # reset the false interruption timer
+    #         if self._false_interruption_timer:
+    #             self._false_interruption_timer.cancel()
+    #             self._false_interruption_timer = None
+
+    #         if use_pause and self._session.output.audio and self._session.output.audio.can_pause:
+    #             self._session.output.audio.pause()
+    #             self._session._update_agent_state("listening")
+    #         else:
+    #             if self._rt_session is not None:
+    #                 self._rt_session.interrupt()
+
+    #             self._current_speech.interrupt()
+
     def _interrupt_by_audio_activity(self) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
@@ -1174,15 +1234,48 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
+        # If we have STT available and audio_recognition provides a transcript, inspect it
+        text = ""
+        words: list[str] = []
+        if self.stt is not None and self._audio_recognition is not None:
+            text = self._audio_recognition.current_transcript or ""
+            # split_words is already imported earlier in this module
+            words = [w.lower().strip() for w in split_words(text, split_character=True) if w.strip()]
+
+        # Build ignore set from session config or use default
+        ignore_list = (
+            list(self._session.options.ignore_words)
+            if getattr(self._session.options, "ignore_words", None)
+            else DEFAULT_ACK_WORDS
+        )
+        ignore_set = {w.lower() for w in ignore_list}
+
+        # Keywords that should always be treated as interruptions (can be extended)
+        interrupt_keywords = {"wait", "stop", "no", "hold", "holdon", "hold on", "cancel", "actually", "stop it"}
+
+        # 1) If the agent is currently speaking and the user's transcript only contains
+        #    ignore (ack) words -> treat as soft acknowledgement: DO NOT INTERRUPT.
+        if self._current_speech is not None and words:
+            # Consider words that are only punctuation or filler as ack
+            only_ignored = all((w in ignore_set) for w in words)
+            # If only ignored -> return early (do nothing)
+            if only_ignored:
+                return
+
+            # If transcript contains explicit interrupt keywords, continue and allow interruption
+            if any(w in interrupt_keywords for w in words):
+                # fall through to interruption
+                pass
+            # Otherwise, there are substantive words in the transcript -> allow interruption flow below
+
+        # Next, keep the existing min_interruption_words guard (to avoid accidental short transcripts)
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
             and self._audio_recognition is not None
         ):
-            text = self._audio_recognition.current_transcript
-
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+            # If there is no STT transcript yet or not enough words, ignore
+            if len(words) < opt.min_interruption_words:
                 return
 
         if self._rt_session is not None:
