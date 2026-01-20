@@ -14,7 +14,7 @@ from opentelemetry import context as otel_context, trace
 from livekit import rtc
 from livekit.agents.llm.realtime import MessageGeneration
 from livekit.agents.metrics.base import Metadata
-
+from backchannel_aware import InterruptionHandler,InterruptionSettings
 from .. import llm, stt, tts, utils, vad
 from ..llm.tool_context import (
     StopResponse,
@@ -122,10 +122,13 @@ class AgentActivity(RecognitionHooks):
         self._speech_q: list[tuple[int, float, SpeechHandle]] = []
 
         # for false interruption handling
+        # inside __init__
+        self._interrupt_filter = InterruptionHandler()
         self._paused_speech: SpeechHandle | None = None
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
 
+        
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
         self._q_updated = asyncio.Event()
@@ -1187,6 +1190,17 @@ class AgentActivity(RecognitionHooks):
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
+
+        if self._audio_recognition and self._current_speech:
+            text = self._audio_recognition.current_transcript
+            is_speaking = not self._current_speech.interrupted
+        
+            if self._interrupt_filter.should_ignore_interrupt(
+                text=text,
+                is_speaking=is_speaking
+            ):
+                return
+
 
         if (
             self._current_speech is not None
