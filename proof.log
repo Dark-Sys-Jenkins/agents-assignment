@@ -1,0 +1,102 @@
+Scenario 1: Agent speaking + filler words
+PASS   | yeah while speaking
+        expected = True, got = True
+
+PASS   | ok while speaking
+        expected = True, got = True
+
+PASS   | okay yeah uh-huh
+        expected = True, got = True
+
+PASS   | hmm right
+        expected = True, got = True
+
+PASS   | yeah okay hmm
+        expected = True, got = True
+
+
+Scenario 2: Agent silent + acknowledgement
+PASS   | yeah while silent
+        expected = False, got = False
+
+PASS   | ok while silent
+        expected = False, got = False
+
+PASS   | hmm while silent
+        expected = False, got = False
+
+
+Scenario 3: Semantic interruption
+PASS   | stop while speaking
+        expected = False, got = False
+
+PASS   | no while speaking
+        expected = False, got = False
+
+PASS   | wait please
+        expected = False, got = False
+
+PASS   | hold on
+        expected = False, got = False
+
+
+Scenario 4: Mixed filler and semantic content
+PASS   | yeah but wait
+        expected = False, got = False
+
+PASS   | ok hmm stop
+        expected = False, got = False
+
+PASS   | yeah no
+        expected = False, got = False
+
+PASS   | okay so wait
+        expected = False, got = False
+
+
+Scenario 5: Edge cases
+PASS   | empty string
+        expected = False, got = False
+
+PASS   | punctuation only
+        expected = False, got = False
+
+PASS   | uppercase filler
+        expected = True, got = True
+
+PASS   | mixed case filler
+        expected = True, got = True
+
+======================================================================
+FINAL RESULT: 20/20 TESTS PASSED
+======================================================================
+
+======================================================================
+STATE AWARENESS DEMONSTRATION
+======================================================================
+
+🎯 Same Input, Different States:
+
+Input: 'yeah'
+----------------------------------------------------------------------
+  Agent SPEAKING:  result=    1 | reason: acknowledgement_during_agent_speech
+  Agent SILENT:    result=    0 | reason: acknowledgement_while_agent_idle
+  STATE DEPENDENT: Result changes based on is_speaking
+
+Input: 'okay'
+----------------------------------------------------------------------
+  Agent SPEAKING:  result=    1 | reason: acknowledgement_during_agent_speech
+  Agent SILENT:    result=    0 | reason: acknowledgement_while_agent_idle
+  STATE DEPENDENT: Result changes based on is_speaking
+
+Input: 'no stop'
+----------------------------------------------------------------------
+  Agent SPEAKING:  result=    0 | reason: meaningful_speech_detected
+  Agent SILENT:    result=    0 | reason: meaningful_speech_detected
+  STATE INDEPENDENT: Result is same regardless
+
+Input: 'wait'
+----------------------------------------------------------------------
+  Agent SPEAKING:  result=    0 | reason: meaningful_speech_detected
+  Agent SILENT:    result=    0 | reason: meaningful_speech_detected
+  STATE INDEPENDENT: Result is same regardless
