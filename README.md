@@ -12,7 +12,8 @@ Default LiveKit VAD is too sensitive - it stops the agent when users say "yeah" 
 
 Watch the full demonstration of all test scenarios:
 
-[![Demo Video - Intelligent Interruption Handling](https://img.youtube.com/vi/AW9OcU4P2Rw/maxresdefault.jpg)](https://youtu.be/AW9OcU4P2Rw)
+
+[![Demo Video - Intelligent Interruption Handling](https://img.youtube.com/vi/AW9OcU4P2Rw/0.jpg)](https://youtu.be/AW9OcU4P2Rw)
 
 *Click the image above to watch the demo video showing the agent ignoring soft words while speaking, responding to them when silent, and handling hard interruptions.*
 
