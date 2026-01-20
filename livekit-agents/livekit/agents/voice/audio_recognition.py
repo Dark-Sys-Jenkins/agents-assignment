@@ -90,6 +90,13 @@ class RecognitionHooks(Protocol):
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None: ...
 
     def retrieve_chat_ctx(self) -> llm.ChatContext: ...
+    
+    def should_ignore_transcript(self, transcript: str, agent_state: str) -> bool:
+        """Check if a transcript should be ignored (e.g., backchanneling when agent is speaking).
+        
+        Returns True if transcript should be ignored and not added to conversation context.
+        """
+        ...
 
 
 class AudioRecognition:
@@ -356,18 +363,25 @@ class AudioRecognition:
             if not transcript:
                 return
 
+            # Check if transcript should be ignored (e.g., backchanneling when agent is speaking)
+            # This prevents it from being added to _audio_transcript and conversation context
+            should_ignore = False
+            if hasattr(self._hooks, 'should_ignore_transcript'):
+                agent_state = getattr(self._session, 'agent_state', 'listening')
+                # Combine with existing transcript to check full context
+                full_transcript = f"{self._audio_transcript} {transcript}".strip() if self._audio_transcript else transcript
+                should_ignore = self._hooks.should_ignore_transcript(full_transcript, agent_state)
+            
             self._hooks.on_final_transcript(
                 ev,
                 speaking=self._speaking if self._vad else None,
             )
-            extra: dict[str, Any] = {"user_transcript": transcript, "language": self._last_language}
-            if self._last_speaking_time:
-                extra["transcript_delay"] = time.time() - self._last_speaking_time
-            logger.debug("received user transcript", extra=extra)
-
+            
             self._last_final_transcript_time = time.time()
-            self._audio_transcript += f" {transcript}"
-            self._audio_transcript = self._audio_transcript.lstrip()
+            # Only add to _audio_transcript if not ignored (prevents backchanneling from entering conversation context)
+            if not should_ignore:
+                self._audio_transcript += f" {transcript}"
+                self._audio_transcript = self._audio_transcript.lstrip()
             self._final_transcript_confidence.append(confidence)
             transcript_changed = self._audio_transcript != self._audio_preflight_transcript
             self._audio_interim_transcript = ""

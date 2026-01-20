@@ -1241,21 +1241,10 @@ class AgentActivity(RecognitionHooks):
                     current_text = self._audio_recognition.current_transcript
                 
                 should_ignore = self._should_ignore_backchanneling(current_text)
-                logger.debug(
-                    "interrupt check",
-                    extra={
-                        "agent_state": self._session.agent_state,
-                        "transcript_override": transcript_override,
-                        "current_text": current_text,
-                        "should_ignore": should_ignore,
-                        "source": "VAD" if transcript_override is None else "STT",
-                    },
-                )
                 
                 if should_ignore:
                     # User said only backchanneling words, ignore the interruption completely
                     # Return BEFORE any pause logic to prevent any pause from starting
-                    logger.debug("ignoring backchanneling interruption")
                     return
 
         if (
@@ -1277,15 +1266,6 @@ class AgentActivity(RecognitionHooks):
             and not self._current_speech.interrupted
             and self._current_speech.allow_interruptions
         ):
-            logger.debug(
-                "interrupting speech",
-                extra={
-                    "agent_state": self._session.agent_state,
-                    "use_pause": use_pause,
-                    "can_pause": self._session.output.audio.can_pause if self._session.output.audio else None,
-                    "transcript_override": transcript_override,
-                },
-            )
             self._paused_speech = self._current_speech
 
             # reset the false interruption timer
@@ -1294,13 +1274,11 @@ class AgentActivity(RecognitionHooks):
                 self._false_interruption_timer = None
 
             if use_pause and self._session.output.audio and self._session.output.audio.can_pause:
-                logger.debug("PAUSING AUDIO - this is where pause happens")
                 self._session.output.audio.pause()
                 self._session._update_agent_state("listening")
             else:
                 if self._rt_session is not None:
                     self._rt_session.interrupt()
-
                 self._current_speech.interrupt()
 
     # region recognition hooks
@@ -1335,13 +1313,6 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
-            logger.debug(
-                "VAD inference done - calling interrupt",
-                extra={
-                    "speech_duration": ev.speech_duration,
-                    "agent_state": self._session.agent_state,
-                },
-            )
             self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
@@ -1349,14 +1320,39 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
-        self._session._user_input_transcribed(
-            UserInputTranscribedEvent(
-                language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
-                is_final=False,
-                speaker_id=ev.alternatives[0].speaker_id,
-            ),
-        )
+        # Check if this is backchanneling BEFORE forwarding to LLM
+        # If agent is speaking and user said only backchanneling, don't forward to LLM
+        # This prevents LLM from generating a response to "Okay" or "Yep"
+        should_forward_to_llm = True
+        if self._session.agent_state == "speaking" and ev.alternatives[0].text:
+            transcript_text = ev.alternatives[0].text
+            if self._audio_recognition is not None:
+                # Get existing final transcript
+                existing_final = getattr(self._audio_recognition, '_audio_transcript', '')
+                if existing_final:
+                    transcript_text = f"{existing_final} {transcript_text}".strip()
+            
+            if self._should_ignore_backchanneling(transcript_text):
+                # This is backchanneling - don't forward to LLM
+                should_forward_to_llm = False
+                # Log transcript even if ignored (for testing visibility)
+                logger.info(
+                    "User: %s [backchanneling - ignored]",
+                    ev.alternatives[0].text,
+                )
+
+        # Only forward to LLM if not backchanneling
+        if should_forward_to_llm:
+            # Log transcript for visibility
+            logger.info("User: %s [interim]", ev.alternatives[0].text)
+            self._session._user_input_transcribed(
+                UserInputTranscribedEvent(
+                    language=ev.alternatives[0].language,
+                    transcript=ev.alternatives[0].text,
+                    is_final=False,
+                    speaker_id=ev.alternatives[0].speaker_id,
+                ),
+            )
 
         if ev.alternatives[0].text and self._turn_detection not in (
             "manual",
@@ -1366,13 +1362,6 @@ class AgentActivity(RecognitionHooks):
             # This avoids timing issues where current_transcript hasn't been updated yet
             # Combine with existing final transcript if available (matches current_transcript logic)
             new_transcript = ev.alternatives[0].text
-            logger.debug(
-                "STT interim transcript received",
-                extra={
-                    "new_transcript": new_transcript,
-                    "agent_state": self._session.agent_state,
-                },
-            )
             if self._audio_recognition is not None:
                 # Get existing final transcript
                 existing_final = getattr(self._audio_recognition, '_audio_transcript', '')
@@ -1384,13 +1373,6 @@ class AgentActivity(RecognitionHooks):
             else:
                 transcript_text = new_transcript
             
-            logger.debug(
-                "calling interrupt with STT transcript",
-                extra={
-                    "transcript_text": transcript_text,
-                    "agent_state": self._session.agent_state,
-                },
-            )
             self._interrupt_by_audio_activity(transcript_override=transcript_text)
 
             if (
@@ -1406,14 +1388,39 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
-        self._session._user_input_transcribed(
-            UserInputTranscribedEvent(
-                language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
-                is_final=True,
-                speaker_id=ev.alternatives[0].speaker_id,
-            ),
-        )
+        # Check if this is backchanneling BEFORE forwarding to LLM
+        # If agent is speaking and user said only backchanneling, don't forward to LLM
+        # This prevents LLM from generating a response to "Okay" or "Yep"
+        should_forward_to_llm = True
+        if self._session.agent_state == "speaking" and ev.alternatives[0].text:
+            transcript_text = ev.alternatives[0].text
+            if self._audio_recognition is not None:
+                # Get existing final transcript (before this one is added)
+                existing_final = getattr(self._audio_recognition, '_audio_transcript', '')
+                if existing_final:
+                    transcript_text = f"{existing_final} {transcript_text}".strip()
+            
+            if self._should_ignore_backchanneling(transcript_text):
+                # This is backchanneling - don't forward to LLM
+                should_forward_to_llm = False
+                # Log transcript even if ignored (for testing visibility)
+                logger.info(
+                    "User: %s [backchanneling - ignored]",
+                    ev.alternatives[0].text,
+                )
+
+        # Only forward to LLM if not backchanneling
+        if should_forward_to_llm:
+            # Log transcript for visibility
+            logger.info("User: %s", ev.alternatives[0].text)
+            self._session._user_input_transcribed(
+                UserInputTranscribedEvent(
+                    language=ev.alternatives[0].language,
+                    transcript=ev.alternatives[0].text,
+                    is_final=True,
+                    speaker_id=ev.alternatives[0].speaker_id,
+                ),
+            )
         # agent speech might not be interrupted if VAD failed and a final transcript is received
         # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
         # which will also be immediately interrupted
@@ -1422,7 +1429,22 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # Pass transcript from event directly for faster, more accurate checking
+            # This avoids timing issues where current_transcript hasn't been updated yet
+            # This is critical for backchanneling detection - final transcripts like "Yep." or "Okay."
+            # need to be checked immediately with the correct text
+            if ev.alternatives[0].text:
+                new_transcript = ev.alternatives[0].text
+                # Get existing final transcript (before this one is added)
+                existing_final = getattr(self._audio_recognition, '_audio_transcript', '')
+                if existing_final:
+                    # Combine like current_transcript does: final + " " + new final
+                    transcript_text = f"{existing_final} {new_transcript}".strip()
+                else:
+                    transcript_text = new_transcript
+                self._interrupt_by_audio_activity(transcript_override=transcript_text)
+            else:
+                self._interrupt_by_audio_activity()
 
             if (
                 speaking is False
@@ -1690,6 +1712,17 @@ class AgentActivity(RecognitionHooks):
     # AudioRecognition is calling this method to retrieve the chat context before running the TurnDetector model  # noqa: E501
     def retrieve_chat_ctx(self) -> llm.ChatContext:
         return self._agent.chat_ctx
+
+    def should_ignore_transcript(self, transcript: str, agent_state: str) -> bool:
+        """Check if a transcript should be ignored (e.g., backchanneling when agent is speaking).
+        
+        This is called by AudioRecognition before adding transcript to _audio_transcript,
+        which prevents it from being used in EOU detection and conversation context.
+        """
+        if agent_state == "speaking" and transcript:
+            # Check if this is backchanneling when agent is speaking
+            return self._should_ignore_backchanneling(transcript)
+        return False
 
     # endregion
 
