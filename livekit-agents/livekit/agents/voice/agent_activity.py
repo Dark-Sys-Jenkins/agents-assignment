@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+from email.mime import text
+from intterrupt_audio_backend import InterruptionHandler, InterruptionSettings
+import re
 import heapq
 import json
 import time
@@ -120,6 +123,19 @@ class AgentActivity(RecognitionHooks):
 
         self._current_speech: SpeechHandle | None = None
         self._speech_q: list[tuple[int, float, SpeechHandle]] = []
+        # Initialize the interruption filter
+        # 
+        # self._interrupt_filter = InterruptionHandler()
+        self._interrupt_filter = InterruptionHandler(
+            
+        InterruptionSettings(debug=False)  # Set debug=True for testing
+        
+    )
+        # 
+    
+        # Initialize deferred interrupt tracking (CRITICAL - was missing!)
+        self._deferred_interrupt_task: asyncio.Task[None] | None = None
+    
 
         # for false interruption handling
         self._paused_speech: SpeechHandle | None = None
@@ -1165,29 +1181,121 @@ class AgentActivity(RecognitionHooks):
             name="AgentActivity.realtime_generation",
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
+#  added code starts here
+#  this is to prevent false interruption caused by VAD triggering before STT transcript is available
+    
+    async def _deferred_interrupt_guard(self) -> None:
+        """
+        Prevent false interruption caused by VAD triggering before STT transcript is available.
 
+        Wait a tiny window for STT transcript. If transcript is just backchannel ("yeah/ok/hmm"),
+        ignore and let agent continue without pausing/stopping.
+        """
+        GUARD_WINDOW_SEC = 0.25
+
+        deadline = time.monotonic() + GUARD_WINDOW_SEC
+
+        while time.monotonic() < deadline:
+            # If speech ended or already interrupted, exit
+            if not self._current_speech or self._current_speech.interrupted:
+                return
+
+            if not self._audio_recognition:
+                await asyncio.sleep(0.01)
+                continue
+
+            text = (self._audio_recognition.current_transcript or "").strip()
+
+            # still empty → wait a bit more
+            if not text:
+                await asyncio.sleep(0.01)
+                continue
+
+            # transcript available → decide using existing filter
+            is_speaking = self._current_speech is not None and not self._current_speech.interrupted
+            
+            el= self._interrupt_filter.should_ignore_interrupt(text=text, is_speaking=is_speaking)
+            # debug step 
+            # print(f"Interim transcript : 1441: '{text}' | is_speaking: {is_speaking} | should_ignore: {el}")
+            
+            if el:
+                # backchannel → ignore interruption completely
+                return
+            
+            # meaningful transcript → real interruption
+            break
+
+        # After guard window: if transcript is still empty OR meaningful → interrupt now
+        if (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        ):
+            if self._rt_session is not None:
+                self._rt_session.interrupt()
+            self._current_speech.interrupt()
+            
     def _interrupt_by_audio_activity(self) -> None:
+        """
+        Interrupt handler with backchannel awareness.
+        
+        This method is called when VAD detects user speech. It determines
+        whether to actually interrupt the agent based on:
+        1. Transcript availability (STT may lag behind VAD)
+        2. Semantic content (backchannel vs meaningful speech)
+        3. Agent speaking state
+        """
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
+        # Skip if realtime model has server-side turn detection
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
-            # ignore if realtime model has turn detection enabled
             return
 
+        # Check minimum interruption words requirement
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
             and self._audio_recognition is not None
         ):
             text = self._audio_recognition.current_transcript
-
-            # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
                 return
 
+        # Notify realtime session of user activity
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
 
+        # ============================================================
+        # BACKCHANNEL FILTERING LOGIC (NEW)
+        # ============================================================
+        
+        if self._audio_recognition and self._current_speech:
+            text = (self._audio_recognition.current_transcript or "").strip()
+            is_speaking = not self._current_speech.interrupted
+            
+            # If transcript is already available, make immediate decision
+            if text:
+                should_ignore = self._interrupt_filter.should_ignore_interrupt(
+                    text=text,
+                    is_speaking=is_speaking
+                )
+                # debug flow 
+                # print(f"Interim transcript : 1344: '{text}' | is_speaking: {is_speaking} | should_ignore: {should_ignore}")
+                if should_ignore:
+                    # Backchannel detected - ignore interruption completely
+                    return
+                
+                # If we reach here, it's a real interruption - continue below
+            
+            # If transcript NOT available yet, this is the VAD-STT race condition
+            # Don't immediately interrupt - the existing pause/resume logic will handle it
+            # The transcript will be checked again in on_interim_transcript and on_final_transcript
+        
+        # ============================================================
+        # ORIGINAL INTERRUPTION LOGIC (UNCHANGED)
+        # ============================================================
+        
         if (
             self._current_speech is not None
             and not self._current_speech.interrupted
@@ -1195,7 +1303,7 @@ class AgentActivity(RecognitionHooks):
         ):
             self._paused_speech = self._current_speech
 
-            # reset the false interruption timer
+            # Reset the false interruption timer
             if self._false_interruption_timer:
                 self._false_interruption_timer.cancel()
                 self._false_interruption_timer = None
@@ -1206,8 +1314,9 @@ class AgentActivity(RecognitionHooks):
             else:
                 if self._rt_session is not None:
                     self._rt_session.interrupt()
-
                 self._current_speech.interrupt()
+
+
 
     # region recognition hooks
 
@@ -1261,7 +1370,25 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            text = ev.alternatives[0].text.strip()
+           
+            # Check if this is just backchannel acknowledgment
+            if self._current_speech and not self._current_speech.interrupted:
+                is_speaking = True
+                
+                should_ignore = self._interrupt_filter.should_ignore_interrupt(
+                    text=text,
+                    is_speaking=is_speaking
+                )
+                # debug flow 
+                # print(f"Interim transcript : 1441: '{text}' | is_speaking: {is_speaking} | should_ignore: {should_ignore}")
+                if should_ignore:
+                    # This is backchannel - don't interrupt
+                    return
+            
+            # Not backchannel - proceed with interruption
             self._interrupt_by_audio_activity()
+
 
             if (
                 speaking is False
@@ -1292,6 +1419,28 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            text = ev.alternatives[0].text.strip()
+                   # Check if final transcript is just backchannel
+            if self._current_speech and not self._current_speech.interrupted:
+                is_speaking = True
+                
+                should_ignore = self._interrupt_filter.should_ignore_interrupt(
+                    text=text,
+                    is_speaking=is_speaking
+                )
+                # debug flow
+                # print(f"Interim transcript : 1490: '{text}' | is_speaking: {is_speaking} | should_ignore: {should_ignore}")
+                
+                if should_ignore:
+                    # Backchannel - cancel any pending interruption
+                    # Resume if paused
+                    if self._paused_speech and self._session.output.audio:
+                        if self._session.output.audio.can_pause:
+                            self._session.output.audio.resume()
+                            self._paused_speech = None
+                    return
+            
+            # Real interruption - proceed
             self._interrupt_by_audio_activity()
 
             if (
@@ -1344,6 +1493,21 @@ class AgentActivity(RecognitionHooks):
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool:
         # IMPORTANT: This method is sync to avoid it being cancelled by the AudioRecognition
         # We explicitly create a new task here
+        text = (info.new_transcript or "").strip()
+
+        is_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+        )
+
+        if self._interrupt_filter.should_ignore_interrupt(text=text, is_speaking=is_speaking):
+            logger.warning(
+                "IGNORING BACKCHANNEL TURN (no LLM reply)",
+                extra={"user_input": text},
+            )
+            self._cancel_preemptive_generation()
+            return False
+
 
         if self._scheduling_paused:
             self._cancel_preemptive_generation()

@@ -1,0 +1,471 @@
+======================================================================
+LIVEKIT INTELLIGENT INTERRUPTION HANDLING - TEST SUITE
+======================================================================
+
+======================================================================
+TEST SUITE 1: Basic Backchannels (Agent Speaking)
+======================================================================
+✓ PASS   | Single 'yeah'
+          expected=True, got=True
+
+✓ PASS   | Single 'ok'
+          expected=True, got=True
+
+✓ PASS   | Single 'okay'
+          expected=True, got=True
+
+✓ PASS   | Single 'hmm'
+          expected=True, got=True
+
+✓ PASS   | Single 'mhm'
+          expected=True, got=True
+
+✓ PASS   | Single 'uh-huh'
+          expected=True, got=True
+
+✓ PASS   | Single 'right'
+          expected=True, got=True
+
+✓ PASS   | Single 'sure'
+          expected=True, got=True
+
+✓ PASS   | Single 'exactly'
+          expected=True, got=True
+
+✓ PASS   | Single 'totally'
+          expected=True, got=True
+
+✓ PASS   | Multiple backchannels
+          expected=True, got=True
+
+✓ PASS   | Repeated backchannel
+          expected=True, got=True
+
+✓ PASS   | Mixed backchannels
+          expected=True, got=True
+
+✓ PASS   | Backchannel phrase
+          expected=True, got=True
+
+✓ PASS   | Backchannel phrase 2
+          expected=True, got=True
+
+✓ PASS   | Backchannel phrase 3
+          expected=True, got=True
+
+
+======================================================================
+TEST SUITE 2: State Awareness (Speaking vs Silent)
+======================================================================
+✓ PASS   | 'yeah' while SPEAKING
+          expected=True, got=True
+
+✓ PASS   | 'yeah' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'ok' while SPEAKING
+          expected=True, got=True
+
+✓ PASS   | 'ok' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'hmm' while SPEAKING
+          expected=True, got=True
+
+✓ PASS   | 'hmm' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'right' while SPEAKING
+          expected=True, got=True
+
+✓ PASS   | 'right' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'got it' while SPEAKING
+          expected=True, got=True
+
+✓ PASS   | 'got it' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'i see' while SPEAKING
+          expected=True, got=True
+
+✓ PASS   | 'i see' while SILENT
+          expected=False, got=False
+
+
+======================================================================
+TEST SUITE 3: Explicit Commands (Always Interrupt)
+======================================================================
+✓ PASS   | 'stop' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'stop' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'wait' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'wait' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'no' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'no' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'pause' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'pause' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'hold on' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'hold on' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'hold up' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'hold up' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'hang on' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'hang on' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'wait a minute' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'wait a minute' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'actually' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'actually' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'but' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'but' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'however' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'however' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'listen' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'listen' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'what' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'what' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'why' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'why' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'how' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'how' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'when' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'when' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'where' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'where' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'can you' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'can you' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'could you' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'could you' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'i want' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'i want' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'i need' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'i need' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'let me' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'let me' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'question' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'question' while SILENT
+          expected=False, got=False
+
+✓ PASS   | 'excuse me' while SPEAKING
+          expected=False, got=False
+
+✓ PASS   | 'excuse me' while SILENT
+          expected=False, got=False
+
+
+======================================================================
+TEST SUITE 4: Mixed Backchannel + Command
+======================================================================
+✓ PASS   | yeah but wait
+          expected=False, got=False
+
+✓ PASS   | ok hmm stop
+          expected=False, got=False
+
+✓ PASS   | yeah no
+          expected=False, got=False
+
+✓ PASS   | okay so wait
+          expected=False, got=False
+
+✓ PASS   | hmm actually
+          expected=False, got=False
+
+✓ PASS   | right but
+          expected=False, got=False
+
+✓ PASS   | ok what
+          expected=False, got=False
+
+✓ PASS   | yeah i want
+          expected=False, got=False
+
+✓ PASS   | got it but hold on
+          expected=False, got=False
+
+
+======================================================================
+TEST SUITE 5: Edge Cases
+======================================================================
+✓ PASS   | Empty string
+          expected=False, got=False
+
+✓ PASS   | Whitespace only
+          expected=False, got=False
+
+✓ PASS   | Punctuation only
+          expected=False, got=False
+
+✓ PASS   | Single character
+          expected=False, got=False
+
+✓ PASS   | Numbers
+          expected=False, got=False
+
+✓ PASS   | Uppercase backchannel
+          expected=True, got=True
+
+✓ PASS   | Mixed case
+          expected=True, got=True
+
+✓ PASS   | Extra whitespace
+          expected=True, got=True
+
+✓ PASS   | With punctuation
+          expected=True, got=True
+
+✓ PASS   | With commas
+          expected=True, got=True
+
+✓ PASS   | Trailing punctuation
+          expected=True, got=True
+
+✓ PASS   | Question mark
+          expected=True, got=True
+
+✓ PASS   | Multiple spaces
+          expected=True, got=True
+
+✓ PASS   | Newlines
+          expected=True, got=True
+
+✓ PASS   | Tabs
+          expected=True, got=True
+
+
+======================================================================
+TEST SUITE 6: Real-World Scenarios
+======================================================================
+
+  Scenario: Long explanation context
+✓ PASS   |   Okay
+          expected=True, got=True
+
+✓ PASS   |   yeah
+          expected=True, got=True
+
+✓ PASS   |   uh-huh
+          expected=True, got=True
+
+✓ PASS   |   right
+          expected=True, got=True
+
+
+  Scenario: Correction attempt
+✓ PASS   |   wait
+          expected=False, got=False
+
+✓ PASS   |   no stop
+          expected=False, got=False
+
+✓ PASS   |   actually
+          expected=False, got=False
+
+
+  Scenario: Question during explanation
+✓ PASS   |   yeah
+          expected=True, got=True
+
+✓ PASS   |   hmm
+          expected=True, got=True
+
+✓ PASS   |   but what about
+          expected=False, got=False
+
+
+  Scenario: Interest signals
+✓ PASS   |   oh really
+          expected=True, got=True
+
+✓ PASS   |   interesting
+          expected=True, got=True
+
+✓ PASS   |   wow
+          expected=True, got=True
+
+
+  Scenario: Topic change
+✓ PASS   |   anyway
+          expected=False, got=False
+
+✓ PASS   |   by the way
+          expected=False, got=False
+
+✓ PASS   |   speaking of
+          expected=False, got=False
+
+
+======================================================================
+TEST SUITE 7: Performance Benchmarks
+======================================================================
+Input: 'yeah'
+  Average time: 0.0218ms per call
+  ✓ PASS (<1ms requirement)
+
+Input: 'ok hmm right'
+  Average time: 0.0597ms per call
+  ✓ PASS (<1ms requirement)
+
+Input: 'wait a minute'
+  Average time: 0.0012ms per call
+  ✓ PASS (<1ms requirement)
+
+Input: 'yeah but actually i want to ask something'
+  Average time: 0.0201ms per call
+  ✓ PASS (<1ms requirement)
+
+Real-time requirement: <1ms per decision
+
+======================================================================
+TEST SUITE 8: Decision Explanations
+======================================================================
+
+Input: 'yeah' | Agent speaking: True
+  Decision: IGNORE
+  Reason: backchannel_during_agent_speech
+  Explanation: Listener acknowledgment during agent speech - ignored
+
+Input: 'stop' | Agent speaking: True
+  Decision: INTERRUPT
+  Reason: explicit_command_detected
+  Explanation: Explicit command 'stop' detected
+
+Input: 'yeah but wait' | Agent speaking: True
+  Decision: INTERRUPT
+  Reason: explicit_command_detected
+  Explanation: Explicit command 'wait' detected
+
+Input: '' | Agent speaking: True
+  Decision: INTERRUPT
+  Reason: no_detectable_words
+  Explanation: No text to process
+
+======================================================================
+STATE AWARENESS DEMONSTRATION
+======================================================================
+
+🎯 Same Input, Different States:
+
+Input: 'yeah'
+----------------------------------------------------------------------
+  Agent SPEAKING: IGNORE     | backchannel_during_agent_speech
+  Agent SILENT:   INTERRUPT  | backchannel_while_agent_idle
+  ⚠️  STATE-DEPENDENT: Behavior changes based on agent state
+
+Input: 'okay'
+----------------------------------------------------------------------
+  Agent SPEAKING: IGNORE     | backchannel_during_agent_speech
+  Agent SILENT:   INTERRUPT  | backchannel_while_agent_idle
+  ⚠️  STATE-DEPENDENT: Behavior changes based on agent state
+
+Input: 'no stop'
+----------------------------------------------------------------------
+  Agent SPEAKING: INTERRUPT  | explicit_command_detected
+  Agent SILENT:   INTERRUPT  | explicit_command_detected
+  ✓  STATE-INDEPENDENT: Consistent behavior
+
+Input: 'wait'
+----------------------------------------------------------------------
+  Agent SPEAKING: INTERRUPT  | explicit_command_detected
+  Agent SILENT:   INTERRUPT  | explicit_command_detected
+  ✓  STATE-INDEPENDENT: Consistent behavior
+
+Input: 'got it'
+----------------------------------------------------------------------
+  Agent SPEAKING: IGNORE     | backchannel_during_agent_speech
+  Agent SILENT:   INTERRUPT  | backchannel_while_agent_idle
+  ⚠️  STATE-DEPENDENT: Behavior changes based on agent state
+
+
+======================================================================
+TEST SUMMARY: 116/116 PASSED
+======================================================================
