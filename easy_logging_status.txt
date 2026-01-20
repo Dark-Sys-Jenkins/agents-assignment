@@ -1,0 +1,74 @@
+2026-01-18 22:10:38,329 | INFO | livekit.agents | starting worker
+2026-01-18 22:10:38,331 | INFO | livekit.agents | HTTP server listening on :8081
+2026-01-18 22:10:38,335 | INFO | livekit.agents | initializing job runner
+2026-01-18 22:10:38,336 | INFO | livekit.agents | initializing job runner
+2026-01-18 22:10:38,337 | INFO | livekit.agents | initializing job runner
+2026-01-18 22:10:38,338 | INFO | livekit.agents | initializing job runner
+2026-01-18 22:10:38,340 | INFO | livekit.agents | job runner initialized
+2026-01-18 22:10:38,341 | INFO | livekit.agents | job runner initialized
+2026-01-18 22:10:38,343 | INFO | livekit.agents | job runner initialized
+2026-01-18 22:10:38,345 | INFO | livekit.agents | job runner initialized
+2026-01-18 22:10:39,262 | INFO | livekit.agents | registered worker
+2026-01-18 22:10:39,387 | INFO | livekit.agents | received job request
+2026-01-18 22:10:39,388 | INFO | livekit.agents | received job request
+2026-01-18 22:10:39,574 | INFO | livekit.agents | initializing job runner
+2026-01-18 22:10:39,575 | INFO | livekit.agents | initializing job runner
+2026-01-18 22:10:39,577 | INFO | livekit.agents | job runner initialized
+2026-01-18 22:10:39,577 | INFO | livekit.agents | job runner initialized
+2026-01-18 22:10:41,687 | INFO | interrupt-agent | Connected to room: playground-pLnO-zZUZ
+2026-01-18 22:10:49,509 | WARNING | livekit.agents | The room connection was not established within 10 seconds after calling job_entry. This might mean that job_ctx.connect() was never invoked, or that no AgentSession with an active RoomIO has been started.
+2026-01-18 22:10:55,655 | WARNING | livekit | livekit::rtc_engine:405:livekit::rtc_engine - failed to connect: Connection("wait_pc_connection timed out"), retrying... (1/3)
+2026-01-18 22:10:57,804 | INFO | interrupt-agent | Connected to room: playground-9aZg-2PGL
+2026-01-18 22:10:57,805 | INFO | interrupt-agent | Participant joined: identity-GNNu
+2026-01-18 22:10:58,007 | INFO | interrupt-agent | Listening...
+2026-01-18 22:11:11,754 | INFO | interrupt-agent | 👤 User said: 'Hey. Let's'
+2026-01-18 22:11:11,755 | INFO | interrupt-agent | Normal reply trigger.
+2026-01-18 22:11:11,755 | INFO | interrupt-agent | 🔊 Agent STARTED speaking: 'I heard you say Hey. Let's'
+2026-01-18 22:11:15,378 | INFO | interrupt-agent | ✅ Agent FINISHED speaking: 'I heard you say Hey. Let's'
+2026-01-18 22:11:26,364 | ERROR | livekit.plugins.deepgram | Error in recv_task
+Traceback (most recent call last):
+  File "C:\Users\HP\AppData\Local\Programs\Python\Python311\Lib\site-packages\livekit\agents\utils\log.py", line 16, in async_fn_logs
+    return await fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\AppData\Local\Programs\Python\Python311\Lib\site-packages\livekit\plugins\deepgram\stt.py", line 519, in recv_task
+    raise APIStatusError(message="deepgram connection closed unexpectedly")
+livekit.agents._exceptions.APIStatusError: deepgram connection closed unexpectedly (status_code=-1, request_id=None, body=None, retryable=True)
+2026-01-18 22:11:26,412 | WARNING | livekit.agents | failed to recognize speech, retrying in 0.1s
+Traceback (most recent call last):
+  File "C:\Users\HP\AppData\Local\Programs\Python\Python311\Lib\site-packages\livekit\agents\stt\stt.py", line 317, in _main_task
+    return await self._run()
+           ^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\AppData\Local\Programs\Python\Python311\Lib\site-packages\livekit\plugins\deepgram\stt.py", line 551, in _run
+    task.result()
+  File "C:\Users\HP\AppData\Local\Programs\Python\Python311\Lib\site-packages\livekit\agents\utils\log.py", line 16, in async_fn_logs
+    return await fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\AppData\Local\Programs\Python\Python311\Lib\site-packages\livekit\plugins\deepgram\stt.py", line 519, in recv_task
+    raise APIStatusError(message="deepgram connection closed unexpectedly")
+livekit.agents._exceptions.APIStatusError: deepgram connection closed unexpectedly (status_code=-1, request_id=None, body=None, retryable=True)
+2026-01-18 22:11:38,419 | INFO | interrupt-agent | 👤 User said: 'I'm sorry. Deepgram connection has been interrupted.'
+2026-01-18 22:11:38,420 | INFO | interrupt-agent | Ignoring backchannel/noise.
+2026-01-18 22:11:40,857 | INFO | interrupt-agent | 👤 User said: 'I'll kill the'
+2026-01-18 22:11:40,857 | INFO | interrupt-agent | Ignoring backchannel/noise.
+2026-01-18 22:11:44,076 | INFO | interrupt-agent | 👤 User said: 'and start again.'
+2026-01-18 22:11:44,077 | INFO | interrupt-agent | Ignoring backchannel/noise.
+2026-01-18 22:11:45,887 | INFO | interrupt-agent | 👤 User said: 'Uh, stop it.'
+2026-01-18 22:11:45,887 | INFO | interrupt-agent | ⚡ INTERRUPT DETECTED
+2026-01-18 22:11:45,929 | INFO | interrupt-agent | 🔊 Agent STARTED speaking: 'Okay, stopping.'
+2026-01-18 22:11:47,068 | INFO | interrupt-agent | ✅ Agent FINISHED speaking: 'Okay, stopping.'
+2026-01-18 22:12:04,475 | INFO | interrupt-agent | 👤 User said: 'Uh-huh.'
+2026-01-18 22:12:04,477 | INFO | interrupt-agent | Ignoring backchannel/noise.
+2026-01-18 22:12:10,349 | INFO | interrupt-agent | 👤 User said: 'Yeah.'
+2026-01-18 22:12:10,349 | INFO | interrupt-agent | Ignoring backchannel/noise.
+2026-01-18 22:12:13,232 | INFO | interrupt-agent | 👤 User said: 'Uh,'
+2026-01-18 22:12:13,233 | INFO | interrupt-agent | Ignoring backchannel/noise.
+2026-01-18 22:12:23,031 | INFO | interrupt-agent | 👤 User said: 'Okay. Got it.'
+2026-01-18 22:12:23,035 | INFO | interrupt-agent | Ignoring backchannel/noise.
+2026-01-18 22:12:29,426 | INFO | interrupt-agent | 👤 User said: 'Mhmm.'
+2026-01-18 22:12:29,426 | INFO | interrupt-agent | Ignoring backchannel/noise.
+2026-01-18 22:13:04,590 | INFO | interrupt-agent | 👤 User said: 'Yeah. Okay. But wait.'
+2026-01-18 22:13:04,590 | INFO | interrupt-agent | ⚡ INTERRUPT DETECTED
+2026-01-18 22:13:04,629 | INFO | interrupt-agent | 🔊 Agent STARTED speaking: 'Okay, stopping.'
+2026-01-18 22:13:05,768 | INFO | interrupt-agent | ✅ Agent FINISHED speaking: 'Okay, stopping.'
+2026-01-18 22:13:16,038 | INFO | livekit.agents | draining worker
+2026-01-18 22:13:17,585 | WARNING | livekit.agents | exiting forcefully

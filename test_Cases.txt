@@ -1,0 +1,16 @@
+Scenario 1: The Long Explanation 
+● Context: Agent is reading a long paragraph about history. 
+● User Action: User says "Okay... yeah... uh-huh" while Agent is talking. 
+● Result: Agent audio does not break. It ignores the user input completely. 
+Scenario 2: The Passive Affirmation 
+● Context: Agent asks "Are you ready?" and goes silent. 
+● User Action: User says "Yeah." 
+● Result: Agent processes "Yeah" as an answer and proceeds (e.g., "Okay, starting now"). 
+Scenario 3: The Correction 
+● Context: Agent is counting "One, two, three..." 
+● User Action: User says "No stop." 
+● Result: Agent cuts off immediately. 
+Scenario 4: The Mixed Input 
+● Context: Agent is speaking. 
+● User Action: User says "Yeah okay but wait." 
+● Result: Agent stops (because "but wait" is not in the ignore list).
