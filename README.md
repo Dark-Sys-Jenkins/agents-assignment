@@ -8,6 +8,14 @@ This project implements a context-aware voice agent that distinguishes between p
 
 Default LiveKit VAD is too sensitive - it stops the agent when users say "yeah" or "ok" while listening. This implementation fixes that by filtering soft words when the agent is speaking, while still allowing intentional commands like "stop" or "wait" to interrupt immediately.
 
+## Demo Video
+
+Watch the full demonstration of all test scenarios:
+
+[![Demo Video - Intelligent Interruption Handling](https://img.youtube.com/vi/AW9OcU4P2Rw/maxresdefault.jpg)](https://youtu.be/AW9OcU4P2Rw)
+
+*Click the image above to watch the demo video showing the agent ignoring soft words while speaking, responding to them when silent, and handling hard interruptions.*
+
 ## Core Logic Matrix
 
 | User Input | Agent State | Behavior |
