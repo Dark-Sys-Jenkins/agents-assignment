@@ -223,8 +223,9 @@ class AgentsConsole:
         self.tag_width = 11
         self.console = Console(theme=Theme(theme))
 
+    
         self._apm = rtc.AudioProcessingModule(
-            echo_cancellation=True,
+            echo_cancellation=True, 
             noise_suppression=True,
             high_pass_filter=True,
             auto_gain_control=True,

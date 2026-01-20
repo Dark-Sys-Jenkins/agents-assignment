@@ -56,20 +56,22 @@ class TTS(tts.TTS):
         self,
         *,
         base_url: NotGivenOr[str] = NOT_GIVEN,
-        model: TTSModels | str = "playai-tts",
-        voice: TTSVoices | str = "Arista-PlayAI",
+        model: TTSModels | str = "canopylabs/orpheus-v1-english",
+        voice: TTSVoices | str = "diana",
         api_key: NotGivenOr[str] = NOT_GIVEN,
         http_session: aiohttp.ClientSession | None = None,
     ) -> None:
         """
-        Create a new instance of Groq TTS.
+        Create a new instance of Groq TTS (Canopy Labs Orpheus).
 
         if `api_key` is not provided, it will be read from the ``GROQ_API_KEY``
         environmental variable.
 
         Args:
-            model (SpeechModels | str, optional): Model to use. Default is "playai-tts".
-            voice (SpeechVoices | str, optional): Voice to use. Default is "Autumn-PlayAI".
+            model (TTSModels | str, optional): Model to use. Default is "canopylabs/orpheus-v1-english".
+            voice (TTSVoices | str, optional): Voice to use. Default is "diana".
+                English voices: autumn, diana, hannah (female), austin, daniel, troy (male)
+                Arabic voices: fahad, sultan (male), lulwa, noura (female)
             api_key (str | None, optional): API key to use. Default is None.
         """
 
@@ -116,8 +118,8 @@ class TTS(tts.TTS):
         Update the TTS options.
 
         Args:
-            model (SpeechModels | str, optional): Model to use. Default is None.
-            voice (SpeechVoices | str, optional): Voice to use. Default is None.
+            model (TTSModels | str, optional): Model to use.
+            voice (TTSVoices | str, optional): Voice to use.
         """
         if is_given(model):
             self._opts.model = model
