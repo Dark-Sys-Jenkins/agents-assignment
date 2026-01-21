@@ -1,375 +1,556 @@
-<!--BEGIN_BANNER_IMAGE-->
+# LiveKit Intelligent Interruption Handling (Smart Backchanneling)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="/.github/banner_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="/.github/banner_light.png">
-  <img style="width:100%;" alt="The LiveKit icon, the name of the repository and some sample code in the background." src="https://raw.githubusercontent.com/livekit/agents/main/.github/banner_light.png">
-</picture>
+**Submitted by:** Divyanshu  
+**College:** Indraprastha Institute of Information Technology Delhi (IIITD)  
+**Branch:** CSAI (Computer Science and Artificial Intelligence)  
+**Roll No:** 2023211  
+**Email:** divyanshu23211@iiitd.ac.in  
 
-<!--END_BANNER_IMAGE-->
-<br />
+---
 
-![PyPI - Version](https://img.shields.io/pypi/v/livekit-agents)
-[![PyPI Downloads](https://static.pepy.tech/badge/livekit-agents/month)](https://pepy.tech/projects/livekit-agents)
-[![Slack community](https://img.shields.io/endpoint?url=https%3A%2F%2Flivekit.io%2Fbadges%2Fslack)](https://livekit.io/join-slack)
-[![Twitter Follow](https://img.shields.io/twitter/follow/livekit)](https://twitter.com/livekit)
-[![Ask DeepWiki for understanding the codebase](https://deepwiki.com/badge.svg)](https://deepwiki.com/livekit/agents)
-[![License](https://img.shields.io/github/license/livekit/livekit)](https://github.com/livekit/livekit/blob/master/LICENSE)
+## Overview
 
-<br />
+This repository contains a solution for the **LiveKit Intelligent Interruption Challenge**. The goal was to refine the conversational flow of a real-time AI agent by solving the issue of over-sensitive interruptions.
 
-Looking for the JS/TS library? Check out [AgentsJS](https://github.com/livekit/agents-js)
+Previously, standard VAD (Voice Activity Detection) would cut off the agent if the user said passive listening cues like "Yeah", "Uh-huh", or "Okay". This solution implements a **Context-Aware Logic Layer** that distinguishes between **Passive Acknowledgement** (Backchanneling) and **Active Interruption**.
 
-## What is Agents?
+## Key Features
 
-<!--BEGIN_DESCRIPTION-->
+* **Smart Backchannel Filtering:** The agent continues speaking seamlessly if the user says filler words (e.g., "Yeah", "I see") while the agent is talking.
+* **Semantic Interruption:** If the user mixes a backchannel with a command (e.g., "Yeah, wait a second"), the agent correctly interprets this as an interruption.
+* **State Awareness:** The agent responds normally to "Yeah" or "Okay" if it is currently silent (treating it as a valid user turn).
+* **Windows Compatibility:** Includes fixes for signal handling on Windows environments.
+* **Modern Telemetry:** Updated OpenTelemetry implementation to support version 1.34+.
 
-The Agent Framework is designed for building realtime, programmable participants
-that run on servers. Use it to create conversational, multi-modal voice
-agents that can see, hear, and understand.
+---
 
-<!--END_DESCRIPTION-->
+## How It Works (The Logic)
 
-## Features
+The solution is implemented via a "Greedy Phrase Consumption" algorithm injected into the agent's event loop. It operates on two specific checkpoints in `AgentActivity`:
 
-- **Flexible integrations**: A comprehensive ecosystem to mix and match the right STT, LLM, TTS, and Realtime API to suit your use case.
-- **Integrated job scheduling**: Built-in task scheduling and distribution with [dispatch APIs](https://docs.livekit.io/agents/build/dispatch/) to connect end users to agents.
-- **Extensive WebRTC clients**: Build client applications using LiveKit's open-source SDK ecosystem, supporting all major platforms.
-- **Telephony integration**: Works seamlessly with LiveKit's [telephony stack](https://docs.livekit.io/sip/), allowing your agent to make calls to or receive calls from phones.
-- **Exchange data with clients**: Use [RPCs](https://docs.livekit.io/home/client/data/rpc/) and other [Data APIs](https://docs.livekit.io/home/client/data/) to seamlessly exchange data with clients.
-- **Semantic turn detection**: Uses a transformer model to detect when a user is done with their turn, helps to reduce interruptions.
-- **MCP support**: Native support for MCP. Integrate tools provided by MCP servers with one loc.
-- **Builtin test framework**: Write tests and use judges to ensure your agent is performing as expected.
-- **Open-source**: Fully open-source, allowing you to run the entire stack on your own servers, including [LiveKit server](https://github.com/livekit/livekit), one of the most widely used WebRTC media servers.
+### 1. The Algorithm (`nlp_utils.py`)
+We moved away from simple keyword matching to a sequential token consumption approach to handle mixed inputs (Scenario 4).
 
-## Installation
+1.  **Normalization:** The user's transcript is normalized (punctuation removed, lowercased).
+2.  **Sorting:** The ignore list is sorted by length (longest phrases first) to prioritize specific phrases like "That makes sense" over generic words like "That".
+3.  **Consumption:** The algorithm iteratively checks the start of the user's transcript against the allowed list.
+    * If a match is found, that part of the transcript is "consumed" (removed).
+    * This repeats until no matches are found at the start of the string.
+4.  **Verdict:**
+    * If the remaining string is **empty**, the input was purely backchanneling -> **IGNORE**.
+    * If the remaining string contains **text** (e.g., "wait"), it contains a command -> **INTERRUPT**.
 
-To install the core Agents library, along with plugins for popular model providers:
+### 2. The Checkpoints (`agent_activity.py`)
+The logic is applied in two places to ensure robustness against both VAD triggers and End-of-Utterance (EOU) triggers:
+
+* **`_interrupt_by_audio_activity`:** This handles fast VAD interruptions. If the VAD triggers but the interim transcript is determined to be a backchannel, the interruption is **blocked**.
+* **`on_end_of_turn`:** This handles the EOU model. If the user finishes speaking a backchannel word, the agent usually attempts to reply. We intercept this, return `True` (to clear the buffer), but **skip the reply generation**, allowing the agent to keep speaking.
+
+### 3. State Awareness
+All filtering logic is wrapped in a check: `if self._session.agent_state == "speaking"`.
+* **If Agent is Speaking:** Filters are active (Backchanneling logic).
+* **If Agent is Silent:** Filters are disabled. "Yeah" is treated as a valid answer/turn.
+
+---
+
+## Configuration
+
+The list of ignored words and phrases is configurable in `livekit/agents/voice/agent_session.py`.
+
+**Default Ignore List:**
+```python
+DEFAULT_IGNORE_WORDS: list[str] = [
+    "yes","yeah", "ok", "okay", "hmm", "mhmm", "aha", "uh-huh", "yep", "yup", "sure", "cool","right","alright","oh","ohh",
+    "i see",
+    "all right",
+    "go on",
+    "keep going",
+    "got it",
+]
+```
+
+To change this per agent, you can pass an `ignore_words` list when initializing the `AgentSession`.
+
+## DEMO LINK - https://drive.google.com/file/d/1Z2xeb-3N-W_az_PzAhZz6V6nKk6Zz2Kv/view?usp=sharing
+
+### Test Scenarios & Results
+
+| Scenario | User Input        | Agent State | Result      | Logic Applied                                   |
+|----------|-------------------|-------------|-------------|------------------------------------------------|
+| 1. Long Explanation | "Yeah... uh-huh" | Speaking    | IGNORES     | Transcript consumed entirely.                  |
+| 2. Passive Affirmation | "Yeah"           | Silent      | RESPONDS    | State check bypasses filter.                   |
+| 3. Correction | "No stop"       | Speaking    | INTERRUPTS  | "No" and "stop" not in ignore list.            |
+| 4. Mixed Input | "Yeah wait"     | Speaking    | INTERRUPTS  | "Yeah" consumed, "wait" remains.               |
+
+
+-------
+
+## Installation & Running
+
+**Prerequisites**
+
+* Python 3.9+
+* LiveKit Cloud Project (URL and API Key/Secret)
+
+**Steps**
+
+1. **Clone the Repository**
+```bash
+git clone <your-repo-url>
+cd agents-assignment
+
+```
+
+
+2. **Install Base Dependencies**
+First, install the standard requirements.
+```bash
+pip install -r examples/voice_agents/requirements.txt
+
+```
+
+3. **⚠️ IMPORTANT: Link Local Library**
+To use the modified interruption logic, you **MUST** link your local version in editable mode.
+```bash
+
+pip install -e livekit-agents
+
+```
+
+
+4. **Update Telemetry**
+Ensure modern OpenTelemetry packages are installed to match the updated code.
+```bash
+pip install "opentelemetry-api>=1.34" "opentelemetry-sdk>=1.34.1" "opentelemetry-exporter-otlp>=1.34.1"
+
+```
+
+
+5. **Environment Setup**
+Create a `.env` file in the `\agents-assignment\examples\` directory:
+```env
+OPENAI_API_KEY=
+LIVEKIT_URL=
+LIVEKIT_API_KEY=
+LIVEKIT_API_SECRET=
+DEEPGRAM_API_KEY=
+CARTESIA_API_KEY=
+```
+
+
+6. **Download Models for your agent**
+
+To download the models locally, run the following command:
 
 ```bash
-pip install "livekit-agents[openai,silero,deepgram,cartesia,turn-detector]~=1.0"
+python examples/voice_agents/basic_agent.py download-files
 ```
 
-## Docs and guides
 
-Documentation on the framework and how to use it can be found [here](https://docs.livekit.io/agents/)
+7. **Run the Agent**
+```bash
+python examples/voice_agents/basic_agent.py console
 
-## Core concepts
-
-- Agent: An LLM-based application with defined instructions.
-- AgentSession: A container for agents that manages interactions with end users.
-- entrypoint: The starting point for an interactive session, similar to a request handler in a web server.
-- Worker: The main process that coordinates job scheduling and launches agents for user sessions.
-
-## Usage
-
-### Simple voice agent
+```
 
 ---
 
-```python
-from livekit.agents import (
-    Agent,
-    AgentSession,
-    JobContext,
-    RunContext,
-    WorkerOptions,
-    cli,
-    function_tool,
-)
-from livekit.plugins import deepgram, elevenlabs, openai, silero
 
-@function_tool
-async def lookup_weather(
-    context: RunContext,
-    location: str,
-):
-    """Used to look up weather information."""
+## Verification & Testing
 
-    return {"weather": "sunny", "temperature": 70}
+To ensure the solution strictly adheres to the challenge requirements, a comprehensive test suite was implemented.
 
+### 1. Install Test Dependencies
+Ensure you have `pytest` and `pytest-asyncio` installed:
+```bash
+pip install pytest pytest-asyncio
 
-async def entrypoint(ctx: JobContext):
-    await ctx.connect()
-
-    agent = Agent(
-        instructions="You are a friendly voice assistant built by LiveKit.",
-        tools=[lookup_weather],
-    )
-    session = AgentSession(
-        vad=silero.VAD.load(),
-        # any combination of STT, LLM, TTS, or realtime API can be used
-        stt=deepgram.STT(model="nova-3"),
-        llm=openai.LLM(model="gpt-4o-mini"),
-        tts=elevenlabs.TTS(),
-    )
-
-    await session.start(agent=agent, room=ctx.room)
-    await session.generate_reply(instructions="greet the user and ask about their day")
-
-
-if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
 ```
 
-You'll need the following environment variables for this example:
+### 2. Run the Test Suite
 
-- DEEPGRAM_API_KEY
-- OPENAI_API_KEY
-- ELEVEN_API_KEY
+Run the tests with verbose output to see each scenario pass:
 
-### Multi-agent handoff
+```bash
+pytest -v tests/test_interruption_logic.py
 
----
-
-This code snippet is abbreviated. For the full example, see [multi_agent.py](examples/voice_agents/multi_agent.py)
-
-```python
-...
-class IntroAgent(Agent):
-    def __init__(self) -> None:
-        super().__init__(
-            instructions=f"You are a story teller. Your goal is to gather a few pieces of information from the user to make the story personalized and engaging."
-            "Ask the user for their name and where they are from"
-        )
-
-    async def on_enter(self):
-        self.session.generate_reply(instructions="greet the user and gather information")
-
-    @function_tool
-    async def information_gathered(
-        self,
-        context: RunContext,
-        name: str,
-        location: str,
-    ):
-        """Called when the user has provided the information needed to make the story personalized and engaging.
-
-        Args:
-            name: The name of the user
-            location: The location of the user
-        """
-
-        context.userdata.name = name
-        context.userdata.location = location
-
-        story_agent = StoryAgent(name, location)
-        return story_agent, "Let's start the story!"
-
-
-class StoryAgent(Agent):
-    def __init__(self, name: str, location: str) -> None:
-        super().__init__(
-            instructions=f"You are a storyteller. Use the user's information in order to make the story personalized."
-            f"The user's name is {name}, from {location}"
-            # override the default model, switching to Realtime API from standard LLMs
-            llm=openai.realtime.RealtimeModel(voice="echo"),
-            chat_ctx=chat_ctx,
-        )
-
-    async def on_enter(self):
-        self.session.generate_reply()
-
-
-async def entrypoint(ctx: JobContext):
-    await ctx.connect()
-
-    userdata = StoryData()
-    session = AgentSession[StoryData](
-        vad=silero.VAD.load(),
-        stt=deepgram.STT(model="nova-3"),
-        llm=openai.LLM(model="gpt-4o-mini"),
-        tts=openai.TTS(voice="echo"),
-        userdata=userdata,
-    )
-
-    await session.start(
-        agent=IntroAgent(),
-        room=ctx.room,
-    )
-...
 ```
 
-### Testing
+### 3. What is Tested?
 
-Automated tests are essential for building reliable agents, especially with the non-deterministic behavior of LLMs. LiveKit Agents include native test integration to help you create dependable agents.
+The test file (`tests/test_interruption_logic.py`) explicitly validates the **4 Core Challenge Scenarios**:
+
+* **Scenario 1 (Long Explanation):**
+* *Context:* Agent is speaking. User says: "Okay... yeah... uh-huh"
+* *Result:* **IGNORED** (Agent continues speaking).
+
+
+* **Scenario 2 (Passive Affirmation):**
+* *Context:* Agent is silent. User says: "Yeah."
+* *Result:* **RESPOND** (Agent treats it as a valid turn).
+
+
+* **Scenario 3 (Correction):**
+* *Context:* Agent is speaking. User says: "No stop."
+* *Result:* **INTERRUPT** (Command detected).
+
+
+* **Scenario 4 (Mixed Input):**
+* *Context:* Agent is speaking. User says: "Yeah okay but wait."
+* *Result:* **INTERRUPT** (Command found after backchannel).
+
+
+
+### 4. Sample Output
+
+You should see all tests passing:
+
+```text
+tests/test_interruption_logic.py::test_nlp_basic_backchannel PASSED          [ 10%]
+tests/test_interruption_logic.py::test_nlp_phrase_backchannel PASSED         [ 20%]
+tests/test_interruption_logic.py::test_nlp_normalization PASSED              [ 30%]
+tests/test_interruption_logic.py::test_nlp_variants PASSED                   [ 40%]
+tests/test_interruption_logic.py::test_nlp_empty_input PASSED                [ 50%]
+tests/test_interruption_logic.py::test_scenario_1_long_explanation PASSED    [ 60%]
+tests/test_interruption_logic.py::test_scenario_3_immediate_stop PASSED      [ 70%]
+tests/test_interruption_logic.py::test_scenario_4_mixed_input PASSED         [ 80%]
+tests/test_interruption_logic.py::test_interruption_blocked_when_speaking PASSED [ 90%]
+tests/test_interruption_logic.py::test_scenario_2_response_when_silent PASSED [100%]
+
+============================== 10 passed in 0.12s ===============================
+
+```
+
+----
+
+
+## 🔧 Modifications Summary
+
+### 1. Core Logic
+* **`livekit/agents/voice/nlp_utils.py`**: Created new utility file containing the `is_backchannel` consumption algorithm.
+* **`livekit/agents/voice/agent_activity.py`**: Integrated `nlp_utils` into interruption handlers. Added specific logging to trace "BLOCKED" vs "ALLOWED" interruptions.
+
+### 2. Infrastructure
+* **`livekit/agents/voice/agent_session.py`**: Added `ignore_words` to `AgentSessionOptions` dataclass and initialization arguments to allow configuration.
+* **`livekit/agents/ipc/supervised_proc.py`**: **Windows Fix.** Added a `try/except` block around `signal.signal` to prevent crashes when running in background threads on Windows.
+* **`livekit/agents/telemetry/traces.py`**: **Telemetry Fix.** Updated imports to use `opentelemetry.logs` and `opentelemetry.sdk.logs` (stable API) instead of the deprecated `_logs` module, ensuring compatibility with modern dependencies.
+
+
+----
+
+## LOGS
 
 ```python
-@pytest.mark.asyncio
-async def test_no_availability() -> None:
-    llm = google.LLM()
-    async AgentSession(llm=llm) as sess:
-        await sess.start(MyAgent())
-        result = await sess.run(
-            user_input="Hello, I need to place an order."
-        )
-        result.expect.skip_next_event_if(type="message", role="assistant")
-        result.expect.next_event().is_function_call(name="start_order")
-        result.expect.next_event().is_function_call_output()
-        await (
-            result.expect.next_event()
-            .is_message(role="assistant")
-            .judge(llm, intent="assistant should be asking the user what they would like")
-        )
+PS C:\College\SEM6\Salescode\agents-assignment> python examples/voice_agents/basic_agent.py console
+    Agents   Starting console mode 🚀
 
-```
-
-## Examples
-
-<table>
-<tr>
-<td width="50%">
-<h3>🎙️ Starter Agent</h3>
-<p>A starter agent optimized for voice conversations.</p>
-<p>
-<a href="examples/voice_agents/basic_agent.py">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>🔄 Multi-user push to talk</h3>
-<p>Responds to multiple users in the room via push-to-talk.</p>
-<p>
-<a href="examples/voice_agents/push_to_talk.py">Code</a>
-</p>
-</td>
-</tr>
-
-<tr>
-<td width="50%">
-<h3>🎵 Background audio</h3>
-<p>Background ambient and thinking audio to improve realism.</p>
-<p>
-<a href="examples/voice_agents/background_audio.py">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>🛠️ Dynamic tool creation</h3>
-<p>Creating function tools dynamically.</p>
-<p>
-<a href="examples/voice_agents/dynamic_tool_creation.py">Code</a>
-</p>
-</td>
-</tr>
-
-<tr>
-<td width="50%">
-<h3>☎️ Outbound caller</h3>
-<p>Agent that makes outbound phone calls</p>
-<p>
-<a href="https://github.com/livekit-examples/outbound-caller-python">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>📋 Structured output</h3>
-<p>Using structured output from LLM to guide TTS tone.</p>
-<p>
-<a href="examples/voice_agents/structured_output.py">Code</a>
-</p>
-</td>
-</tr>
-
-<tr>
-<td width="50%">
-<h3>🔌 MCP support</h3>
-<p>Use tools from MCP servers</p>
-<p>
-<a href="examples/voice_agents/mcp">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>💬 Text-only agent</h3>
-<p>Skip voice altogether and use the same code for text-only integrations</p>
-<p>
-<a href="examples/other/text_only.py">Code</a>
-</p>
-</td>
-</tr>
-
-<tr>
-<td width="50%">
-<h3>📝 Multi-user transcriber</h3>
-<p>Produce transcriptions from all users in the room</p>
-<p>
-<a href="examples/other/transcription/multi-user-transcriber.py">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>🎥 Video avatars</h3>
-<p>Add an AI avatar with Tavus, Beyond Presence, and Bithuman</p>
-<p>
-<a href="examples/avatar_agents/">Code</a>
-</p>
-</td>
-</tr>
-
-<tr>
-<td width="50%">
-<h3>🍽️ Restaurant ordering and reservations</h3>
-<p>Full example of an agent that handles calls for a restaurant.</p>
-<p>
-<a href="examples/voice_agents/restaurant_agent.py">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>👁️ Gemini Live vision</h3>
-<p>Full example (including iOS app) of Gemini Live agent that can see.</p>
-<p>
-<a href="https://github.com/livekit-examples/vision-demo">Code</a>
-</p>
-</td>
-</tr>
-
-</table>
-
-## Running your agent
-
-### Testing in terminal
-
-```shell
-python myagent.py console
-```
-
-Runs your agent in terminal mode, enabling local audio input and output for testing.
-This mode doesn't require external servers or dependencies and is useful for quickly validating behavior.
-
-### Developing with LiveKit clients
-
-```shell
-python myagent.py dev
-```
-
-Starts the agent server and enables hot reloading when files change. This mode allows each process to host multiple concurrent agents efficiently.
-
-The agent connects to LiveKit Cloud or your self-hosted server. Set the following environment variables:
-- LIVEKIT_URL
-- LIVEKIT_API_KEY
-- LIVEKIT_API_SECRET
-
-You can connect using any LiveKit client SDK or telephony integration.
-To get started quickly, try the [Agents Playground](https://agents-playground.livekit.io/).
-
-### Running for production
-
-```shell
-python myagent.py start
-```
-
-Runs the agent with production-ready optimizations.
-
-## Contributing
-
-The Agents framework is under active development in a rapidly evolving field. We welcome and appreciate contributions of any kind, be it feedback, bugfixes, features, new plugins and tools, or better documentation. You can file issues under this repo, open a PR, or chat with us in LiveKit's [Slack community](https://livekit.io/join-slack).
-
-<!--BEGIN_REPO_NAV-->
-<br/><table>
-<thead><tr><th colspan="2">LiveKit Ecosystem</th></tr></thead>
-<tbody>
-<tr><td>LiveKit SDKs</td><td><a href="https://github.com/livekit/client-sdk-js">Browser</a> · <a href="https://github.com/livekit/client-sdk-swift">iOS/macOS/visionOS</a> · <a href="https://github.com/livekit/client-sdk-android">Android</a> · <a href="https://github.com/livekit/client-sdk-flutter">Flutter</a> · <a href="https://github.com/livekit/client-sdk-react-native">React Native</a> · <a href="https://github.com/livekit/rust-sdks">Rust</a> · <a href="https://github.com/livekit/node-sdks">Node.js</a> · <a href="https://github.com/livekit/python-sdks">Python</a> · <a href="https://github.com/livekit/client-sdk-unity">Unity</a> · <a href="https://github.com/livekit/client-sdk-unity-web">Unity (WebGL)</a> · <a href="https://github.com/livekit/client-sdk-esp32">ESP32</a></td></tr><tr></tr>
-<tr><td>Server APIs</td><td><a href="https://github.com/livekit/node-sdks">Node.js</a> · <a href="https://github.com/livekit/server-sdk-go">Golang</a> · <a href="https://github.com/livekit/server-sdk-ruby">Ruby</a> · <a href="https://github.com/livekit/server-sdk-kotlin">Java/Kotlin</a> · <a href="https://github.com/livekit/python-sdks">Python</a> · <a href="https://github.com/livekit/rust-sdks">Rust</a> · <a href="https://github.com/agence104/livekit-server-sdk-php">PHP (community)</a> · <a href="https://github.com/pabloFuente/livekit-server-sdk-dotnet">.NET (community)</a></td></tr><tr></tr>
-<tr><td>UI Components</td><td><a href="https://github.com/livekit/components-js">React</a> · <a href="https://github.com/livekit/components-android">Android Compose</a> · <a href="https://github.com/livekit/components-swift">SwiftUI</a> · <a href="https://github.com/livekit/components-flutter">Flutter</a></td></tr><tr></tr>
-<tr><td>Agents Frameworks</td><td><b>Python</b> · <a href="https://github.com/livekit/agents-js">Node.js</a> · <a href="https://github.com/livekit/agent-playground">Playground</a></td></tr><tr></tr>
-<tr><td>Services</td><td><a href="https://github.com/livekit/livekit">LiveKit server</a> · <a href="https://github.com/livekit/egress">Egress</a> · <a href="https://github.com/livekit/ingress">Ingress</a> · <a href="https://github.com/livekit/sip">SIP</a></td></tr><tr></tr>
-<tr><td>Resources</td><td><a href="https://docs.livekit.io">Docs</a> · <a href="https://github.com/livekit-examples">Example apps</a> · <a href="https://livekit.io/cloud">Cloud</a> · <a href="https://docs.livekit.io/home/self-hosting/deployment">Self-hosting</a> · <a href="https://github.com/livekit/livekit-cli">CLI</a></td></tr>
-</tbody>
-</table>
-<!--END_REPO_NAV-->
+    23:36:07 DEBUG  asyncio          Using proactor: IocpProactor  
+             INFO   livekit.agents   starting worker {"version": "1.3.3", "rtc-version": "1.0.23"}
+             INFO   livekit.agents   starting inference executor  
+             INFO   livekit.agents   initializing process {"pid": 3476, "inference": true}
+    23:36:16 INFO   livekit.agents   process initialized {"pid": 3476, "inference": true, "elapsed_time": 9.17}
+             INFO   livekit.agents   initializing job runner {"tid": 26480}
+             DEBUG  asyncio          Using proactor: IocpProactor  
+             INFO   livekit.agents   job runner initialized {"tid": 26480, "elapsed_time": 0.1}
+    23:36:17 DEBUG  livekit.agents   http_session(): creating a new httpclient ctx {"room": "mock_room"}
+             DEBUG  livekit.agents   using audio io: `Console` -> `AgentSession` -> `Console` {"room": "mock_room"}
+             WARNI… livekit.agents   resume_false_interruption is enabled but audio output does not support pause, it will be ignored {"room": "mock_room", "audio_output": "Console"}
+             DEBUG  livekit.agents   using transcript io: `AgentSession` -> (none) {"room": "mock_room"}
+    23:36:18 INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 1.07, "prompt_tokens": 151, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 30, "tokens_per_second": 18.31}
+    23:36:22 INFO   livekit.agents   TTS metrics {"room": "mock_room", "model_name": "cartesia/sonic-2", "model_provider": "livekit", "ttfb": 0.3758798000017123, "audio_duration": 7.01}
+             INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 5.25}
+    23:36:26 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 3.6}
+    23:36:29 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 2.9}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "Tell me a really long story", "language": "en", "transcript_delay": 0.023302078247070312}
+    23:36:31 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 2.0}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "about a cat and a dog.", "language": "en", "transcript_delay": 0.5394020080566406}
+             INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 0.77, "prompt_tokens": 0, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 0, "tokens_per_second": 0.0}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.25621894001960754, "duration": 0.041, "input": "<|im_start|>assistant\nhey there what can i do for you today want to  
+                                                    chat hear a joke or need some info just say the word<|im_end|>\n<|im_start|>user\ntell me a really long story about a cat and a dog"}
+             DEBUG  livekit.agents   using preemptive generation {"room": "mock_room", "preemptive_lead_time": 0.06612420082092285}
+             INFO   livekit.agents   EOU metrics {"room": "mock_room", "model_name": "multilingual", "model_provider": "livekit", "end_of_utterance_delay": 0.61, "transcription_delay": 0.54}
+    23:36:35 INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 0.69, "prompt_tokens": 201, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 258, "tokens_per_second": 57.0}
+    23:36:36 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 5.0}
+    23:36:38 INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Okay.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Okay.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Okay.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Okay.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Okay.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Okay.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Okay.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Okay.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 2.5}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Okay.' identified as backchannel. {"room": "mock_room"}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "Okay.", "language": "en", "transcript_delay": 0.4976639747619629}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: 'Okay.' identified as backchannel. {"room": "mock_room"}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.3587372601032257, "duration": 0.034, "input": "<|im_start|>assistant\nhey there what can i do for you today want to   
+                                                    chat hear a joke or need some info just say the word<|im_end|>\n<|im_start|>user\ntell me a really long story about a cat and a dog okay"}
+             INFO   livekit.agents   EOU BLOCKED: Final transcript 'Okay.' is a backchannel. Resetting buffer. {"room": "mock_room"}
+    23:36:41 INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Yeah.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Yeah.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Yeah.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Yeah.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Yeah.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Yeah.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Yeah.' identified as backchannel. {"room": "mock_room"}
+    23:36:42 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 3.5}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: ' Yeah.' identified as backchannel. {"room": "mock_room"}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "Yeah.", "language": "en", "transcript_delay": 0.7164530754089355}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.1598750203847885, "duration": 0.052, "input": "<|im_start|>assistant\nhey there what can i do for you today want to   
+                                                    chat hear a joke or need some info just say the word<|im_end|>\n<|im_start|>user\ntell me a really long story about a cat and a dog yeah"}
+             INFO   livekit.agents   EOU BLOCKED: Final transcript 'Yeah.' is a backchannel. Resetting buffer. {"room": "mock_room"}
+    23:36:45 INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 3.7}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "I see.", "language": "en", "transcript_delay": 0.6017708778381348}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.06979262828826904, "duration": 0.043, "input": "<|im_start|>assistant\nhey there what can i do for you today want to  
+                                                    chat hear a joke or need some info just say the word<|im_end|>\n<|im_start|>user\ntell me a really long story about a cat and a dog i see"}
+             INFO   livekit.agents   EOU BLOCKED: Final transcript 'I see.' is a backchannel. Resetting buffer. {"room": "mock_room"}
+    23:36:50 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 5.0}
+    23:36:52 INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 1.9}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "Okay.", "language": "en", "transcript_delay": 0.5040163993835449}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: 'Okay.' identified as backchannel. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: 'Okay.' identified as backchannel. {"room": "mock_room"}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.3587372601032257, "duration": 0.043, "input": "<|im_start|>assistant\nhey there what can i do for you today want to   
+                                                    chat hear a joke or need some info just say the word<|im_end|>\n<|im_start|>user\ntell me a really long story about a cat and a dog okay"}
+             INFO   livekit.agents   EOU BLOCKED: Final transcript 'Okay.' is a backchannel. Resetting buffer. {"room": "mock_room"}
+    23:36:57 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 4.9}
+    23:37:00 INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION ALLOWED: ' Okay. But wait.' contains content/commands. {"room": "mock_room"}
+             INFO   livekit.agents   TRIGGERING INTERRUPTION: Pausing/Stopping current speech. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION ALLOWED: ' Okay. But wait.' contains content/commands. {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION ALLOWED: ' Okay. But wait.' contains content/commands. {"room": "mock_room"}
+    23:37:01 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 3.6}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "Okay. But wait. Stop.", "language": "en", "transcript_delay": 0.5010230541229248}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.01466901320964098, "duration": 0.1, "input": "<|im_start|>assistant\nhey there what can i do for you today want to    
+                                                    chat hear a joke or need some info just say the word<|im_end|>\n<|im_start|>user\ntell me a really long story about a cat and a
+                                                    dog<|im_end|>\n<|im_start|>assistant\nalright get comfy once upon a time in a small town there was a clever cat named whiskers and a goofy dog named buster      
+                                                    whiskers loved to explore rooftops while buster preferred chasing his tail in the yard one day they both spotted a mysterious glowing ball in the forest
+                                                    curiosity got the best of them and they decided to team up as they ventured deeper they met a wise old owl who said the glowing ball held a secret to happiness  
+                                                    to unlock it they had to pass three challenges courage kindness and teamwork the courage test had them facing a spooky cave whiskers quick thinking and busters  
+                                                    bravery saved the day next was kindnesshelping a lost squirrel find its way home which they did by sharing their snacks and comforting it finally the teamwork   
+                                                    challenge required them to build a bridge over a rushing stream whiskers planned the bridge and buster gathered sticks and stones together they crossed safely   
+                                                    and the glowing ball revealed a treasure friendship was the true secret to happiness whiskers and buster returned home best friends forever proving cats and dogs
+                                                    can get along just fine so what do you think want a sequel<|im_end|>\n<|im_start|>user\nokay but wait stop"}
+             DEBUG  livekit.agents   using preemptive generation {"room": "mock_room", "preemptive_lead_time": 0.20284795761108398}
+             INFO   livekit.agents   EOU metrics {"room": "mock_room", "model_name": "multilingual", "model_provider": "livekit", "end_of_utterance_delay": 0.7, "transcription_delay": 0.5}
+    23:37:02 INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 0.73, "prompt_tokens": 473, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 21, "tokens_per_second": 19.66}
+    23:37:04 INFO   livekit.agents   TTS metrics {"room": "mock_room", "model_name": "cartesia/sonic-2", "model_provider": "livekit", "ttfb": 0.3132162999972934, "audio_duration": 5.57}
+    23:37:06 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 4.9}
+    23:37:09 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 3.9}
+    23:37:10 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 0.8}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "Yeah.", "language": "en", "transcript_delay": 0.6207971572875977}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.006160824093967676, "duration": 0.108, "input": "<|im_start|>assistant\nhey there what can i do for you today want to 
+                                                    chat hear a joke or need some info just say the word<|im_end|>\n<|im_start|>user\ntell me a really long story about a cat and a
+                                                    dog<|im_end|>\n<|im_start|>assistant\nalright get comfy once upon a time in a small town there was a clever cat named whiskers and a goofy dog named buster      
+                                                    whiskers loved to explore rooftops while buster preferred chasing his tail in the yard one day they both spotted a mysterious glowing ball in the forest
+                                                    curiosity got the best of them and they decided to team up as they ventured deeper they met a wise old owl who said the glowing ball held a secret to happiness  
+                                                    to unlock it they had to pass three challenges courage kindness and teamwork the courage test had them facing a spooky cave whiskers quick thinking and busters  
+                                                    bravery saved the day next was kindnesshelping a lost squirrel find its way home which they did by sharing their snacks and comforting it finally the teamwork   
+                                                    challenge required them to build a bridge over a rushing stream whiskers planned the bridge and buster gathered sticks and stones together they crossed safely   
+                                                    and the glowing ball revealed a treasure friendship was the true secret to happiness whiskers and buster returned home best friends forever proving cats and dogs
+                                                    can get along just fine so what do you think want a sequel<|im_end|>\n<|im_start|>user\nokay but wait stop<|im_end|>\n<|im_start|>assistant\nstopping right here 
+                                                    whats up want to switch gears or add a twist to the story<|im_end|>\n<|im_start|>user\nyeah"}
+    23:37:11 INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 0.79, "prompt_tokens": 503, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 18, "tokens_per_second": 18.25}
+    23:37:12 DEBUG  livekit.agents   flush audio emitter due to slow audio generation {"room": "mock_room"}
+             DEBUG  livekit.agents   flush audio emitter due to slow audio generation {"room": "mock_room"}
+    23:37:13 DEBUG  livekit.agents   using preemptive generation {"room": "mock_room", "preemptive_lead_time": 2.3765485286712646}
+             INFO   livekit.agents   EOU metrics {"room": "mock_room", "model_name": "multilingual", "model_provider": "livekit", "end_of_utterance_delay": 3.0, "transcription_delay": 0.62}
+    23:37:14 INFO   livekit.agents   TTS metrics {"room": "mock_room", "model_name": "cartesia/sonic-2", "model_provider": "livekit", "ttfb": 0.34067099999811035, "audio_duration": 4.88}
+    23:37:15 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 5.0}
+    23:37:19 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 4.1}
+    23:37:21 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 2.0}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "Can you", "language": "en", "transcript_delay": 0.12967848777770996}
+    23:37:22 INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 0.61, "prompt_tokens": 530, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 12, "tokens_per_second": 16.23}
+             INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 1.1}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "count from", "language": "en", "transcript_delay": 0.0530545711517334}
+    23:37:23 INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 0.72, "prompt_tokens": 532, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 12, "tokens_per_second": 12.75}
+    23:37:24 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 1.6}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "one to fifty?", "language": "en", "transcript_delay": 0.5215988159179688}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.30998656153678894, "duration": 0.084, "input": "<|im_start|>assistant\nalright get comfy once upon a time in a small  
+                                                    town there was a clever cat named whiskers and a goofy dog named buster whiskers loved to explore rooftops while buster preferred chasing his tail in the yard   
+                                                    one day they both spotted a mysterious glowing ball in the forest curiosity got the best of them and they decided to team up as they ventured deeper they met a  
+                                                    wise old owl who said the glowing ball held a secret to happiness to unlock it they had to pass three challenges courage kindness and teamwork the courage test  
+                                                    had them facing a spooky cave whiskers quick thinking and busters bravery saved the day next was kindnesshelping a lost squirrel find its way home which they did
+                                                    by sharing their snacks and comforting it finally the teamwork challenge required them to build a bridge over a rushing stream whiskers planned the bridge and   
+                                                    buster gathered sticks and stones together they crossed safely and the glowing ball revealed a treasure friendship was the true secret to happiness whiskers and 
+                                                    buster returned home best friends forever proving cats and dogs can get along just fine so what do you think want a sequel<|im_end|>\n<|im_start|>user\nokay but 
+                                                    wait stop<|im_end|>\n<|im_start|>assistant\nstopping right here whats up want to switch gears or add a twist to the
+                                                    story<|im_end|>\n<|im_start|>user\nyeah<|im_end|>\n<|im_start|>assistant\ncool what twist or new direction do you have in mind spill the
+                                                    beans<|im_end|>\n<|im_start|>user\ncan you count from one to fifty"}
+             DEBUG  livekit.agents   using preemptive generation {"room": "mock_room", "preemptive_lead_time": 0.16917967796325684}
+             INFO   livekit.agents   EOU metrics {"room": "mock_room", "model_name": "multilingual", "model_provider": "livekit", "end_of_utterance_delay": 0.69, "transcription_delay": 0.52}
+    23:37:26 INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 0.65, "prompt_tokens": 536, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 142, "tokens_per_second": 60.48}
+    23:37:29 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 4.95}
+    23:37:31 INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+    23:37:32 INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 2.85}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "No. Stop.", "language": "en", "transcript_delay": 0.6129879951477051}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.36350759863853455, "duration": 0.059, "input": "<|im_start|>user\nokay but wait
+                                                    stop<|im_end|>\n<|im_start|>assistant\nstopping right here whats up want to switch gears or add a twist to the
+                                                    story<|im_end|>\n<|im_start|>user\nyeah<|im_end|>\n<|im_start|>assistant\ncool what twist or new direction do you have in mind spill the
+                                                    beans<|im_end|>\n<|im_start|>user\ncan you count from one to fifty no stop"}
+             INFO   livekit.agents   EOU metrics {"room": "mock_room", "model_name": "multilingual", "model_provider": "livekit", "end_of_utterance_delay": 0.68, "transcription_delay": 0.61}
+    23:37:33 INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 0.82, "prompt_tokens": 689, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 10, "tokens_per_second": 10.48}
+    23:37:34 INFO   livekit.agents   TTS metrics {"room": "mock_room", "model_name": "cartesia/sonic-2", "model_provider": "livekit", "ttfb": 0.33092630000101053, "audio_duration": 2.0}
+    23:37:37 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 5.0}
+    23:37:39 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 2.4}
+    23:37:41 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 1.8}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "How to make haka noodles?", "language": "en", "transcript_delay": 0.8087854385375977}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.696202278137207, "duration": 0.096, "input": "<|im_start|>assistant\ncool what twist or new direction do you have in  
+                                                    mind spill the beans<|im_end|>\n<|im_start|>user\ncan you count from one to fifty<|im_end|>\n<|im_start|>assistant\nsure thing here we go one two three four five
+                                                    six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four       
+                                                    twenty-five twenty-six twenty-seven twenty-eight twenty-nine thirty thirty-one thirty-two thirty-three thirty-four thirty-five thirty-six thirty-seven
+                                                    thirty-eight thirty-nine forty forty-one forty-two forty-three forty-four forty-five forty-six forty-seven forty-eight forty-nine fifty want me to sing it       
+                                                    next<|im_end|>\n<|im_start|>user\nno stop<|im_end|>\n<|im_start|>assistant\nstopped whats next on the menu<|im_end|>\n<|im_start|>user\nhow to make haka
+                                                    noodles"}
+             DEBUG  livekit.agents   using preemptive generation {"room": "mock_room", "preemptive_lead_time": 0.10594844818115234}
+             INFO   livekit.agents   EOU metrics {"room": "mock_room", "model_name": "multilingual", "model_provider": "livekit", "end_of_utterance_delay": 0.92, "transcription_delay": 0.81}
+    23:37:43 INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 0.63, "prompt_tokens": 712, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 103, "tokens_per_second": 47.96}
+    23:37:46 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 5.0}
+    23:37:51 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 5.0}
+    23:37:52 INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 1.0}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "Okay.", "language": "en", "transcript_delay": 0.6142752170562744}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.2553194463253021, "duration": 0.102, "input": "<|im_start|>user\ncan you count from one to
+                                                    fifty<|im_end|>\n<|im_start|>assistant\nsure thing here we go one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen   
+                                                    seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four twenty-five twenty-six twenty-seven twenty-eight twenty-nine thirty thirty-one 
+                                                    thirty-two thirty-three thirty-four thirty-five thirty-six thirty-seven thirty-eight thirty-nine forty forty-one forty-two forty-three forty-four forty-five     
+                                                    forty-six forty-seven forty-eight forty-nine fifty want me to sing it next<|im_end|>\n<|im_start|>user\nno stop<|im_end|>\n<|im_start|>assistant\nstopped whats  
+                                                    next on the menu<|im_end|>\n<|im_start|>user\nhow to make haka noodles okay"}
+             INFO   livekit.agents   EOU BLOCKED: Final transcript 'Okay.' is a backchannel. Resetting buffer. {"room": "mock_room"}
+    23:37:56 INFO   livekit.agents   TTS metrics {"room": "mock_room", "model_name": "cartesia/sonic-2", "model_provider": "livekit", "ttfb": 0.3647906000005605, "audio_duration": 26.42}
+    23:37:57 INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 4.9}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION BLOCKED: False Start (VAD triggered, no text). {"room": "mock_room"}
+             INFO   livekit.agents   INTERRUPTION ALLOWED: ' Okay. But' contains content/commands. {"room": "mock_room"}
+             INFO   livekit.agents   TRIGGERING INTERRUPTION: Pausing/Stopping current speech. {"room": "mock_room"}
+    23:37:58 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 0.6}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "Okay. But stop.", "language": "en", "transcript_delay": 0.6624100208282471}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.029948048293590546, "duration": 0.096, "input": "<|im_start|>assistant\nsure thing here we go one two three four five 
+                                                    six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one twenty-two twenty-three twenty-four       
+                                                    twenty-five twenty-six twenty-seven twenty-eight twenty-nine thirty thirty-one thirty-two thirty-three thirty-four thirty-five thirty-six thirty-seven
+                                                    thirty-eight thirty-nine forty forty-one forty-two forty-three forty-four forty-five forty-six forty-seven forty-eight forty-nine fifty want me to sing it       
+                                                    next<|im_end|>\n<|im_start|>user\nno stop<|im_end|>\n<|im_start|>assistant\nstopped whats next on the menu<|im_end|>\n<|im_start|>user\nhow to make haka
+                                                    noodles<|im_end|>\n<|im_start|>assistant\nto make hakka noodles start by boiling noodles until they're just tender then drain and set aside in a pan heat oil and
+                                                    sauté chopped garlic ginger and green chilies add chopped veggies like carrots capsicum and cabbage stir-fry them until slightly soft toss in the noodles soy    
+                                                    sauce a little vinegar salt and pepper stir well to combine and cook for a couple more minutes garnish with spring onions and serve hot want the detailed        
+                                                    recipe<|im_end|>\n<|im_start|>user\nokay but stop"}
+             DEBUG  livekit.agents   using preemptive generation {"room": "mock_room", "preemptive_lead_time": 0.10879063606262207}
+             INFO   livekit.agents   EOU metrics {"room": "mock_room", "model_name": "multilingual", "model_provider": "livekit", "end_of_utterance_delay": 0.77, "transcription_delay": 0.66}
+             INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 0.68, "prompt_tokens": 827, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 17, "tokens_per_second": 19.99}
+    23:37:59 DEBUG  livekit.agents   flush audio emitter due to slow audio generation {"room": "mock_room"}
+    23:38:01 INFO   livekit.agents   TTS metrics {"room": "mock_room", "model_name": "cartesia/sonic-2", "model_provider": "livekit", "ttfb": 0.3016693999998097, "audio_duration": 5.29}
+    23:38:03 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 5.0}
+    23:38:07 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 4.0}
+    23:38:10 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 3.0}
+    23:38:14 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 4.0}
+             INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 0.7}
+             DEBUG  livekit.agents   received user transcript {"room": "mock_room", "user_transcript": "I", "language": "en", "transcript_delay": 0.6109449863433838}
+             DEBUG  livekit.plugins… eou prediction {"room": "mock_room", "eou_probability": 0.00015331842587329447, "duration": 0.151, "input": "<|im_start|>assistant\nstopped whats next on the
+                                                    menu<|im_end|>\n<|im_start|>user\nhow to make haka noodles<|im_end|>\n<|im_start|>assistant\nto make hakka noodles start by boiling noodles until they're just   
+                                                    tender then drain and set aside in a pan heat oil and sauté chopped garlic ginger and green chilies add chopped veggies like carrots capsicum and cabbage        
+                                                    stir-fry them until slightly soft toss in the noodles soy sauce a little vinegar salt and pepper stir well to combine and cook for a couple more minutes garnish 
+                                                    with spring onions and serve hot want the detailed recipe<|im_end|>\n<|im_start|>user\nokay but stop<|im_end|>\n<|im_start|>assistant\npaused the recipe just say
+                                                    when you want to resume or try something else<|im_end|>\n<|im_start|>user\ni"}
+    23:38:15 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 0.3}
+             INFO   livekit.agents   LLM metrics {"room": "mock_room", "model_name": "openai/gpt-4.1-mini", "model_provider": "livekit", "ttft": 0.7, "prompt_tokens": 852, "prompt_cached_tokens": 0,
+                                                 "completion_tokens": 16, "tokens_per_second": 17.29}
+             INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 0.9}
+    23:38:16 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 0.4}
+    23:38:17 DEBUG  livekit.agents   using preemptive generation {"room": "mock_room", "preemptive_lead_time": 2.3833842277526855}
+             INFO   livekit.agents   EOU metrics {"room": "mock_room", "model_name": "multilingual", "model_provider": "livekit", "end_of_utterance_delay": 3.0, "transcription_delay": 0.61}
+             INFO   livekit.agents   TTS metrics {"room": "mock_room", "model_name": "cartesia/sonic-2", "model_provider": "livekit", "ttfb": 0.3289517999983218, "audio_duration": 3.53}
+    23:38:18 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 2.0}
+    23:38:22 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 3.8}
+    23:38:23 INFO   livekit.agents   STT metrics {"room": "mock_room", "model_name": "deepgram/nova-3", "model_provider": "livekit", "audio_duration": 1.3}
+    ```

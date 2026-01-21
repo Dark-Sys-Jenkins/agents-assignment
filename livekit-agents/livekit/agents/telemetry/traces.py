@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import aiofiles
 import aiohttp
+from opentelemetry._logs import LogRecord
 from google.protobuf.json_format import MessageToDict
 from opentelemetry import context as otel_context, trace
 from opentelemetry._logs import get_logger_provider, set_logger_provider
@@ -16,10 +17,9 @@ from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk._logs import (
-    LogData,
+    ReadWriteLogRecord,
     LoggerProvider,
     LoggingHandler,
-    LogRecord,
     LogRecordProcessor,
 )
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
@@ -77,18 +77,15 @@ class _MetadataLogProcessor(LogRecordProcessor):
     def __init__(self, metadata: dict[str, AttributeValue]) -> None:
         self._metadata = metadata
 
-    def emit(self, log_data: LogData) -> None:
+    def on_emit(self, log_data: ReadWriteLogRecord) -> None:
         if log_data.log_record.attributes:
             log_data.log_record.attributes.update(self._metadata)  # type: ignore
-            log_data.log_record.attributes.update(  # type: ignore
-                {"logger.name": log_data.instrumentation_scope.name}
-            )
-        else:
-            log_data.log_record.attributes = self._metadata
 
-    def on_emit(self, log_data: LogData) -> None:
-        if log_data.log_record.attributes:
-            log_data.log_record.attributes.update(self._metadata)  # type: ignore
+            if log_data.log_record.attributes:
+                log_data.log_record.attributes.update(  # type: ignore
+                    {"logger.name": log_data.instrumentation_scope.name}
+                )
+                
         else:
             log_data.log_record.attributes = self._metadata
 

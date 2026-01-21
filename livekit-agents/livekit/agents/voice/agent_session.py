@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from ..llm import mcp
     from .transcription.filters import TextTransforms
 
+from dataclasses import dataclass, field
 
 @dataclass
 class SessionConnectOptions:
@@ -89,6 +90,7 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    ignore_words: list[str] = field(default_factory=lambda: DEFAULT_IGNORE_WORDS)
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -129,7 +131,14 @@ class VoiceActivityVideoSampler:
 
 
 DEFAULT_TTS_TEXT_TRANSFORMS: list[TextTransforms] = ["filter_markdown", "filter_emoji"]
-
+DEFAULT_IGNORE_WORDS: list[str] = [
+    "yes","yeah", "ok", "okay", "hmm", "mhmm", "aha", "uh-huh", "yep", "yup", "sure", "cool","right","alright","oh","ohh",
+    "i see",
+    "all right",
+    "go on",
+    "keep going",
+    "got it",
+]
 
 class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
     def __init__(
@@ -159,6 +168,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        ignore_words: list[str] | None = None,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -285,6 +295,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             ),
             preemptive_generation=preemptive_generation,
             ivr_detection=ivr_detection,
+            ignore_words=ignore_words if ignore_words is not None else DEFAULT_IGNORE_WORDS,
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,

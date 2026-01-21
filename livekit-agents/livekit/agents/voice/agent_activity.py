@@ -76,6 +76,8 @@ from .generation import (
 )
 from .speech_handle import SpeechHandle
 
+from .nlp_utils import is_backchannel
+
 if TYPE_CHECKING:
     from ..llm import mcp
     from .agent_session import AgentSession
@@ -1183,7 +1185,26 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                logger.info(f"INTERRUPTION BLOCKED: Transcript too short ({len(split_words(text, split_character=True))} < {opt.min_interruption_words} words). Text: '{text}'")
                 return
+
+        # --- SMART INTERRUPTION LOGIC (NLP Powered) ---
+        if self.stt and self._audio_recognition and self._session.agent_state == "speaking":
+            transcript = self._audio_recognition.current_transcript
+            ignore_list = self._session.options.ignore_words
+
+            # 1. False Start Protection
+            if not transcript:
+                logger.info("INTERRUPTION BLOCKED: False Start (VAD triggered, no text).")
+                return
+
+            # 2. NLP Consumption Check
+            if is_backchannel(transcript, ignore_list):
+                logger.info(f"INTERRUPTION BLOCKED: '{transcript}' identified as backchannel.")
+                return
+            else:
+                logger.info(f"INTERRUPTION ALLOWED: '{transcript}' contains content/commands.")
+        # ---------------------------------------------
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
@@ -1193,6 +1214,7 @@ class AgentActivity(RecognitionHooks):
             and not self._current_speech.interrupted
             and self._current_speech.allow_interruptions
         ):
+            logger.info("TRIGGERING INTERRUPTION: Pausing/Stopping current speech.")
             self._paused_speech = self._current_speech
 
             # reset the false interruption timer
@@ -1344,6 +1366,14 @@ class AgentActivity(RecognitionHooks):
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool:
         # IMPORTANT: This method is sync to avoid it being cancelled by the AudioRecognition
         # We explicitly create a new task here
+        
+        if self._session.agent_state == "speaking":
+            ignore_list = self._session.options.ignore_words
+            transcript = info.new_transcript
+            
+            if is_backchannel(transcript, ignore_list):
+                logger.info(f"EOU BLOCKED: Final transcript '{transcript}' is a backchannel. Resetting buffer.")
+                return True
 
         if self._scheduling_paused:
             self._cancel_preemptive_generation()

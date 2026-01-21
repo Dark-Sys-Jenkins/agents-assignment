@@ -28,7 +28,7 @@ from .log_queue import LogQueueListener
 @contextlib.contextmanager
 def _mask_ctrl_c() -> Generator[None, None, None]:
     """
-    POSIX: block SIGINT on this thread (defer delivery).
+    POSIx: block SIGINT on this thread (defer delivery).
     Windows/others: temporarily ignore SIGINT (best available), then restore.
     Keep the critical section *tiny* (just around Process.start()).
     """
@@ -39,7 +39,16 @@ def _mask_ctrl_c() -> Generator[None, None, None]:
         finally:
             signal.pthread_sigmask(signal.SIG_UNBLOCK, [signal.SIGINT])
     else:
-        old = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        # --- WINDOWS FIX STARTS HERE ---
+        try:
+            old = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        except ValueError:
+            # We are on a background thread on Windows. We cannot change signal handlers.
+            # Just yield and proceed without masking.
+            yield
+            return
+        # --- WINDOWS FIX ENDS HERE ---
+
         try:
             yield
         finally:
