@@ -1,133 +1,196 @@
 import logging
-
+import asyncio
+import string
 from dotenv import load_dotenv
 
 from livekit.agents import (
     Agent,
-    AgentServer,
     AgentSession,
     JobContext,
     JobProcess,
-    MetricsCollectedEvent,
-    RunContext,
     cli,
-    metrics,
-    room_io,
+    stt,
+    WorkerOptions,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import silero
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
-
-# uncomment to enable Krisp background voice/noise cancellation
-# from livekit.plugins import noise_cancellation
+# IMPORT NEW PLUGINS
+from livekit.plugins import silero, deepgram, groq
 
 logger = logging.getLogger("basic-agent")
 
 load_dotenv()
 
-
-class MyAgent(Agent):
-    def __init__(self) -> None:
-        super().__init__(
-            instructions="Your name is Kelly. You would interact with users via voice."
-            "with that in mind keep your responses concise and to the point."
-            "do not use emojis, asterisks, markdown, or other special characters in your responses."
-            "You are curious and friendly, and have a sense of humor."
-            "you will speak english to the user",
-        )
-
-    async def on_enter(self):
-        # when the agent is added to the session, it'll generate a reply
-        # according to its instructions
-        self.session.generate_reply()
-
-    # all functions annotated with @function_tool will be passed to the LLM when this
-    # agent is active
-    @function_tool
-    async def lookup_weather(
-        self, context: RunContext, location: str, latitude: str, longitude: str
-    ):
-        """Called when the user asks for weather related information.
-        Ensure the user's location (city or region) is provided.
-        When given a location, please estimate the latitude and longitude of the location and
-        do not ask the user for them.
-
-        Args:
-            location: The location they are asking for
-            latitude: The latitude of the location, do not ask user for it
-            longitude: The longitude of the location, do not ask user for it
-        """
-
-        logger.info(f"Looking up weather for {location}")
-
-        return "sunny with a temperature of 70 degrees."
-
-
-server = AgentServer()
-
+# 1. Configurable Ignore List
+IGNORE_WORDS = {'yeah', 'ok', 'hmm', 'uh-huh', 'right', 'aha', 'okay', 'yep', 'sure', 'alright', 'Alright' 'mm-hmm', 'gotcha', 'i see', 'understood', 'hello', 'Hello'}
 
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
 
-
-server.setup_fnc = prewarm
-
-
-@server.rtc_session()
 async def entrypoint(ctx: JobContext):
-    # each log entry will include these fields
-    ctx.log_context_fields = {
-        "room": ctx.room.name,
-    }
+    await ctx.connect()
+    
+    # --- FREE STACK INITIALIZATION ---
+    # 1. VAD: Silero (Local/Free)
+    my_vad = silero.VAD.load()
+    
+    # 2. STT: Deepgram (Free Tier)
+    # We use Nova-2 for fast, accurate speech recognition
+    my_stt = deepgram.STT(model="nova-2-general")
+    
+    # 3. LLM: Groq (Free Tier)
+    # We use Llama 3 8B which is insanely fast and free
+    my_llm = groq.LLM(model="llama-3.3-70b-versatile")
+    
+    # 4. TTS: Deepgram (Free Tier)
+    # Aura TTS is low latency and sounds natural
+    my_tts = deepgram.TTS(model="aura-asteria-en")
+
+    # Initialize custom agent
+    agent = MyAgent(vad=my_vad, stt_instance=my_stt)
+    
+    # Create the Session
     session = AgentSession(
-        # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt="deepgram/nova-3",
-        # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-        # See all available models at https://docs.livekit.io/agents/models/llm/
-        llm="openai/gpt-4.1-mini",
-        # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-        # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
-        tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-        # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
-        # See more at https://docs.livekit.io/agents/build/turns
-        turn_detection=MultilingualModel(),
-        vad=ctx.proc.userdata["vad"],
-        # allow the LLM to generate a response while waiting for the end of turn
-        # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
-        preemptive_generation=True,
-        # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
-        # when it's detected, you may resume the agent's speech
-        resume_false_interruption=True,
-        false_interruption_timeout=1.0,
+        vad=my_vad,
+        stt=my_stt,
+        llm=my_llm,
+        tts=my_tts,
     )
+    
+    await session.start(room=ctx.room, agent=agent)
+    await session.generate_reply()
 
-    # log metrics as they are emitted, and total usage after session is over
-    usage_collector = metrics.UsageCollector()
+class MyAgent(Agent):
+    def __init__(self, vad, stt_instance) -> None:
+        super().__init__(
+            instructions="Your name is Kelly. You interact with users via voice. "
+            "Keep your responses concise and to the point. "
+            "Do not use emojis or special characters. "
+            "You are curious, friendly, and have a sense of humor. "
+            "Speak English to the user.",
+        )
+        self.my_vad = vad
+        self.my_stt = stt_instance
 
-    @session.on("metrics_collected")
-    def _on_metrics_collected(ev: MetricsCollectedEvent):
-        metrics.log_metrics(ev.metrics)
-        usage_collector.collect(ev.metrics)
+    # --- Intelligent Interruption Logic Layer ---
+    def stt_node(self, audio, model_settings):
+        # Create stream using the Deepgram STT instance
+        # Note: Deepgram STT stream handling is slightly different than OpenAI's in some versions,
+        # but the adapter pattern standardizes it.
+        stt_stream = stt.StreamAdapter(stt=self.my_stt, vad=self.my_vad)
+        
+        stream = stt_stream.stream()
 
-    async def log_usage():
-        summary = usage_collector.get_summary()
-        logger.info(f"Usage: {summary}")
+        async def push_audio_loop():
+            async for frame in audio:
+                stream.push_frame(frame)
+            stream.end_input()
 
-    # shutdown callbacks are triggered when the session is over
-    ctx.add_shutdown_callback(log_usage)
+        asyncio.create_task(push_audio_loop())
+        
+        return self._interruption_filter(stream)
 
-    await session.start(
-        agent=MyAgent(),
-        room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                # uncomment to enable the Krisp BVC noise cancellation
-                # noise_cancellation=noise_cancellation.BVC(),
-            ),
-        ),
-    )
+    async def _interruption_filter(self, stream):
+        buffered_start_event = None
+        monitoring_turn = False
+        drop_rest_of_turn = False
 
+        async for event in stream:
+            is_agent_speaking = self._is_agent_speaking()
+
+            if event.type == stt.SpeechEventType.START_OF_SPEECH:
+                if is_agent_speaking:
+                    buffered_start_event = event
+                    monitoring_turn = True
+                    drop_rest_of_turn = False
+                else:
+                    yield event
+            
+            elif event.type == stt.SpeechEventType.INTERIM_TRANSCRIPT or event.type == stt.SpeechEventType.FINAL_TRANSCRIPT:
+                if drop_rest_of_turn:
+                    continue
+
+                if not monitoring_turn:
+                    yield event
+                    continue
+
+                text = event.alternatives[0].text if event.alternatives else ""
+                if self._should_ignore(text):
+                    if event.type == stt.SpeechEventType.FINAL_TRANSCRIPT:
+                        logger.info(f"Ignoring passive acknowledgement: '{text}'")
+                        buffered_start_event = None
+                        monitoring_turn = False
+                        drop_rest_of_turn = True 
+                else:
+                    if buffered_start_event:
+                        yield buffered_start_event
+                        buffered_start_event = None
+                    
+                    monitoring_turn = False
+                    yield event
+
+            elif event.type == stt.SpeechEventType.END_OF_SPEECH:
+                if drop_rest_of_turn:
+                    drop_rest_of_turn = False
+                    continue
+                
+                if buffered_start_event:
+                    yield buffered_start_event
+                    buffered_start_event = None
+                
+                monitoring_turn = False
+                yield event
+            
+            else:
+                yield event
+
+    # def _is_agent_speaking(self):
+    #     if hasattr(self, '_activity') and self._activity:
+    #         if self._activity._current_speech and not self._activity._current_speech.future.done():
+    #             return True
+    #         if self._activity._speech_q:
+    #             return True
+    #     return False
+
+
+    def _is_agent_speaking(self):
+        """
+        Helper to check if the agent is actively speaking based on the current SpeechHandle.
+        """
+        if hasattr(self, '_activity') and self._activity:
+            # Check if there is a current speech handle and if it is NOT marked as done
+            if self._activity._current_speech and not self._activity._current_speech.done(): #
+                return True
+            # Also check if there are any speech turns waiting in the queue
+            if self._activity._speech_q:
+                return True
+        return False
+
+
+    def _should_ignore(self, text):
+        clean_text = text.strip().lower().translate(str.maketrans('', '', string.punctuation))
+        words = clean_text.split()
+        if not words: return True
+
+        for i, word in enumerate(words):
+            is_last = (i == len(words) - 1)
+            if is_last:
+                if not any(ign.startswith(word) for ign in IGNORE_WORDS):
+                    return False
+            else:
+                if word not in IGNORE_WORDS:
+                    return False
+        return True
+
+    @function_tool
+    async def lookup_weather(
+        self, location: str, latitude: str, longitude: str
+    ):
+        return f"The weather in {location} is currently sunny."
 
 if __name__ == "__main__":
-    cli.run_app(server)
+    cli.run_app(
+        WorkerOptions(
+            entrypoint_fnc=entrypoint,
+            prewarm_fnc=prewarm, 
+        )
+    )
