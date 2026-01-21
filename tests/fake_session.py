@@ -46,6 +46,7 @@ def create_session(
         llm=FakeLLM(fake_responses=llm_responses),
         tts=FakeTTS(fake_responses=tts_responses),
         min_interruption_duration=0.5 / speed_factor,
+        backchannel_gate_timeout=0.3 / speed_factor,
         min_endpointing_delay=0.5 / speed_factor,
         max_endpointing_delay=6.0 / speed_factor,
         false_interruption_timeout=2.0 / speed_factor,
