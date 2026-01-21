@@ -1,11 +1,10 @@
 import logging
 
 from dotenv import load_dotenv
-from google.genai.types import Modality  # noqa: F401
 
 from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli, room_io
 from livekit.agents.llm import function_tool
-from livekit.plugins import google, openai  # noqa: F401
+from livekit.plugins import openai  # noqa: F401
 
 logger = logging.getLogger("realtime-with-tts")
 logger.setLevel(logging.INFO)
