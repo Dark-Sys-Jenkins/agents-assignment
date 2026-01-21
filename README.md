@@ -373,3 +373,5 @@ The Agents framework is under active development in a rapidly evolving field. We
 </tbody>
 </table>
 <!--END_REPO_NAV-->
+
+#log transcripts are in transcripts.txt

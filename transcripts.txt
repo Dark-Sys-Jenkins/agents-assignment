@@ -1,0 +1,140 @@
+=== STANDALONE TEST OUTPUT ===
+============================================================
+Running BackchannelingFilter Tests
+============================================================
+Testing basic backchanneling detection...
+  ✓ is_pure_backchanneling('yeah') = True (expected True)
+  ✓ is_pure_backchanneling('ok') = True (expected True)
+  ✓ is_pure_backchanneling('uh-huh') = True (expected True)
+  ✓ is_pure_backchanneling('i see') = True (expected True)
+  ✓ is_pure_backchanneling('got it') = True (expected True)
+  ✓ is_pure_backchanneling('yeah ok hmm') = True (expected True)
+  ✓ is_pure_backchanneling('i need help') = False (expected False)
+  ✓ is_pure_backchanneling('wait') = False (expected False)
+  ✓ is_pure_backchanneling('') = True (expected True)
+
+Testing interrupt word detection...
+  ✓ contains_interrupt_word('wait') = True (expected True)
+  ✓ contains_interrupt_word('stop') = True (expected True)
+  ✓ contains_interrupt_word('no') = True (expected True)
+  ✓ contains_interrupt_word('hold on') = True (expected True)
+  ✓ contains_interrupt_word('never mind') = True (expected True)
+  ✓ contains_interrupt_word('yeah') = False (expected False)
+  ✓ contains_interrupt_word('ok') = False (expected False)
+  ✓ contains_interrupt_word('i need help') = False (expected False)
+
+Testing should_filter_interruption logic...
+  ✓ should_filter_interruption('yeah') = True (expected True)
+  ✓ should_filter_interruption('ok') = True (expected True)
+  ✓ should_filter_interruption('wait') = False (expected False)
+  ✓ should_filter_interruption('stop') = False (expected False)
+  ✓ should_filter_interruption('hold on') = False (expected False)
+  ✓ should_filter_interruption('i need help') = False (expected False)
+  ✓ should_filter_interruption('can you help') = False (expected False)
+  ✓ should_filter_interruption('') = True (expected True)
+  ✓ should_filter_interruption('  yeah  ') = True (expected True)
+
+Testing case insensitivity...
+  ✓ should_filter_interruption('YEAH') = True (expected True)
+  ✓ should_filter_interruption('Ok') = True (expected True)
+  ✓ should_filter_interruption('HMM') = True (expected True)
+  ✓ should_filter_interruption('WAIT') = False (expected False)
+  ✓ should_filter_interruption('Stop') = False (expected False)
+  ✓ should_filter_interruption('YeAh Ok HmM') = True (expected True)
+
+Testing punctuation handling...
+  ✓ should_filter_interruption('yeah!') = True (expected True)
+  ✓ should_filter_interruption('ok?') = True (expected True)
+  ✓ should_filter_interruption('hmm...') = True (expected True)
+  ✓ should_filter_interruption('wait!') = False (expected False)
+  ✓ should_filter_interruption('stop.') = False (expected False)
+  ✓ should_filter_interruption('yeah, ok.') = True (expected True)
+
+Testing mixed content handling...
+  ✓ should_filter_interruption('yeah but I need help') = False (expected False)
+  ✓ should_filter_interruption('wait I have a question') = False (expected False)
+  ✓ should_filter_interruption('ok and then what') = False (expected False)
+
+Testing custom word lists...
+  ✓ Custom backchanneling words work
+  ✓ Custom interrupt words work
+
+Testing default word lists...
+  ✓ Default backchanneling words: 23 words
+  ✓ Default interrupt words: 19 words
+  ✓ Common backchanneling words present: ['yeah', 'ok', 'hmm', 'yes']
+  ✓ Common interrupt words present: ['wait', 'stop', 'no']
+
+Testing edge cases...
+  ✓ Handles very long text
+  ✓ Handles multiple spaces
+  ✓ Handles tabs and newlines
+
+Testing real-world scenarios...
+  ✓ User acknowledgement filtered (agent continues)
+  ✓ User interrupt not filtered (agent stops)
+  ✓ Real question not filtered (can be processed)
+  ✓ Multiple backchanneling words filtered
+
+============================================================
+✓ ALL TESTS PASSED!
+============================================================
+
+=== PYTEST OUTPUT ===
+============================= test session starts ==============================
+platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Library/Developer/CommandLineTools/usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /Users/sbhardwaj/Downloads/agents-assignment 2
+configfile: pyproject.toml
+plugins: anyio-4.12.1, asyncio-1.2.0
+asyncio: mode=auto, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collecting ... collected 45 items
+
+tests/test_backchanneling.py::TestBackchannelingFilterBasics::test_initialization_with_defaults PASSED [  2%]
+tests/test_backchanneling.py::TestBackchannelingFilterBasics::test_initialization_with_custom_words PASSED [  4%]
+tests/test_backchanneling.py::TestBackchannelingFilterBasics::test_empty_text_is_backchanneling PASSED [  6%]
+tests/test_backchanneling.py::TestBackchannelingFilterBasics::test_empty_text_should_filter PASSED [  8%]
+tests/test_backchanneling.py::TestPureBackchanneling::test_single_backchanneling_words PASSED [ 11%]
+tests/test_backchanneling.py::TestPureBackchanneling::test_multiple_backchanneling_words PASSED [ 13%]
+tests/test_backchanneling.py::TestPureBackchanneling::test_backchanneling_with_punctuation PASSED [ 15%]
+tests/test_backchanneling.py::TestPureBackchanneling::test_case_insensitivity PASSED [ 17%]
+tests/test_backchanneling.py::TestPureBackchanneling::test_multi_word_backchanneling_phrases PASSED [ 20%]
+tests/test_backchanneling.py::TestInterruptWords::test_single_interrupt_words PASSED [ 22%]
+tests/test_backchanneling.py::TestInterruptWords::test_interrupt_overrides_backchanneling PASSED [ 24%]
+tests/test_backchanneling.py::TestInterruptWords::test_multi_word_interrupt_phrases PASSED [ 26%]
+tests/test_backchanneling.py::TestInterruptWords::test_interrupt_word_with_text PASSED [ 28%]
+tests/test_backchanneling.py::TestMixedContent::test_backchanneling_with_statement PASSED [ 31%]
+tests/test_backchanneling.py::TestMixedContent::test_interrupt_overrides_mixed_content PASSED [ 33%]
+tests/test_backchanneling.py::TestMixedContent::test_pure_statement_not_filtered PASSED [ 35%]
+tests/test_backchanneling.py::TestCustomWordLists::test_custom_backchanneling_words PASSED [ 37%]
+tests/test_backchanneling.py::TestCustomWordLists::test_custom_interrupt_words PASSED [ 40%]
+tests/test_backchanneling.py::TestCustomWordLists::test_environment_variable_loading PASSED [ 42%]
+tests/test_backchanneling.py::TestTextNormalization::test_punctuation_removal PASSED [ 44%]
+tests/test_backchanneling.py::TestTextNormalization::test_whitespace_normalization PASSED [ 46%]
+tests/test_backchanneling.py::TestTextNormalization::test_case_normalization PASSED [ 48%]
+tests/test_backchanneling.py::TestEdgeCases::test_single_character PASSED [ 51%]
+tests/test_backchanneling.py::TestEdgeCases::test_very_long_text PASSED  [ 53%]
+tests/test_backchanneling.py::TestEdgeCases::test_special_characters PASSED [ 55%]
+tests/test_backchanneling.py::TestEdgeCases::test_unicode_characters PASSED [ 57%]
+tests/test_backchanneling.py::TestIntegrationScenarios::test_agent_speaking_user_acknowledges PASSED [ 60%]
+tests/test_backchanneling.py::TestIntegrationScenarios::test_agent_speaking_user_interrupts PASSED [ 62%]
+tests/test_backchanneling.py::TestIntegrationScenarios::test_agent_silent_user_responds PASSED [ 64%]
+tests/test_backchanneling.py::TestIntegrationScenarios::test_complex_user_statement PASSED [ 66%]
+tests/test_backchanneling.py::TestDefaultLists::test_default_backchanneling_words_not_empty PASSED [ 68%]
+tests/test_backchanneling.py::TestDefaultLists::test_default_interrupt_words_not_empty PASSED [ 71%]
+tests/test_backchanneling.py::TestDefaultLists::test_no_overlap_in_defaults PASSED [ 73%]
+tests/test_backchanneling.py::TestDefaultLists::test_common_words_covered PASSED [ 75%]
+tests/test_backchanneling.py::TestDefaultLists::test_common_interrupt_words_covered PASSED [ 77%]
+tests/test_backchanneling_standalone.py::test_basic_backchanneling PASSED [ 80%]
+tests/test_backchanneling_standalone.py::test_interrupt_words PASSED     [ 82%]
+tests/test_backchanneling_standalone.py::test_should_filter_interruption PASSED [ 84%]
+tests/test_backchanneling_standalone.py::test_case_insensitivity PASSED  [ 86%]
+tests/test_backchanneling_standalone.py::test_punctuation_handling PASSED [ 88%]
+tests/test_backchanneling_standalone.py::test_mixed_content PASSED       [ 91%]
+tests/test_backchanneling_standalone.py::test_custom_word_lists PASSED   [ 93%]
+tests/test_backchanneling_standalone.py::test_default_lists PASSED       [ 95%]
+tests/test_backchanneling_standalone.py::test_edge_cases PASSED          [ 97%]
+tests/test_backchanneling_standalone.py::test_real_world_scenarios PASSED [100%]
+
+============================== 45 passed in 0.03s ==============================
+$ 
