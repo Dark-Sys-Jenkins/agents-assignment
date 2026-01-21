@@ -1,0 +1,9 @@
+livekit-agents
+livekit-plugins-groq
+livekit-plugins-silero
+livekit-plugins-murf
+livekit-plugins-turn-detector
+python-dotenv
+sentence-transformers
+scikit-learn
+numpy
