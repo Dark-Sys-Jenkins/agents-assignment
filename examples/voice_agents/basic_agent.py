@@ -1,4 +1,10 @@
+# examples/voice_agents/basic_agent.py
+
 import logging
+import time
+import asyncio
+import inspect
+from typing import Optional, Tuple
 
 from dotenv import load_dotenv
 
@@ -9,123 +15,184 @@ from livekit.agents import (
     JobContext,
     JobProcess,
     MetricsCollectedEvent,
-    RunContext,
     cli,
     metrics,
     room_io,
 )
-from livekit.agents.llm import function_tool
 from livekit.plugins import silero
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-# uncomment to enable Krisp background voice/noise cancellation
-# from livekit.plugins import noise_cancellation
+from interaction_manager import InteractionManager
 
 logger = logging.getLogger("basic-agent")
-
 load_dotenv()
 
 
 class MyAgent(Agent):
     def __init__(self) -> None:
         super().__init__(
-            instructions="Your name is Kelly. You would interact with users via voice."
-            "with that in mind keep your responses concise and to the point."
-            "do not use emojis, asterisks, markdown, or other special characters in your responses."
-            "You are curious and friendly, and have a sense of humor."
-            "you will speak english to the user",
+            instructions="Your name is Kelly. You interact with users via voice. "
+            "Keep responses concise. No markdown. No emojis. "
+            "You are friendly and humorous. "
+            "\n\nCONTINUOUS CONTEXT PROTOCOL: "
+            "If the user interrupts you while you are in the middle of any response or task, "
+            "answer their input concisely and then immediately return to your previous "
+            "thread of conversation. You must maintain context continuity perfectly, "
+            "resuming exactly where you left off without requiring a prompt to continue.",
         )
 
     async def on_enter(self):
-        # when the agent is added to the session, it'll generate a reply
-        # according to its instructions
-        self.session.generate_reply()
-
-    # all functions annotated with @function_tool will be passed to the LLM when this
-    # agent is active
-    @function_tool
-    async def lookup_weather(
-        self, context: RunContext, location: str, latitude: str, longitude: str
-    ):
-        """Called when the user asks for weather related information.
-        Ensure the user's location (city or region) is provided.
-        When given a location, please estimate the latitude and longitude of the location and
-        do not ask the user for them.
-
-        Args:
-            location: The location they are asking for
-            latitude: The latitude of the location, do not ask user for it
-            longitude: The longitude of the location, do not ask user for it
-        """
-
-        logger.info(f"Looking up weather for {location}")
-
-        return "sunny with a temperature of 70 degrees."
+        self.session.generate_reply(allow_interruptions=False)
 
 
 server = AgentServer()
 
 
 def prewarm(proc: JobProcess):
-    proc.userdata["vad"] = silero.VAD.load()
+    try:
+        proc.userdata["vad"] = silero.VAD.load(
+            min_speech_duration=0.15,
+            min_silence_duration=0.60,
+        )
+    except TypeError:
+        proc.userdata["vad"] = silero.VAD.load()
 
 
 server.setup_fnc = prewarm
 
 
+def _build_room_options() -> room_io.RoomOptions:
+    audio_input = room_io.AudioInputOptions()
+    RoomInputOptions = getattr(room_io, "RoomInputOptions", None)
+    room_input_obj = None
+
+    if RoomInputOptions is not None:
+        try:
+            sig = inspect.signature(RoomInputOptions)
+            if "close_on_disconnect" in sig.parameters:
+                room_input_obj = RoomInputOptions(close_on_disconnect=False)
+            else:
+                room_input_obj = RoomInputOptions()
+        except:
+            room_input_obj = None
+
+    sig = inspect.signature(room_io.RoomOptions)
+    kwargs = {}
+    if "audio_input" in sig.parameters: kwargs["audio_input"] = audio_input
+    if room_input_obj is not None:
+        if "room_input" in sig.parameters: kwargs["room_input"] = room_input_obj
+        elif "input" in sig.parameters: kwargs["input"] = room_input_obj
+
+    return room_io.RoomOptions(**kwargs)
+
+
 @server.rtc_session()
 async def entrypoint(ctx: JobContext):
-    # each log entry will include these fields
-    ctx.log_context_fields = {
-        "room": ctx.room.name,
-    }
+    ctx.log_context_fields = {"room": ctx.room.name}
+    await ctx.connect()
+
     session = AgentSession(
-        # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
         stt="deepgram/nova-3",
-        # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-        # See all available models at https://docs.livekit.io/agents/models/llm/
         llm="openai/gpt-4.1-mini",
-        # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-        # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-        # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
-        # See more at https://docs.livekit.io/agents/build/turns
-        turn_detection=MultilingualModel(),
+        turn_detection="manual",
         vad=ctx.proc.userdata["vad"],
-        # allow the LLM to generate a response while waiting for the end of turn
-        # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
-        preemptive_generation=True,
-        # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
-        # when it's detected, you may resume the agent's speech
+        allow_interruptions=False,
+        discard_audio_if_uninterruptible=False,
         resume_false_interruption=True,
         false_interruption_timeout=1.0,
+
+        # Storage keys simplified
+        userdata={
+            "ignore_intent": False,
+            "interaction_lock": 0.0,
+            "paused_state": False,
+            "paused_expiry": 0.0,
+            "commit_task": None,
+            "event_ts": 0.0,
+        },
     )
 
-    # log metrics as they are emitted, and total usage after session is over
-    usage_collector = metrics.UsageCollector()
+    # Attach Interaction Controller
+    InteractionManager(session=session).attach()
 
+    def _kill_commit():
+        t = session.userdata.get("commit_task")
+        if t is not None and hasattr(t, "cancel"):
+            try: t.cancel()
+            except: pass
+        session.userdata["commit_task"] = None
+
+    @session.on("user_input_transcribed")
+    def _on_transcript(ev: any):
+        now = time.monotonic()
+        
+        # Only treat non-final events as commit-killers if they aren't suspiciously close to a final
+        if not ev.is_final:
+            session.userdata["event_ts"] = now
+            _kill_commit()
+            return
+
+        transcript = (ev.transcript or "").strip()
+        if not transcript:
+            try: session.clear_user_turn()
+            except: pass
+            return
+
+        logger.debug(f"DEBUG: Final transcript received: {transcript!r}")
+        _kill_commit()
+        
+        # Capture the trigger time for this specific final transcript
+        trigger_time = now
+        session.userdata["event_ts"] = trigger_time
+
+        async def _run_commit(t: float):
+            await asyncio.sleep(0.35)
+            
+            # Check if a NEWER event arrived during the sleep
+            current_ts = float(session.userdata.get("event_ts", 0.0))
+            if current_ts > t:
+                logger.debug(f"DEBUG: Commit cancelled. New event at {current_ts} > {t}")
+                return
+
+            arrival = time.monotonic()
+            
+            # Interaction Lock check
+            lock_expiry = float(session.userdata.get("interaction_lock", 0.0))
+            if arrival < lock_expiry:
+                logger.debug(f"DEBUG: Commit blocked by interaction lock ({arrival} < {lock_expiry})")
+                session.userdata["ignore_intent"] = False
+                try: session.clear_user_turn()
+                except: pass
+                return
+
+            # Intent Filter check
+            if session.userdata.get("ignore_intent"):
+                logger.debug("DEBUG: Commit blocked by ignore_intent flag")
+                session.userdata["ignore_intent"] = False
+                try: session.clear_user_turn()
+                except: pass
+                return
+
+            logger.info(f"DEBUG: Committing user turn for: {transcript!r}")
+            session.commit_user_turn()
+
+        session.userdata["commit_task"] = asyncio.create_task(_run_commit(trigger_time))
+
+    collector = metrics.UsageCollector()
     @session.on("metrics_collected")
-    def _on_metrics_collected(ev: MetricsCollectedEvent):
+    def _on_metrics(ev: MetricsCollectedEvent):
         metrics.log_metrics(ev.metrics)
-        usage_collector.collect(ev.metrics)
+        collector.collect(ev.metrics)
 
-    async def log_usage():
-        summary = usage_collector.get_summary()
-        logger.info(f"Usage: {summary}")
+    async def _cleanup():
+        logger.info(f"Summary: {collector.get_summary()}")
 
-    # shutdown callbacks are triggered when the session is over
-    ctx.add_shutdown_callback(log_usage)
+    ctx.add_shutdown_callback(_cleanup)
 
     await session.start(
         agent=MyAgent(),
         room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                # uncomment to enable the Krisp BVC noise cancellation
-                # noise_cancellation=noise_cancellation.BVC(),
-            ),
-        ),
+        room_options=_build_room_options(),
     )
 
 
