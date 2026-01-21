@@ -80,6 +80,14 @@ if TYPE_CHECKING:
     from ..llm import mcp
     from .agent_session import AgentSession
 
+IGNORE_WORDS = {
+    "yeah", "yes", "ok", "okay", "hmm", "uh-huh", "right", "aha", "oh",
+}
+
+INTERRUPT_WORDS = {
+    "stop", "wait", "no", "pause", "hold",
+}
+
 _AgentActivityContextVar = contextvars.ContextVar["AgentActivity"]("agents_activity")
 _SpeechHandleContextVar = contextvars.ContextVar["SpeechHandle"]("agents_speech_handle")
 
@@ -163,6 +171,28 @@ class AgentActivity(RecognitionHooks):
 
         # speeches that audio playout finished but not done because of tool calls
         self._background_speeches: set[SpeechHandle] = set()
+
+    def _classify_user_text(self, text: str) -> str:
+        """
+        Returns one of: 'ignore', 'interrupt', 'normal'
+        """
+        normalized = text.lower().strip()
+        if not normalized:
+            return "ignore"
+
+        words = normalized.split()
+
+        has_interrupt = any(w in INTERRUPT_WORDS for w in words)
+        only_ignore = all(w in IGNORE_WORDS for w in words)
+
+        if has_interrupt:
+            return "interrupt"
+
+        if only_ignore:
+            return "ignore"
+
+        return "normal"
+
 
     def _validate_turn_detection(
         self, turn_detection: TurnDetectionMode | None
@@ -1173,6 +1203,16 @@ class AgentActivity(RecognitionHooks):
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
             # ignore if realtime model has turn detection enabled
             return
+        if self._audio_recognition:
+            text = self._audio_recognition.current_transcript or ""
+            classification = self._classify_user_text(text)
+            if self._current_speech and not self._current_speech.interrupted:
+            # Agent is speaking
+                if classification == "ignore":
+                    logger.debug("Ignoring backchannel while agent is speaking", extra={"text": text})
+                    return
+                if classification == "interrupt":
+                    logger.info("Interrupt command detected", extra={"text": text})
 
         if (
             self.stt is not None
