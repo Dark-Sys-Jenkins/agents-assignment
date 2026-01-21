@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import re
 import asyncio
 import contextvars
 import heapq
@@ -105,6 +105,39 @@ class _PreemptiveGeneration:
 
 
 # NOTE: AgentActivity isn't exposed to the public API
+# --- interruption helpers -------------------------------------------------
+IGNORE_WORDS = {"yeah", "ok", "hmm", "right", "uh-huh", "mm", "mhm", "okay", "yah"}
+INTERRUPT_WORDS = {"wait", "stop", "no", "hold on", "hold up", "pause", "waited", "please stop"}
+
+def _normalize_text(s: str) -> str:
+    s = (s or "").lower().strip()
+    s = re.sub(r"[^a-z0-9\s'-]", " ", s)
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+def _contains_any_keyword(text: str, keywords: set[str]) -> bool:
+    t = _normalize_text(text)
+    for kw in keywords:
+        if not kw:
+            continue
+        if re.search(rf"\b{re.escape(kw)}\b", t):
+            return True
+    return False
+
+def _is_filler_only(text: str) -> bool:
+    """Return True if text contains only filler words (or is empty/very short filler)."""
+    t = _normalize_text(text)
+    if not t:
+        return True
+    tokens = [tok for tok in re.split(r"\s+", t) if tok]
+    if not tokens:
+        return True
+    # if every token is in IGNORE_WORDS then it's filler-only
+    for tok in tokens:
+        if tok not in IGNORE_WORDS:
+            return False
+    return True
+    
 class AgentActivity(RecognitionHooks):
     def __init__(self, agent: Agent, sess: AgentSession) -> None:
         self._agent, self._session = agent, sess
@@ -912,6 +945,9 @@ class AgentActivity(RecognitionHooks):
                 name="AgentActivity.pipeline_reply",
             )
             task.add_done_callback(self._on_pipeline_reply_done)
+            
+        if not self._session.output.audio_enabled:
+            schedule_speech = True
 
         if schedule_speech:
             self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
@@ -987,6 +1023,11 @@ class AgentActivity(RecognitionHooks):
         # when force=True, we still allow to schedule a new speech even if
         # `pause_speech_scheduling` is waiting for the schedule_task to drain.
         # This allows for tool responses to be generated before the AgentActivity is finalized.
+        logger.info(
+            "[SCHEDULE] speech_id=%s priority=%s",
+            speech.id,
+            priority,
+        )
 
         if self._scheduling_paused and not force:
             raise RuntimeError(
@@ -1021,9 +1062,21 @@ class AgentActivity(RecognitionHooks):
                 _, _, speech = heapq.heappop(self._speech_q)
                 if speech.done():
                     # skip done speech (interrupted when it's in the queue)
+                    logger.info(
+                        "[SPEECH END] speech_id=%s interrupted=%s",
+                        speech.id,
+                        speech.interrupted,
+                    )
+
                     self._current_speech = None
                     continue
                 self._current_speech = speech
+                logger.info(
+                    "[SPEECH START] speech_id=%s allow_interruptions=%s",
+                    speech.id,
+                    speech.allow_interruptions,
+                )
+
                 if self.min_consecutive_speech_delay > 0.0:
                     await asyncio.sleep(
                         self.min_consecutive_speech_delay - (time.time() - last_playout_ts)
@@ -1031,10 +1084,26 @@ class AgentActivity(RecognitionHooks):
                     # check again if speech is done after sleep delay
                     if speech.done():
                         # skip done speech (interrupted during delay)
+                        logger.info(
+                            "[SPEECH END] speech_id=%s interrupted=%s",
+                            speech.id,
+                            speech.interrupted,
+                        )
                         self._current_speech = None
                         continue
                 speech._authorize_generation()
-                await speech._wait_for_generation()
+                if not self._session.output.audio_enabled:
+                    remaining = 5.0
+                    while remaining > 0 and not speech.interrupted:
+                        await asyncio.sleep(0.1)
+                        remaining -= 0.1
+                else:
+                    await speech._wait_for_generation()
+                logger.info(
+                    "[SPEECH END] speech_id=%s interrupted=%s",
+                    speech.id,
+                    speech.interrupted,
+                )
                 self._current_speech = None
                 last_playout_ts = time.time()
 
@@ -1167,6 +1236,12 @@ class AgentActivity(RecognitionHooks):
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
     def _interrupt_by_audio_activity(self) -> None:
+        logger.info(
+            "[INTERRUPT] interrupt_by_audio_activity called | "
+            "current_speech=%s allow_interruptions=%s",
+            bool(self._current_speech),
+            bool(self._current_speech and self._current_speech.allow_interruptions),
+        )
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
@@ -1202,10 +1277,15 @@ class AgentActivity(RecognitionHooks):
 
             if use_pause and self._session.output.audio and self._session.output.audio.can_pause:
                 self._session.output.audio.pause()
+                logger.info("[STATE] agent_state -> listening")
                 self._session._update_agent_state("listening")
             else:
                 if self._rt_session is not None:
                     self._rt_session.interrupt()
+                logger.info(
+                    "[INTERRUPT] interrupting speech_handle id=%s",
+                    self._current_speech.id if self._current_speech else None,
+                )
 
                 self._current_speech.interrupt()
 
@@ -1239,72 +1319,151 @@ class AgentActivity(RecognitionHooks):
         if self._turn_detection in ("manual", "realtime_llm"):
             # ignore vad inference done event if turn_detection is manual or realtime_llm
             return
-
+    
+        # If STT is available and we have a recent transcript, prefer semantic decision
+        if self.stt is not None and self._audio_recognition is not None:
+            text = (self._audio_recognition.current_transcript or "").strip()
+            # if we have STT content, use it to decide
+            if text:
+                if _contains_any_keyword(text, INTERRUPT_WORDS):
+                    self._interrupt_by_audio_activity()
+                    return
+                if _is_filler_only(text):
+                    # filler-only: do not interrupt to avoid stutter
+                    return
+                # meaningful but not an explicit interrupt -> do NOT interrupt (continue)
+                return
+    
+        # Fallback: original behavior based on duration (no STT available or no transcript)
         if ev.speech_duration >= self._session.options.min_interruption_duration:
             self._interrupt_by_audio_activity()
 
+
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
-            # skip stt transcription if user_transcription is enabled on the realtime model
+            # skip stt transcription if the realtime model handles user transcription
             return
+    
+        text = ev.alternatives[0].text or ""
+        logger.info(
+            "[INTERIM] text='%s' | agent_speaking=%s",
+            text,
+            bool(self._current_speech and not self._current_speech.interrupted),
+        )
 
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=text,
                 is_final=False,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
-
-        if ev.alternatives[0].text and self._turn_detection not in (
-            "manual",
-            "realtime_llm",
+    
+        # Only apply interruption logic when turn_detection is not manual/realtime_llm
+        if not text or self._turn_detection in ("manual", "realtime_llm"):
+            return
+    
+        # If agent is currently speaking, apply semantic filtering:
+        if self._current_speech is not None and not self._current_speech.interrupted:
+            # interrupt keywords always have priority
+            if _contains_any_keyword(text, INTERRUPT_WORDS):
+                logger.info("[DECISION] interim interrupt keyword detected")
+                self._interrupt_by_audio_activity()
+                # when interrupted, false-interruption timer handling happens inside _interrupt_by_audio_activity
+                return
+    
+            # pure filler -> ignore (do not interrupt)
+            if _is_filler_only(text):
+                logger.info("[DECISION] interim filler-only detected → ignoring")
+                return
+    
+            # mixed / meaningful but not an explicit interrupt -> forward, but do NOT stop audio.
+            # we already forwarded the transcript above via _user_input_transcribed; nothing to do here.
+            logger.info("[DECISION] interim meaningful but non-interrupting → forwarding only")
+            return
+    
+        # If agent isn't speaking, treat as a potential interruption (original behavior)
+        self._interrupt_by_audio_activity()
+    
+        if (
+            speaking is False
+            and self._paused_speech
+            and (timeout := self._session.options.false_interruption_timeout) is not None
         ):
-            self._interrupt_by_audio_activity()
+            # schedule a resume timer if interrupted after end_of_speech
+            self._start_false_interruption_timer(timeout)
 
-            if (
-                speaking is False
-                and self._paused_speech
-                and (timeout := self._session.options.false_interruption_timeout) is not None
-            ):
-                # schedule a resume timer if interrupted after end_of_speech
-                self._start_false_interruption_timer(timeout)
 
     def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
-            # skip stt transcription if user_transcription is enabled on the realtime model
+            # skip stt transcription if realtime model handles user transcription
             return
+    
+        text = ev.alternatives[0].text or ""
+        logger.info(
+            "[FINAL] text='%s' | agent_speaking=%s",
+            text,
+            bool(self._current_speech and not self._current_speech.interrupted),
+        )
 
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=text,
                 is_final=True,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
-        # agent speech might not be interrupted if VAD failed and a final transcript is received
-        # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
-        # which will also be immediately interrupted
+    
+        # If turn_detection is manual/realtime_llm, don't run local interruption logic
+        if self._turn_detection in ("manual", "realtime_llm"):
+            return
+    
+        # If there is an audio_recognition instance (STT enabled), prefer semantic decisioning
+        if self._audio_recognition is not None:
+            # If agent is speaking, apply semantic filtering:
+            if self._current_speech is not None and not self._current_speech.interrupted:
+                if _contains_any_keyword(text, INTERRUPT_WORDS):
+                    logger.info("[DECISION] final interrupt keyword detected")
+                    self._interrupt_by_audio_activity()
+                    
+                elif _is_filler_only(text):
+                    # Pure filler — ignore (do not interrupt)
+                    logger.info("[DECISION] final filler-only detected → ignoring")
 
-        if self._audio_recognition and self._turn_detection not in (
-            "manual",
-            "realtime_llm",
-        ):
-            self._interrupt_by_audio_activity()
-
+                    pass
+                else:
+                    # meaningful content but not an explicit interrupt: forward only (no stop)
+                    logger.info("[DECISION] final meaningful but non-interrupting → ignoring")
+                    pass
+            else:
+                # agent not speaking => treat final transcript as a user turn (interrupt)
+                self._interrupt_by_audio_activity()
+    
+            # When interrupted after end_of_speech, schedule resume timer if needed
             if (
                 speaking is False
                 and self._paused_speech
                 and (timeout := self._session.options.false_interruption_timeout) is not None
             ):
-                # schedule a resume timer if interrupted after end_of_speech
                 self._start_false_interruption_timer(timeout)
-
+        else:
+            # no audio_recognition (rare) -> fallback to original behavior based on duration
+            # (call interrupt_by_audio_activity as before)
+            self._interrupt_by_audio_activity()
+            if (
+                speaking is False
+                and self._paused_speech
+                and (timeout := self._session.options.false_interruption_timeout) is not None
+            ):
+                self._start_false_interruption_timer(timeout)
+    
+        # schedule the paused-speech interrupt task (same as before)
         self._interrupt_paused_speech_task = asyncio.create_task(
             self._interrupt_paused_speech(old_task=self._interrupt_paused_speech_task)
         )
+
 
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None:
         if (
@@ -1565,6 +1724,7 @@ class AgentActivity(RecognitionHooks):
 
     def _on_pipeline_reply_done(self, _: asyncio.Task[None]) -> None:
         if not self._speech_q and (not self._current_speech or self._current_speech.done()):
+            logger.info("[STATE] agent_state -> listening")
             self._session._update_agent_state("listening")
 
     @utils.log_exceptions(logger=logger)
@@ -1609,6 +1769,7 @@ class AgentActivity(RecognitionHooks):
         tasks: list[asyncio.Task[Any]] = []
 
         def _on_first_frame(_: asyncio.Future[None]) -> None:
+            logger.info("[STATE] agent_state -> speaking")
             self._session._update_agent_state("speaking")
 
         audio_out: _AudioOutput | None = None
@@ -1695,6 +1856,7 @@ class AgentActivity(RecognitionHooks):
                 self._session._conversation_item_added(msg)
 
         if self._session.agent_state == "speaking":
+            logger.info("[STATE] agent_state -> listening")
             self._session._update_agent_state("listening")
 
     @tracer.start_as_current_span("agent_turn")
@@ -1832,6 +1994,7 @@ class AgentActivity(RecognitionHooks):
         def _on_first_frame(_: asyncio.Future[None]) -> None:
             nonlocal started_speaking_at
             started_speaking_at = time.time()
+            logger.info("[STATE] agent_state -> speaking")
             self._session._update_agent_state("speaking")
 
         audio_out: _AudioOutput | None = None
@@ -1937,6 +2100,7 @@ class AgentActivity(RecognitionHooks):
                 current_span.set_attribute(trace_types.ATTR_RESPONSE_TEXT, forwarded_text)
 
             if self._session.agent_state == "speaking":
+                logger.info("[STATE] agent_state -> listening")
                 self._session._update_agent_state("listening")
 
             speech_handle._mark_generation_done()
@@ -1966,6 +2130,7 @@ class AgentActivity(RecognitionHooks):
         if len(tool_output.output) > 0:
             self._session._update_agent_state("thinking")
         elif self._session.agent_state == "speaking":
+            logger.info("[STATE] agent_state -> listening")
             self._session._update_agent_state("listening")
 
         await text_tee.aclose()
@@ -2156,6 +2321,7 @@ class AgentActivity(RecognitionHooks):
         def _on_first_frame(_: asyncio.Future[None]) -> None:
             nonlocal started_speaking_at
             started_speaking_at = time.time()
+            logger.info("[STATE] agent_state -> speaking")
             self._session._update_agent_state("speaking")
 
         tasks: list[asyncio.Task[Any]] = []
@@ -2325,6 +2491,7 @@ class AgentActivity(RecognitionHooks):
             await speech_handle.wait_if_not_interrupted(
                 [asyncio.ensure_future(audio_output.wait_for_playout())]
             )
+            logger.info("[STATE] agent_state -> listening")
             self._session._update_agent_state("listening")
             current_span.set_attribute(
                 trace_types.ATTR_SPEECH_INTERRUPTED, speech_handle.interrupted
@@ -2555,6 +2722,7 @@ class AgentActivity(RecognitionHooks):
                 and audio_output.can_pause
                 and not self._paused_speech.done()
             ):
+                logger.info("[STATE] agent_state -> speaking")
                 self._session._update_agent_state("speaking")
                 audio_output.resume()
                 resumed = True
