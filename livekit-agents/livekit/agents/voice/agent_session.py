@@ -52,6 +52,7 @@ from .events import (
     UserState,
     UserStateChangedEvent,
 )
+from .interruption_filter import BackchannelFilterConfig, resolve_backchannel_config
 from .ivr import IVRActivity
 from .recorder_io import RecorderIO
 from .run_result import RunResult
@@ -89,6 +90,7 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    backchannel_filter: BackchannelFilterConfig
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +161,10 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        backchannel_filter: bool = True,
+        backchannel_words: Sequence[str] | None = None,
+        backchannel_interrupt_words: Sequence[str] | None = None,
+        backchannel_gate_timeout: float = 0.3,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -245,6 +251,15 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                 Defaults to ``False``.
             ivr_detection (bool): Whether to detect if the agent is interacting with an IVR system.
                 Default ``False``.
+            backchannel_filter (bool): Enable suppression of "backchannel" acknowledgements
+                (e.g. "yeah", "ok", "uh-huh") while the agent is speaking. Default ``True``.
+            backchannel_words (Sequence[str] | None): Optional override for the backchannel ignore
+                list. If unset, uses defaults (or the `LIVEKIT_BACKCHANNEL_WORDS` env var).
+            backchannel_interrupt_words (Sequence[str] | None): Optional override for explicit
+                interrupt tokens (e.g. "stop", "wait"). If unset, uses defaults (or the
+                `LIVEKIT_INTERRUPT_WORDS` env var).
+            backchannel_gate_timeout (float): Maximum time in seconds to wait for an STT transcript
+                to classify user speech before treating it as an interruption. Default ``0.3``.
             conn_options (SessionConnectOptions, optional): Connection options for
                 stt, llm, and tts.
             loop (asyncio.AbstractEventLoop, optional): Event loop to bind the
@@ -266,6 +281,12 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
 
         # This is the "global" chat_context, it holds the entire conversation history
         self._chat_ctx = ChatContext.empty()
+        backchannel_cfg = resolve_backchannel_config(
+            enabled=backchannel_filter,
+            gate_timeout=backchannel_gate_timeout,
+            backchannel_words=backchannel_words,
+            interrupt_words=backchannel_interrupt_words,
+        )
         self._opts = AgentSessionOptions(
             allow_interruptions=allow_interruptions,
             discard_audio_if_uninterruptible=discard_audio_if_uninterruptible,
@@ -288,6 +309,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            backchannel_filter=backchannel_cfg,
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False

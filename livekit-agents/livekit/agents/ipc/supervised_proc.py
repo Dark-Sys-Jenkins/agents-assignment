@@ -39,11 +39,18 @@ def _mask_ctrl_c() -> Generator[None, None, None]:
         finally:
             signal.pthread_sigmask(signal.SIG_UNBLOCK, [signal.SIGINT])
     else:
-        old = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        # `signal.signal()` can only be used from the main thread in CPython.
+        # In console/dev mode we may run the worker loop in a background thread, so
+        # fall back to a no-op instead of crashing.
         try:
+            old = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        except ValueError:
             yield
-        finally:
-            signal.signal(signal.SIGINT, old)
+        else:
+            try:
+                yield
+            finally:
+                signal.signal(signal.SIGINT, old)
 
 
 @dataclass

@@ -332,6 +332,60 @@ python myagent.py console
 Runs your agent in terminal mode, enabling local audio input and output for testing.
 This mode doesn't require external servers or dependencies and is useful for quickly validating behavior.
 
+## Intelligent interruption handling (backchannels)
+
+This repo includes a backchannel-aware interruption gate to prevent false “barge in” when the agent is speaking.
+
+- While the agent is speaking: short acknowledgements like “yeah/ok/uh-huh/hmm/right” are ignored and will not
+  pause/stop/hiccup the agent audio.
+- While the agent is speaking: real interruptions (“stop”, “wait”, “no”, …) still interrupt immediately.
+- While the agent is silent: “yeah/ok/…” are treated as normal user input and the agent responds.
+
+### Configuration
+
+You can configure it per-session:
+
+```python
+session = AgentSession(
+    ...,
+    backchannel_filter=True,
+    backchannel_words=[
+        "yeah",
+        "yes",
+        "ok",
+        "okay",
+        "uh-huh",
+        "uh huh",
+        "hm",
+        "hmm",
+        "mhm",
+        "mm-hmm",
+        "right",
+        "yep",
+        "ya",
+        "sure",
+    ],
+    backchannel_interrupt_words=["stop", "wait", "hold", "pause", "cancel", "no"],
+    backchannel_gate_timeout=0.3,  # seconds
+)
+```
+
+Or via environment variables (comma-separated):
+
+- `LIVEKIT_BACKCHANNEL_WORDS`
+- `LIVEKIT_INTERRUPT_WORDS`
+- `LIVEKIT_INTERRUPT_GATE_TIMEOUT_MS` (milliseconds)
+
+### How it works
+
+When the user begins speaking while the agent is already speaking, the session enters a short “pending interruption”
+window (`backchannel_gate_timeout`) and waits for the first STT transcript:
+
+- If the transcript is backchannel only, the agent keeps speaking and the utterance is dropped.
+- If the transcript contains any non backchannel token or explicit interrupt intent, the agent interrupts.
+
+This is implemented in the agent logic layer (no low-level VAD changes).
+
 ### Developing with LiveKit clients
 
 ```shell

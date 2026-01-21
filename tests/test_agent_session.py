@@ -217,8 +217,8 @@ async def test_tool_call() -> None:
 @pytest.mark.parametrize(
     "resume_false_interruption, expected_interruption_time",
     [
-        (False, 5.5),  # when vad event, 5 + 0.5
-        (True, 5.5),  # pause/resume is disabled for fake audio output
+        (False, 5.35),  # gate timeout after start_of_speech: 5.05 + 0.3
+        (True, 5.35),  # pause/resume is disabled for fake audio output
     ],
 )
 async def test_interruption(
@@ -230,7 +230,7 @@ async def test_interruption(
     actions.add_llm("Here is a long story for you ... the end.")
     actions.add_tts(10.0)  # playout starts at 3.5s
     actions.add_user_speech(5.0, 6.0, "Stop!", stt_delay=0.2)
-    # interrupted at 5.5s, min_interruption_duration=0.5
+    # interrupted at ~5.35s by the backchannel gate timeout
 
     session = create_session(
         actions,
@@ -270,7 +270,7 @@ async def test_interruption(
     assert playback_finished_events[0].interrupted is True
     if not resume_false_interruption:
         # fake audio output doesn't support pause/resume
-        check_timestamp(playback_finished_events[0].playback_position, 2.0, speed_factor=speed)
+        check_timestamp(playback_finished_events[0].playback_position, 1.85, speed_factor=speed)
 
 
 async def test_interruption_options() -> None:
