@@ -1176,14 +1176,33 @@ class AgentActivity(RecognitionHooks):
 
         if (
             self.stt is not None
-            and opt.min_interruption_words > 0
             and self._audio_recognition is not None
         ):
             text = self._audio_recognition.current_transcript
+            ignore_list = self._agent.interruption_ignore_list
 
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
-                return
+            if ignore_list is not None:
+                # Smart Interruption Mode:
+                # 1. If no transcript yet, IGNORE (don't interrupt on VAD only)
+                if not text.strip():
+                    return
+
+                # 2. If transcript consists ONLY of ignored words, IGNORE
+                import re
+                # Normalize text: remove punctuation and extra spaces, lowercase
+                normalized_text = re.sub(r'[^\w\s]', '', text).lower().strip()
+                words = normalized_text.split()
+                
+                # Check if all words are in the ignore list
+                if words and all(w in [ignored.lower() for ignored in ignore_list] for w in words):
+                    logger.info(f"Ignoring interruption: '{text}' (in ignore list)")
+                    return
+
+            # Fallback to legacy min_interruption_words if ignore_list is NOT set
+            elif opt.min_interruption_words > 0:
+                # TODO(long): better word splitting for multi-language
+                if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                    return
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
