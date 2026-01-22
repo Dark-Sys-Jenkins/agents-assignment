@@ -52,7 +52,8 @@ LIVEKIT_API_KEY=your_api_key
 LIVEKIT_API_SECRET=your_api_secret
 
 # Optional: Customize interruption handling word lists
-BACKCHANNELING_WORDS=yeah,yep,yup,ok,okay,okey,alright,all right,sure,right,uh-huh,uh huh,mhm,mm-hmm,mm hmm,mm,mmm,aha,ah,oh,hmm,hmmm,got it,gotcha,I see,I understand,understood,correct,exactly,absolutely,definitely,indeed,true,k
+# Note: Only single words are supported (not phrases). The system processes words individually.
+BACKCHANNELING_WORDS=yeah,yep,yup,ok,okay,okey,alright,sure,right,uh-huh,mhm,mm-hmm,mm,mmm,aha,ah,oh,hmm,hmmm,gotcha,understood,correct,exactly,absolutely,definitely,indeed,true
 INTERRUPT_WORDS=stop,wait,no,hold,pause,cancel,halt,cease
 ```
 
@@ -73,19 +74,6 @@ Or use the basic agent:
 python basic_agent.py console
 ```
 
-### Dev Mode
-
-Run with hot reloading for development:
-
-```bash
-python test_interrupt_handler.py dev
-```
-
-### Production Mode
-
-```bash
-python test_interrupt_handler.py start
-```
 
 ## Intelligent Interruption Handling
 
@@ -189,10 +177,35 @@ The `_should_ignore_backchanneling()` function:
 
 Word lists are configurable via environment variables (comma-separated):
 
-- `BACKCHANNELING_WORDS`: Words to ignore when agent is speaking (default: yeah, ok, okay, hmm, etc.)
-- `INTERRUPT_WORDS`: Words that always interrupt (default: stop, wait, no, etc.)
+- `BACKCHANNELING_WORDS`: Single words to ignore when agent is speaking (default: yeah, ok, okay, hmm, etc.)
+  - **Note:** Only single words are supported, not phrases. The system processes words individually.
+- `INTERRUPT_WORDS`: Single words that always interrupt (default: stop, wait, no, etc.)
+  - **Note:** Only single words are supported, not phrases.
 
 ## Testing
+
+### ⚠️ Important Testing Notes
+
+**For accurate backchanneling detection, please follow these guidelines:**
+
+1. **Speak clearly and close to the microphone**
+   - The backchanneling filter only works if STT (Speech-to-Text) can accurately transcribe your words
+   - If you say "okay" but the microphone only captures "K", the backchanneling detection will fail
+   - Poor audio quality or distance from the mic can result in incomplete transcriptions
+
+2. **Monitor the STT transcript in console logs**
+   - Always check the console output to see what STT actually transcribed
+   - Look for: `User: <transcript>` in the logs
+   - **Only the words that STT successfully transcribes will be validated for backchanneling**
+   - If STT captures "K" instead of "okay", the system will not recognize it as backchanneling
+
+3. **Example scenarios:**
+   - ✅ **Good:** You say "okay" clearly → STT transcribes "okay" → Backchanneling detected → Agent continues
+   - ❌ **Bad:** You say "okay" but too far from mic → STT transcribes "K" → Not recognized → Agent may pause
+   - ✅ **Good:** You say "yeah" clearly → STT transcribes "yeah" → Backchanneling detected → Agent continues
+   - ❌ **Bad:** You mumble "yeah" → STT transcribes "ah" → Not recognized → Agent may pause
+
+**Tip:** If backchanneling isn't working, check the console logs first to verify what STT actually captured. The system validates backchanneling based on the **actual STT transcript**, not what you intended to say.
 
 ### Test Scenarios
 
@@ -255,10 +268,4 @@ See `examples/voice_agents/` for:
 - `test_interrupt_handler.py` - Dedicated test agent for interruption scenarios
 - `basic_agent.py` - Standard voice agent example
 
-## Documentation
 
-Full framework documentation: [https://docs.livekit.io/agents/](https://docs.livekit.io/agents/)
-
-## Contributing
-
-Contributions welcome! File issues, open PRs, or chat in LiveKit's [Slack community](https://livekit.io/join-slack).
