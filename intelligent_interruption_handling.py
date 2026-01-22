@@ -5,10 +5,6 @@ Problem: LiveKit's VAD stops the agent when user says "yeah" or "ok".
 Solution: Logic layer that ignores filler words but stops on commands.
 
 Author: Aditya Singh
-
-Video Proof: 
-            Youtube link - https://www.youtube.com/watch?v=6OORk3eroAQ
-            drive link- https://drive.google.com/file/d/1BcWSkRe9glIQNG9Vd0uLz2FZ_u8b9nDM/view?usp=sharing
 """
 
 import re
