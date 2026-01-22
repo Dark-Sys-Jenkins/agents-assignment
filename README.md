@@ -4,17 +4,18 @@
 This project implements a "Smart Interruption" agent using LiveKit. It solves a common problem in voice AI where the agent stops speaking when the user provides passive feedback (backchanneling) like "yeah" or "uh-huh".
 
 The agent uses a logic layer to distinguish between:
-1.  **Passive Acknowledgement (Soft Words):** The agent ignores words like "yeah", "ok", "cool" and continues speaking.
+1.  **Passive Acknowledgement (Soft Words):** The agent ignores words like "yeah", "ok", "yes" and continues speaking.
 2.  **Active Interruption (Commands):** The agent stops immediately for commands like "stop", "wait", or "no".
 
 ## Video Proof
 Here is the demo of the agent handling interruptions and backchanneling correctly:
-* **YouTube:** [Watch Demo](https://www.youtube.com/watch?v=6OORk3eroAQ)
 * **Google Drive:** [Watch Demo](https://drive.google.com/file/d/1BcWSkRe9glIQNG9Vd0uLz2FZ_u8b9nDM/view?usp=sharing)
+* **YouTube:** [Watch Demo](https://www.youtube.com/watch?v=6OORk3eroAQ)
+
 
 ## Features
 * **Configurable Ignore List:** A defined set of "soft words" that do not trigger a full interruption.
-* **Semantic Interruptions:** Detects mixed sentences (e.g., "Yeah wait a second") as valid interruptions because they contain a stop command.
+* **Semantic Interruptions:** Detects mixed sentences (e.g., "Yeah stop") as valid interruptions because they contain a stop command.
 * **Auto-Resumption:** Utilizes LiveKit's `resume_false_interruption` to seamlessly continue speech if a false interruption is detected.
 
 ## Logic Implementation
@@ -64,7 +65,7 @@ The core logic resides in the `on_user_input` event handler:
 4.  **Run the Agent:**
     To run in development mode (connects to a local room):
     ```bash
-    python intelligent_interruption.py dev
+    python intelligent_interruption_handling.py dev
     ```
 
 ## Logic Matrix (Expected Behavior)
