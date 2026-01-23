@@ -80,7 +80,8 @@ Then connect via [https://agents-playground.livekit.io/](https://agents-playgrou
 Run the automated scenario suite to verify all logic branches:
 
 ```bash
-pytest tests/test_interruption_scenarios.py
+# Run the manual test suite (ensuring local code is used)
+PYTHONPATH=livekit-agents .venv/bin/python -m tests.test_interruption_scenarios
 ```
 
 **What this tests:**
@@ -88,3 +89,4 @@ pytest tests/test_interruption_scenarios.py
 - ✅ **Scenario 2**: Agent stops for "stop".
 - ✅ **Scenario 3**: Agent responds to "yeah" when silent.
 - ✅ **Scenario 4**: Agent interrupts for "yeah wait".
+- ✅ **Stress Tests**: Rapid filler flood, gibberish handling, etc.

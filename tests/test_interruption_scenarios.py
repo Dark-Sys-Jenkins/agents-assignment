@@ -528,20 +528,29 @@ if __name__ == "__main__":
     print("These tests demonstrate the false interruption bug with filler words.")
     print()
     
-    asyncio.run(test_filler_word_during_speech())
-    asyncio.run(test_command_word_during_speech())
-    asyncio.run(test_filler_word_when_silent())
-    asyncio.run(test_mixed_input_during_speech())
-    asyncio.run(test_multiple_fillers_during_speech())
-    asyncio.run(test_min_interruption_words())
-    
-    # Stress tests
-    asyncio.run(test_bait_and_switch_interruption())
-    asyncio.run(test_rapid_filler_flood())
-    asyncio.run(test_gibberish_and_noise_handling())
-    asyncio.run(test_question_starting_with_filler())
-    asyncio.run(test_multi_word_acknowledgement_limit())
-    asyncio.run(test_custom_interruption_filter())
+    tests = [
+        test_filler_word_during_speech,
+        test_command_word_during_speech,
+        test_filler_word_when_silent,
+        test_mixed_input_during_speech,
+        test_multiple_fillers_during_speech,
+        test_min_interruption_words,
+        test_bait_and_switch_interruption,
+        test_rapid_filler_flood,
+        test_gibberish_and_noise_handling,
+        test_question_starting_with_filler,
+        test_multi_word_acknowledgement_limit,
+        test_custom_interruption_filter,
+    ]
+
+    for test_func in tests:
+        try:
+            print(f"\nRunning {test_func.__name__}...")
+            asyncio.run(test_func())
+        except AssertionError as e:
+            print(f"❌ TEST FAILED: {test_func.__name__}")
+        except Exception as e:
+            print(f"❌ CRITICAL ERROR in {test_func.__name__}: {e}")
     
     print()
     print("=" * 70)
