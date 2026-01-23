@@ -5,6 +5,7 @@ import contextvars
 import heapq
 import json
 import time
+import re
 from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
@@ -581,7 +582,7 @@ class AgentActivity(RecognitionHooks):
             vad=self.vad,
             min_endpointing_delay=self.min_endpointing_delay,
             max_endpointing_delay=self.max_endpointing_delay,
-            turn_detection=self._turn_detection,
+            turn_detection=self._turn_detection,             #type: ignore
         )
         self._audio_recognition.start()
 
@@ -879,7 +880,7 @@ class AgentActivity(RecognitionHooks):
                     user_input=user_message.text_content if user_message else None,
                     instructions=instructions or None,
                     # TODO(theomonnom): the list of tools should always be passed here
-                    model_settings=ModelSettings(tool_choice=tool_choice),
+                    model_settings=ModelSettings(tool_choice=cast(NotGivenOr[llm.ToolChoice], tool_choice)),
                 ),
                 speech_handle=handle,
                 name="AgentActivity.realtime_reply",
@@ -900,7 +901,7 @@ class AgentActivity(RecognitionHooks):
                     new_message=user_message if is_given(user_message) else None,
                     instructions=instructions or None,
                     model_settings=ModelSettings(
-                        tool_choice=tool_choice
+                        tool_choice=cast(NotGivenOr[llm.ToolChoice], tool_choice)
                         if utils.is_given(tool_choice) or self._tool_choice is None
                         else self._tool_choice
                     ),
@@ -1173,7 +1174,7 @@ class AgentActivity(RecognitionHooks):
             return True
 
         for interrupt_word in bc_config.interrupt_words:
-            if interrupt_word in transcript_lower:
+            if interrupt_word in transcript_clean:
                 logger.debug(f"Backchanneling: interrupt word '{interrupt_word}' in '{transcript}'")
                 return False
 
@@ -1181,7 +1182,6 @@ class AgentActivity(RecognitionHooks):
             logger.debug(f"Backchanneling: ignoring '{transcript}'")
             return True
 
-        import re
         sentences = re.split(r'[.!?]+', transcript_lower)
         sentences = [s.strip().strip(".,!?;:'\"") for s in sentences if s.strip()]
 
@@ -1589,7 +1589,8 @@ class AgentActivity(RecognitionHooks):
             # make sure the on_user_turn_completed didn't change some request parameters
             # otherwise invalidate the preemptive generation
             if (
-                preemptive.info.new_transcript == user_message.text_content
+                user_message is not None
+                and preemptive.info.new_transcript == user_message.text_content
                 and preemptive.chat_ctx.is_equivalent(temp_mutable_chat_ctx)
                 and preemptive.tools == self.tools
                 and preemptive.tool_choice == self._tool_choice
