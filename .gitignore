@@ -177,3 +177,5 @@ docs/
 
 # Examples for development
 examples/dev/*
+generate_token.py
+generate_token.py
