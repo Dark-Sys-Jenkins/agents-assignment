@@ -7,11 +7,15 @@ without needing a LiveKit server connection.
 Run with: pytest tests/test_backchanneling.py -v
 """
 
+import re
 import sys
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 # Add the livekit-agents package to path for local testing
 sys.path.insert(0, str(Path(__file__).parent.parent / "livekit-agents"))
+
+from typing import Optional
 
 import pytest
 from livekit.agents.voice.backchanneling_config import (
@@ -96,7 +100,7 @@ class TestBackchannelingConfig:
     def test_config_is_frozen(self):
         """Verify config is immutable."""
         config = DEFAULT_BACKCHANNELING_CONFIG
-        with pytest.raises(AttributeError):
+        with pytest.raises((AttributeError, FrozenInstanceError)):
             config.enabled = False
 
 
@@ -104,13 +108,13 @@ class TestBackchannelingDetection:
     """
     Test the backchanneling detection logic.
     
-    These tests simulate what _is_backchanneling_only() does.
+    These tests simulate what _is_backchanneling_only() does in agent_activity.py.
     """
 
-    def _is_backchanneling_only(self, transcript: str, config: BackchannelingConfig = None) -> bool:
+    def _is_backchanneling_only(self, transcript: str, config: Optional[BackchannelingConfig] = None) -> bool:
         """
         Simulate the _is_backchanneling_only method from agent_activity.py.
-        This allows testing the logic without a full agent setup.
+        This mirrors the EXACT logic from the actual implementation.
         """
         if config is None:
             config = DEFAULT_BACKCHANNELING_CONFIG
@@ -119,11 +123,42 @@ class TestBackchannelingDetection:
             return False
 
         transcript_lower = transcript.lower().strip()
+        transcript_clean = transcript_lower.strip(".,!?;:'\"")
 
-        if not transcript_lower:
+        if not transcript_clean:
             return True
 
-        # Simple word splitting (production uses split_words from tokenize.basic)
+        # Check for interrupt words using SUBSTRING matching (matches actual code)
+        for interrupt_word in config.interrupt_words:
+            if interrupt_word in transcript_clean:
+                return False
+
+        # Check if full transcript matches a backchanneling word
+        if transcript_clean in config.backchanneling_words:
+            return True
+
+        # Split by sentences and check each
+        sentences = re.split(r'[.!?]+', transcript_lower)
+        sentences = [s.strip().strip(".,!?;:'\"") for s in sentences if s.strip()]
+
+        if sentences:
+            all_bc = True
+            for sentence in sentences:
+                if sentence and sentence not in config.backchanneling_words:
+                    # Split sentence into words
+                    words = sentence.replace(",", " ").split()
+                    word_texts = [w.strip(".,!?;:'\"") for w in words]
+                    word_texts = [w for w in word_texts if w]
+                    for word in word_texts:
+                        if word not in config.backchanneling_words:
+                            all_bc = False
+                            break
+                if not all_bc:
+                    break
+            if all_bc:
+                return True
+
+        # Final word-level check
         words = transcript_lower.replace(",", " ").replace(".", " ").replace("!", " ").replace("?", " ").split()
         word_texts = [w.strip(".,!?;:'\"") for w in words]
         word_texts = [w for w in word_texts if w]
@@ -131,12 +166,6 @@ class TestBackchannelingDetection:
         if not word_texts:
             return True
 
-        # Check for interrupt words first (highest priority)
-        for word in word_texts:
-            if word in config.interrupt_words:
-                return False
-
-        # Check if ALL words are backchanneling
         for word in word_texts:
             if word not in config.backchanneling_words:
                 return False
@@ -301,23 +330,59 @@ class TestTaskMdScenarios:
     """
 
     def _is_backchanneling_only(self, transcript: str) -> bool:
-        """Simulate detection logic."""
+        """
+        Simulate detection logic - mirrors actual implementation.
+        Uses SUBSTRING matching for interrupt words.
+        """
         config = DEFAULT_BACKCHANNELING_CONFIG
         if not config.enabled:
             return False
+        
         transcript_lower = transcript.lower().strip()
-        if not transcript_lower:
+        transcript_clean = transcript_lower.strip(".,!?;:'\"")
+        
+        if not transcript_clean:
             return True
+        
+        # SUBSTRING matching for interrupt words (matches actual code)
+        for interrupt_word in config.interrupt_words:
+            if interrupt_word in transcript_clean:
+                return False
+        
+        # Check if full transcript is a backchanneling word
+        if transcript_clean in config.backchanneling_words:
+            return True
+        
+        # Split by sentences
+        sentences = re.split(r'[.!?]+', transcript_lower)
+        sentences = [s.strip().strip(".,!?;:'\"") for s in sentences if s.strip()]
+        
+        if sentences:
+            all_bc = True
+            for sentence in sentences:
+                if sentence and sentence not in config.backchanneling_words:
+                    words = sentence.replace(",", " ").split()
+                    word_texts = [w.strip(".,!?;:'\"") for w in words if w.strip(".,!?;:'\"")]
+                    for word in word_texts:
+                        if word not in config.backchanneling_words:
+                            all_bc = False
+                            break
+                if not all_bc:
+                    break
+            if all_bc:
+                return True
+        
+        # Word-level check
         words = transcript_lower.replace(",", " ").replace(".", " ").split()
         word_texts = [w.strip(".,!?;:'\"") for w in words if w.strip(".,!?;:'\"")]
+        
         if not word_texts:
             return True
-        for word in word_texts:
-            if word in config.interrupt_words:
-                return False
+        
         for word in word_texts:
             if word not in config.backchanneling_words:
                 return False
+        
         return True
 
     def test_task_scenario1_long_explanation(self):
