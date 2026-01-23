@@ -28,6 +28,13 @@ from livekit.agents.voice.backchanneling_config import (
 )
 
 
+# Override the async autouse fixture from conftest.py for this synchronous test module
+@pytest.fixture(autouse=True)
+def fail_on_leaked_tasks():
+    """Override the async fixture from conftest.py - our tests are synchronous."""
+    yield
+
+
 class TestBackchannelingConfig:
     """Test the BackchannelingConfig dataclass."""
 

@@ -34,11 +34,11 @@ DEFAULT_BACKCHANNELING_WORDS: FrozenSet[str] = frozenset({
 })
 
 DEFAULT_INTERRUPT_WORDS: FrozenSet[str] = frozenset({
-    "wait", "stop", "hold", "pause", "halt", "hold on", "wait a minute","cancel"
+    "wait", "stop", "hold", "pause", "halt", "hold on", "wait a minute","cancel",
     "wait a second", "one moment", "just a moment",
-    "no", "nope", "nah", "don't", "do not", "cant", "cannot", "can't","abort"
+    "no", "nope", "nah", "don't", "do not", "cant", "cannot", "can't","abort",
     "won't", "wouldn't", "shouldn't",
-    "hey", "listen", "excuse", "excuse me", "actually", "but", "however","emergency"
+    "hey", "listen", "excuse", "excuse me", "actually", "but", "however","emergency",
     "what", "why", "how", "when", "where", "who", "which", "whose",
     "wrong", "incorrect", "mistake", "that's wrong", "not right",
     "sorry", "pardon", "repeat", "say again", "what did you say",
