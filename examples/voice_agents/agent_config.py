@@ -8,12 +8,11 @@ INTERRUPTION_IGNORE_LIST = os.getenv(
     "yeah,ok,hmm,right,uh-huh,got it"
 ).split(",")
 
-# Language Model Configuration
-# Using Llama 3.1 70B for better tool reliability on OpenRouter.
-LLM_MODEL = os.getenv("LLM_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+# OpenRouter Configuration (OpenAI-Compatible)
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
 
-# Agent Identity and Instructions
+# Identity and Instructions
 AGENT_INSTRUCTIONS = (
     "You are a helpful testing assistant designed to demonstrate intelligent interruption handling. "
     "1. When the user says 'Read history', call the 'read_history' tool. "

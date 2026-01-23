@@ -126,6 +126,13 @@ class RawFunctionTool(Protocol):
     def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
+@runtime_checkable
+class ProviderTool(Protocol):
+    """Protocol for tools that are handled by the LLM provider itself (e.g. Gemini Native Tools)"""
+
+    pass
+
+
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 Raw_F = TypeVar("Raw_F", bound=Callable[..., Awaitable[Any]])
 
@@ -240,7 +247,7 @@ def find_function_tools(cls_or_obj: Any) -> list[FunctionTool | RawFunctionTool]
 class ToolContext:
     """Stateless container for a set of AI functions"""
 
-    def __init__(self, tools: list[FunctionTool | RawFunctionTool]) -> None:
+    def __init__(self, tools: list[FunctionTool | RawFunctionTool | ProviderTool]) -> None:
         self.update_tools(tools)
 
     @classmethod
@@ -251,15 +258,19 @@ class ToolContext:
     def function_tools(self) -> dict[str, FunctionTool | RawFunctionTool]:
         return self._tools_map.copy()
 
-    def update_tools(self, tools: list[FunctionTool | RawFunctionTool]) -> None:
+    def update_tools(self, tools: list[FunctionTool | RawFunctionTool | ProviderTool]) -> None:
         self._tools = tools.copy()
 
         for method in find_function_tools(self):
             tools.append(method)
 
         self._tools_map: dict[str, FunctionTool | RawFunctionTool] = {}
-        info: _FunctionToolInfo | _RawFunctionToolInfo
+        self._provider_tools: list[ProviderTool] = []
         for tool in tools:
+            if isinstance(tool, ProviderTool):
+                self._provider_tools.append(tool)
+                continue
+
             if is_raw_function_tool(tool):
                 info = get_raw_function_info(tool)
             elif is_function_tool(tool):
@@ -272,6 +283,29 @@ class ToolContext:
                 raise ValueError(f"duplicate function name: {info.name}")
 
             self._tools_map[info.name] = tool
+
+    @property
+    def provider_tools(self) -> list[ProviderTool]:
+        return self._provider_tools.copy()
+
+    def parse_function_tools(self, format: str = "openai", **kwargs: Any) -> list[dict[str, Any]]:
+        from . import utils
+
+        schemas = []
+        for tool in self.function_tools.values():
+            if is_raw_function_tool(tool):
+                schemas.append(get_raw_function_info(tool).raw_schema)
+            elif is_function_tool(tool):
+                info = get_function_info(tool)
+                model = utils.function_arguments_to_pydantic_model(tool)
+                schemas.append(
+                    {
+                        "name": info.name,
+                        "description": info.description or "",
+                        "parameters": model.model_json_schema(),
+                    }
+                )
+        return schemas
 
     def copy(self) -> ToolContext:
         return ToolContext(self._tools.copy())

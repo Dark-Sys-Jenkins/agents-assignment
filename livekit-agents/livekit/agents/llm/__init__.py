@@ -46,6 +46,7 @@ from .tool_context import (
     function_tool,
     is_function_tool,
     is_raw_function_tool,
+    ProviderTool,
 )
 
 __all__ = [
@@ -77,6 +78,7 @@ __all__ = [
     "ToolContext",
     "ToolError",
     "StopResponse",
+    "ProviderTool",
     "utils",
     "remote_chat_context",
     "FunctionToolCall",

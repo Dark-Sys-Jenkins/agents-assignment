@@ -18,6 +18,7 @@ Create a `.env` file in the root directory:
 LIVEKIT_URL=wss://your-instance.livekit.cloud
 LIVEKIT_API_KEY=your-api-key
 LIVEKIT_API_SECRET=your-api-secret
+DEEPGRAM_API_KEY=your-deepgram-key
 OPENROUTER_API_KEY=your-openrouter-key
 ```
 
@@ -53,7 +54,7 @@ The core challenge is that **VAD is faster than STT**. Standard agents interrupt
 The agent is modular. You can easily change the behavior in `examples/voice_agents/agent_config.py`:
 
 - `INTERRUPTION_IGNORE_LIST`: Add or remove words that the agent should ignore while speaking.
-- `LLM_MODEL`: Change the underlying model (default: Llama 3.1 70B).
+- `OPENROUTER_MODEL`: Change the underlying model (default: Llama 3.3 70B).
 - `AGENT_INSTRUCTIONS`: Update the core behavior prompts.
 
 ## 📁 Project Structure

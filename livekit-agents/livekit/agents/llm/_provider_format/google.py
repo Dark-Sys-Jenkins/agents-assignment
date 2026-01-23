@@ -17,7 +17,7 @@ class GoogleFormatData:
 
 
 def to_chat_ctx(
-    chat_ctx: llm.ChatContext, *, inject_dummy_user_message: bool = True
+    chat_ctx: llm.ChatContext, *, inject_dummy_user_message: bool = True, **kwargs: Any
 ) -> tuple[list[dict], GoogleFormatData]:
     turns: list[dict] = []
     system_messages: list[str] = []

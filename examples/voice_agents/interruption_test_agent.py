@@ -34,7 +34,7 @@ from livekit.plugins import openai, deepgram, silero
 try:
     from .agent_config import (
         INTERRUPTION_IGNORE_LIST,
-        LLM_MODEL,
+        OPENROUTER_MODEL,
         LLM_BASE_URL,
         AGENT_INSTRUCTIONS
     )
@@ -42,7 +42,7 @@ except ImportError:
     # Fallback if running from a different context
     from agent_config import (
         INTERRUPTION_IGNORE_LIST,
-        LLM_MODEL,
+        OPENROUTER_MODEL,
         LLM_BASE_URL,
         AGENT_INSTRUCTIONS
     )
@@ -110,14 +110,23 @@ server.setup_fnc = prewarm
 async def entrypoint(ctx: JobContext):
     logger.info(f"New session in room: {ctx.room.name}")
     
+    # Initialize OpenRouter LLM (OpenAI-Compatible)
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        logger.error("CRITICAL: OPENROUTER_API_KEY is missing from .env file!")
+        # Optionally notify user via say if possible, but session hasn't started
+        return
+
+    llm_instance = openai.LLM(
+        base_url=LLM_BASE_URL,
+        api_key=api_key,
+        model=OPENROUTER_MODEL,
+    )
+
     # Initialize Session with Plugins
     session = AgentSession(
         stt=deepgram.STT(),
-        llm=openai.LLM(
-            base_url=LLM_BASE_URL,
-            api_key=os.getenv("OPENROUTER_API_KEY"),
-            model=LLM_MODEL,
-        ),
+        llm=llm_instance,
         tts=deepgram.TTS(),
         vad=ctx.proc.userdata["vad"],
     )
@@ -135,14 +144,15 @@ async def entrypoint(ctx: JobContext):
             if "read history" in clean_text and ev.is_final:
                 # If agent is silent, we manually trigger the history response
                 # to ensure reliability regardless of LLM state.
-                if session.agent_state == "listening":
+                if session.agent_state in ("listening", "initializing"):
                      logger.info("FAIL-SAFE: Forcing history reply.")
                      session.say(
                         "Sure! I'll read the history for you. "
                         "Early computers were room-sized giants. "
                         "Then transistors made them smaller. "
                         "The PC revolution followed, and then the internet. "
-                        "Now, we have AI and incredibly fast phones!"
+                        "Now, we have AI and incredibly fast phones!",
+                        allow_interruptions=True
                     )
 
     # Start the agent session
