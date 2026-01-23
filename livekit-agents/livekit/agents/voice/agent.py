@@ -56,6 +56,7 @@ class Agent:
         use_tts_aligned_transcript: NotGivenOr[bool] = NOT_GIVEN,
         min_endpointing_delay: NotGivenOr[float] = NOT_GIVEN,
         max_endpointing_delay: NotGivenOr[float] = NOT_GIVEN,
+        interruption_ignore_list: list[str] | None = None,
     ) -> None:
         tools = tools or []
         if type(self) is Agent:
@@ -92,6 +93,7 @@ class Agent:
 
         self._mcp_servers = mcp_servers
         self._activity: AgentActivity | None = None
+        self._interruption_ignore_list = interruption_ignore_list
 
     @property
     def id(self) -> str:
@@ -580,6 +582,13 @@ class Agent:
             NotGivenOr[bool]: Whether interruptions are permitted.
         """
         return self._allow_interruptions
+
+    @property
+    def interruption_ignore_list(self) -> list[str] | None:
+        """
+        List of words/phrases to ignore during interruption handling.
+        """
+        return self._interruption_ignore_list
 
     @property
     def min_endpointing_delay(self) -> NotGivenOr[float]:

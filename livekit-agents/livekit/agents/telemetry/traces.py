@@ -10,18 +10,22 @@ import aiofiles
 import aiohttp
 from google.protobuf.json_format import MessageToDict
 from opentelemetry import context as otel_context, trace
-from opentelemetry._logs import get_logger_provider, set_logger_provider
+from opentelemetry._logs import (
+    get_logger_provider,
+    set_logger_provider,
+    LogRecord,
+)
 from opentelemetry._logs.severity import SeverityNumber
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk._logs import (
-    LogData,
+    ReadableLogRecord,
     LoggerProvider,
     LoggingHandler,
-    LogRecord,
     LogRecordProcessor,
 )
+LogData = ReadableLogRecord
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
