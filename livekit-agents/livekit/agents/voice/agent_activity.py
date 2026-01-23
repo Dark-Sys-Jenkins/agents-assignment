@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+from email.mime import text
 import heapq
 import json
 import time
@@ -79,6 +80,39 @@ from .speech_handle import SpeechHandle
 if TYPE_CHECKING:
     from ..llm import mcp
     from .agent_session import AgentSession
+
+# --- interruption semantics ---
+
+IGNORE_WORDS = {
+    "yeah",
+    "ok",
+    "okay",
+    "hmm",
+    "uh-huh",
+    "right",
+}
+
+INTERRUPT_WORDS = {
+    "stop",
+    "wait",
+    "no",
+    "cancel",
+}
+def _normalize_text(text: str) -> list[str]:
+    return [
+        word.strip().lower()
+        for word in text.replace(",", " ").replace(".", " ").split()
+        if word.strip()
+    ]
+def _contains_interrupt_word(text: str) -> bool:
+    words = _normalize_text(text)
+    return any(word in INTERRUPT_WORDS for word in words)
+
+
+def _is_only_ignore_words(text: str) -> bool:
+    words = _normalize_text(text)
+    return bool(words) and all(word in IGNORE_WORDS for word in words)
+
 
 _AgentActivityContextVar = contextvars.ContextVar["AgentActivity"]("agents_activity")
 _SpeechHandleContextVar = contextvars.ContextVar["SpeechHandle"]("agents_speech_handle")
@@ -1167,47 +1201,34 @@ class AgentActivity(RecognitionHooks):
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
     def _interrupt_by_audio_activity(self) -> None:
-        opt = self._session.options
-        use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
+    opt = self._session.options
 
-        if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
-            # ignore if realtime model has turn detection enabled
-            return
+    if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
+        return
 
-        if (
-            self.stt is not None
-            and opt.min_interruption_words > 0
-            and self._audio_recognition is not None
-        ):
-            text = self._audio_recognition.current_transcript
+    if (
+        self._current_speech is not None
+        and not self._current_speech.interrupted
+        and self._current_speech.allow_interruptions
+    ):
+        self._paused_speech = self._current_speech
 
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
-                return
+        # cancel any existing timer
+        if self._false_interruption_timer:
+            self._false_interruption_timer.cancel()
+            self._false_interruption_timer = None
 
-        if self._rt_session is not None:
-            self._rt_session.start_user_activity()
+        loop = asyncio.get_running_loop()
 
-        if (
-            self._current_speech is not None
-            and not self._current_speech.interrupted
-            and self._current_speech.allow_interruptions
-        ):
-            self._paused_speech = self._current_speech
+        def _on_false_interrupt_timeout() -> None:
+            if self._paused_speech is not None and self._rt_session is not None:
+                self._rt_session.interrupt()
 
-            # reset the false interruption timer
-            if self._false_interruption_timer:
-                self._false_interruption_timer.cancel()
-                self._false_interruption_timer = None
-
-            if use_pause and self._session.output.audio and self._session.output.audio.can_pause:
-                self._session.output.audio.pause()
-                self._session._update_agent_state("listening")
-            else:
-                if self._rt_session is not None:
-                    self._rt_session.interrupt()
-
-                self._current_speech.interrupt()
+        self._false_interruption_timer = loop.call_later(
+            0.3,
+            _on_false_interrupt_timeout,
+        )
+  #  self._current_speech.interrupt()
 
     # region recognition hooks
 
@@ -1275,6 +1296,21 @@ class AgentActivity(RecognitionHooks):
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
+        text = ev.alternatives[0].text
+
+        if self._paused_speech is not None and self._false_interruption_timer:
+            self._false_interruption_timer.cancel()
+            self._false_interruption_timer = None
+
+            if _contains_interrupt_word(text):
+                 if self._rt_session is not None:
+                     self._rt_session.interrupt()
+                 self._paused_speech = None
+                 return
+
+            if _is_only_ignore_words(text):
+                self._paused_speech = None
+                return
 
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(

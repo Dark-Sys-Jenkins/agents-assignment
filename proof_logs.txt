@@ -1,0 +1,8 @@
+[AGENT SPEAKING]
+[IGNORED while speaking]: yeah
+
+[AGENT SILENT]
+[RESPOND while silent]: yeah
+
+[AGENT SPEAKING]
+[INTERRUPT]: stop
