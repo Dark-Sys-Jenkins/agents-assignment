@@ -5,6 +5,7 @@ import contextvars
 import heapq
 import json
 import time
+import re
 from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
@@ -431,8 +432,6 @@ class AgentActivity(RecognitionHooks):
         return task
 
     async def start(self) -> None:
-        # `start` must only be called by AgentSession
-
         async with self._lock:
             if self._started:
                 return
@@ -454,7 +453,6 @@ class AgentActivity(RecognitionHooks):
                     if isinstance(self.tts, tts.TTS):
                         self.tts.prewarm()
 
-                # don't use start_span for _start_session, avoid nested user/assistant turns
                 await self._start_session()
                 self._started = True
 
@@ -584,7 +582,7 @@ class AgentActivity(RecognitionHooks):
             vad=self.vad,
             min_endpointing_delay=self.min_endpointing_delay,
             max_endpointing_delay=self.max_endpointing_delay,
-            turn_detection=self._turn_detection,
+            turn_detection=self._turn_detection,             #type: ignore
         )
         self._audio_recognition.start()
 
@@ -882,7 +880,7 @@ class AgentActivity(RecognitionHooks):
                     user_input=user_message.text_content if user_message else None,
                     instructions=instructions or None,
                     # TODO(theomonnom): the list of tools should always be passed here
-                    model_settings=ModelSettings(tool_choice=tool_choice),
+                    model_settings=ModelSettings(tool_choice=cast(NotGivenOr[llm.ToolChoice], tool_choice)),
                 ),
                 speech_handle=handle,
                 name="AgentActivity.realtime_reply",
@@ -903,7 +901,7 @@ class AgentActivity(RecognitionHooks):
                     new_message=user_message if is_given(user_message) else None,
                     instructions=instructions or None,
                     model_settings=ModelSettings(
-                        tool_choice=tool_choice
+                        tool_choice=cast(NotGivenOr[llm.ToolChoice], tool_choice)
                         if utils.is_given(tool_choice) or self._tool_choice is None
                         else self._tool_choice
                     ),
@@ -1020,7 +1018,6 @@ class AgentActivity(RecognitionHooks):
             while self._speech_q:
                 _, _, speech = heapq.heappop(self._speech_q)
                 if speech.done():
-                    # skip done speech (interrupted when it's in the queue)
                     self._current_speech = None
                     continue
                 self._current_speech = speech
@@ -1028,9 +1025,7 @@ class AgentActivity(RecognitionHooks):
                     await asyncio.sleep(
                         self.min_consecutive_speech_delay - (time.time() - last_playout_ts)
                     )
-                    # check again if speech is done after sleep delay
                     if speech.done():
-                        # skip done speech (interrupted during delay)
                         self._current_speech = None
                         continue
                 speech._authorize_generation()
@@ -1166,13 +1161,81 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
+    def _is_backchanneling_only(self, transcript: str) -> bool:
+        bc_config = self._session.options.backchanneling_config
+
+        if not bc_config.enabled:
+            return False
+
+        transcript_lower = transcript.lower().strip()
+        transcript_clean = transcript_lower.strip(".,!?;:'\"")
+
+        if not transcript_clean:
+            return True
+
+        for interrupt_word in bc_config.interrupt_words:
+            if interrupt_word in transcript_clean:
+                logger.debug(f"Backchanneling: interrupt word '{interrupt_word}' in '{transcript}'")
+                return False
+
+        if transcript_clean in bc_config.backchanneling_words:
+            logger.debug(f"Backchanneling: ignoring '{transcript}'")
+            return True
+
+        sentences = re.split(r'[.!?]+', transcript_lower)
+        sentences = [s.strip().strip(".,!?;:'\"") for s in sentences if s.strip()]
+
+        if sentences:
+            all_bc = True
+            for sentence in sentences:
+                if sentence and sentence not in bc_config.backchanneling_words:
+                    words = split_words(sentence, split_character=True)
+                    word_texts = [w[0].strip(".,!?;:'\"") for w in words]
+                    word_texts = [w for w in word_texts if w]
+                    for word in word_texts:
+                        if word not in bc_config.backchanneling_words:
+                            all_bc = False
+                            break
+                if not all_bc:
+                    break
+            if all_bc:
+                logger.debug(f"Backchanneling: ignoring '{transcript}'")
+                return True
+
+        words = split_words(transcript_lower, split_character=True)
+        word_texts = [w[0].strip(".,!?;:'\"") for w in words]
+        word_texts = [w for w in word_texts if w]
+
+        if not word_texts:
+            return True
+
+        for word in word_texts:
+            if word not in bc_config.backchanneling_words:
+                logger.debug(f"Backchanneling: non-backchanneling word '{word}' in '{transcript}'")
+                return False
+
+        logger.debug(f"Backchanneling: ignoring '{transcript}'")
+        return True
+
     def _interrupt_by_audio_activity(self) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
-            # ignore if realtime model has turn detection enabled
             return
+
+        bc_config = opt.backchanneling_config
+        if (
+            bc_config.enabled
+            and self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+            and self._audio_recognition is not None
+        ):
+            transcript = self._audio_recognition.current_transcript
+            if self._is_backchanneling_only(transcript):
+                logger.debug(f"Skipping interruption - backchanneling detected: '{transcript}'")
+                return
 
         if (
             self.stt is not None
@@ -1237,7 +1300,6 @@ class AgentActivity(RecognitionHooks):
 
     def on_vad_inference_done(self, ev: vad.VADEvent) -> None:
         if self._turn_detection in ("manual", "realtime_llm"):
-            # ignore vad inference done event if turn_detection is manual or realtime_llm
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
@@ -1245,7 +1307,6 @@ class AgentActivity(RecognitionHooks):
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
-            # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
         self._session._user_input_transcribed(
@@ -1261,6 +1322,16 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            bc_config = self._session.options.backchanneling_config
+            if (
+                bc_config.enabled
+                and self._current_speech is not None
+                and not self._current_speech.interrupted
+            ):
+                transcript = ev.alternatives[0].text
+                if self._is_backchanneling_only(transcript):
+                    return
+
             self._interrupt_by_audio_activity()
 
             if (
@@ -1268,7 +1339,6 @@ class AgentActivity(RecognitionHooks):
                 and self._paused_speech
                 and (timeout := self._session.options.false_interruption_timeout) is not None
             ):
-                # schedule a resume timer if interrupted after end_of_speech
                 self._start_false_interruption_timer(timeout)
 
     def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> None:
@@ -1284,11 +1354,19 @@ class AgentActivity(RecognitionHooks):
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
-        # agent speech might not be interrupted if VAD failed and a final transcript is received
-        # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
-        # which will also be immediately interrupted
+        should_process_interruption = True
+        bc_config = self._session.options.backchanneling_config
 
-        if self._audio_recognition and self._turn_detection not in (
+        if (
+            bc_config.enabled
+            and self._current_speech is not None
+            and not self._current_speech.interrupted
+        ):
+            transcript = ev.alternatives[0].text
+            if self._is_backchanneling_only(transcript):
+                should_process_interruption = False
+
+        if should_process_interruption and self._audio_recognition and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
@@ -1342,8 +1420,18 @@ class AgentActivity(RecognitionHooks):
         )
 
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool:
-        # IMPORTANT: This method is sync to avoid it being cancelled by the AudioRecognition
-        # We explicitly create a new task here
+        bc_config = self._session.options.backchanneling_config
+        agent_was_speaking = (
+            self._current_speech is not None and not self._current_speech.interrupted
+        )
+        if (
+            bc_config.enabled
+            and agent_was_speaking
+            and self._is_backchanneling_only(info.new_transcript)
+        ):
+            logger.debug(f"Ignoring backchanneling turn: '{info.new_transcript}'")
+            self._cancel_preemptive_generation()
+            return False
 
         if self._scheduling_paused:
             self._cancel_preemptive_generation()
@@ -1501,7 +1589,8 @@ class AgentActivity(RecognitionHooks):
             # make sure the on_user_turn_completed didn't change some request parameters
             # otherwise invalidate the preemptive generation
             if (
-                preemptive.info.new_transcript == user_message.text_content
+                user_message is not None
+                and preemptive.info.new_transcript == user_message.text_content
                 and preemptive.chat_ctx.is_equivalent(temp_mutable_chat_ctx)
                 and preemptive.tools == self.tools
                 and preemptive.tool_choice == self._tool_choice

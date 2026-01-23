@@ -1,6 +1,7 @@
 from . import io, run_result
 from .agent import Agent, AgentTask, ModelSettings
 from .agent_session import AgentSession, VoiceActivityVideoSampler
+from .backchanneling_config import BackchannelingConfig
 from .events import (
     AgentEvent,
     AgentFalseInterruptionEvent,
@@ -30,6 +31,7 @@ __all__ = [
     "Agent",
     "ModelSettings",
     "AgentTask",
+    "BackchannelingConfig",
     "SpeechHandle",
     "RunContext",
     "UserInputTranscribedEvent",
