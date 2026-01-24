@@ -356,6 +356,9 @@ This agent now distinguishes between **soft acknowledgements** and **real interr
 - If the agent is speaking and the user says “wait / stop / no”, it interrupts immediately.
 - If the agent is silent, short replies like “yeah” are treated as valid input.
 
+Implementation detail: VAD can fire before STT. The agent defers interruptions while speaking
+and validates the transcript first. Filler words are ignored without pausing playback.
+
 ### Configurable Lists
 You can override default lists using env vars:
 

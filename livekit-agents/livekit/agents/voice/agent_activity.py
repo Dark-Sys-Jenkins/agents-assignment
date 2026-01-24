@@ -137,6 +137,7 @@ class AgentActivity(RecognitionHooks):
         self._speech_tasks: list[asyncio.Task[Any]] = []
 
         self._preemptive_generation: _PreemptiveGeneration | None = None
+        self._ignore_current_user_turn = False
 
         self._drain_blocked_tasks: list[asyncio.Task[Any]] = []
         self._mcp_tools: list[mcp.MCPTool] = []
@@ -180,7 +181,14 @@ class AgentActivity(RecognitionHooks):
         self._pending_interruption = False
 
     def _agent_is_speaking(self) -> bool:
-        return any(not t.done() for t in self._speech_tasks) or self._paused_speech is not None
+        if self._session.agent_state == "speaking":
+            return True
+
+        if any(not t.done() for t in self._speech_tasks) or self._paused_speech is not None:
+            return True
+
+        audio_output = self._session.output.audio
+        return bool(audio_output and audio_output.is_playing)
 
     def _validate_turn_detection(
         self, turn_detection: TurnDetectionMode | None
@@ -1185,6 +1193,11 @@ class AgentActivity(RecognitionHooks):
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
     def _interrupt_by_audio_activity(self) -> None:
+        # If we already decided to ignore this user turn while speaking, drop VAD-based interrupts.
+        if self._ignore_current_user_turn and self._agent_is_speaking():
+            self._pending_interruption = False
+            return
+
         if self._agent_is_speaking():
             # VAD fired while speaking — wait for STT to confirm if this is real
             self._pending_interruption = True
@@ -1242,6 +1255,9 @@ class AgentActivity(RecognitionHooks):
             self._false_interruption_timer.cancel()
             self._false_interruption_timer = None
 
+        # reset ignore flag for a new user speech segment
+        self._ignore_current_user_turn = False
+
     def on_end_of_speech(self, ev: vad.VADEvent | None) -> None:
         speech_end_time = time.time()
         if ev:
@@ -1276,6 +1292,7 @@ class AgentActivity(RecognitionHooks):
             return
 
         if decision.should_ignore and self._agent_is_speaking():
+            self._ignore_current_user_turn = True
             self._pending_interruption = False
             return
         
@@ -1315,6 +1332,7 @@ class AgentActivity(RecognitionHooks):
             self._pending_interruption = False
         elif decision.should_ignore and self._agent_is_speaking():
             # ignore soft acknowledgements while agent is speaking
+            self._ignore_current_user_turn = True
             self._pending_interruption = False
             self._session.clear_user_turn()
             return
@@ -1391,6 +1409,10 @@ class AgentActivity(RecognitionHooks):
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool:
         # IMPORTANT: This method is sync to avoid it being cancelled by the AudioRecognition
         # We explicitly create a new task here
+
+        if self._ignore_current_user_turn:
+            self._ignore_current_user_turn = False
+            return False
 
         if self._scheduling_paused:
             self._cancel_preemptive_generation()
