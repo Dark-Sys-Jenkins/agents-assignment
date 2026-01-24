@@ -527,6 +527,13 @@ session = AgentSession(
 ### 🚀 Running the Agent
 
 #### 1. Install Dependencies
+
+**Option A: Using requirements.txt (Recommended)**
+```bash
+pip install -r requirements.txt
+```
+
+**Option B: Install from workspace (for development)**
 ```bash
 pip install -e livekit-agents
 pip install -e livekit-plugins/livekit-plugins-openai
@@ -534,6 +541,11 @@ pip install -e livekit-plugins/livekit-plugins-deepgram
 pip install -e livekit-plugins/livekit-plugins-cartesia
 pip install -e livekit-plugins/livekit-plugins-silero
 pip install -e livekit-plugins/livekit-plugins-turn-detector
+```
+
+**Option C: Using pip directly**
+```bash
+pip install "livekit-agents[openai,deepgram,cartesia,silero,turn-detector]>=1.3.3" python-dotenv sounddevice
 ```
 
 #### 2. Download Model Files
