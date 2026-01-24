@@ -348,6 +348,22 @@ The agent connects to LiveKit Cloud or your self-hosted server. Set the followin
 You can connect using any LiveKit client SDK or telephony integration.
 To get started quickly, try the [Agents Playground](https://agents-playground.livekit.io/).
 
+## Intelligent Interruption Handling
+
+This agent now distinguishes between **soft acknowledgements** and **real interruptions**:
+
+- If the agent is speaking and the user says filler (“yeah / ok / hmm”), it is ignored.
+- If the agent is speaking and the user says “wait / stop / no”, it interrupts immediately.
+- If the agent is silent, short replies like “yeah” are treated as valid input.
+
+### Configurable Lists
+You can override default lists using env vars:
+
+```
+LK_IGNORE_WORDS="yeah,ok,hmm,right,uh-huh"
+LK_INTERRUPT_WORDS="wait,stop,no,cancel"
+```
+
 ### Running for production
 
 ```shell

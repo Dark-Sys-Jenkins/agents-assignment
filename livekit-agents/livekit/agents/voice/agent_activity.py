@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import asyncio
 import contextvars
 import heapq
@@ -14,6 +15,7 @@ from opentelemetry import context as otel_context, trace
 from livekit import rtc
 from livekit.agents.llm.realtime import MessageGeneration
 from livekit.agents.metrics.base import Metadata
+from .interrupt_filter import InterruptionFilter
 
 from .. import llm, stt, tts, utils, vad
 from ..llm.tool_context import (
@@ -163,6 +165,22 @@ class AgentActivity(RecognitionHooks):
 
         # speeches that audio playout finished but not done because of tool calls
         self._background_speeches: set[SpeechHandle] = set()
+
+        def _env_words(key: str, fallback: set[str]) -> set[str]:
+            raw = os.getenv(key, "")
+            if not raw.strip():
+                return fallback
+            return {w.strip().lower() for w in raw.split(",") if w.strip()}
+
+        default_filter = InterruptionFilter.default()
+        self._interrupt_filter = InterruptionFilter(
+            ignore_words=_env_words("LK_IGNORE_WORDS", default_filter.ignore_words),
+            interrupt_words=_env_words("LK_INTERRUPT_WORDS", default_filter.interrupt_words),
+        )
+        self._pending_interruption = False
+
+    def _agent_is_speaking(self) -> bool:
+        return any(not t.done() for t in self._speech_tasks) or self._paused_speech is not None
 
     def _validate_turn_detection(
         self, turn_detection: TurnDetectionMode | None
@@ -1167,6 +1185,11 @@ class AgentActivity(RecognitionHooks):
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
     def _interrupt_by_audio_activity(self) -> None:
+        if self._agent_is_speaking():
+            # VAD fired while speaking — wait for STT to confirm if this is real
+            self._pending_interruption = True
+            return
+
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
@@ -1244,6 +1267,18 @@ class AgentActivity(RecognitionHooks):
             self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
+        transcript = ev.alternatives[0].text
+        decision = self._interrupt_filter.analyze(transcript, agent_speaking=self._agent_is_speaking())
+
+        if decision.should_interrupt:
+            self.interrupt()
+            self._pending_interruption = False
+            return
+
+        if decision.should_ignore and self._agent_is_speaking():
+            self._pending_interruption = False
+            return
+        
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
@@ -1272,6 +1307,18 @@ class AgentActivity(RecognitionHooks):
                 self._start_false_interruption_timer(timeout)
 
     def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> None:
+        transcript = ev.alternatives[0].text
+        decision = self._interrupt_filter.analyze(transcript, agent_speaking=self._agent_is_speaking())
+
+        if decision.should_interrupt:
+            self.interrupt()
+            self._pending_interruption = False
+        elif decision.should_ignore and self._agent_is_speaking():
+            # ignore soft acknowledgements while agent is speaking
+            self._pending_interruption = False
+            self._session.clear_user_turn()
+            return
+
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
             return

@@ -32,6 +32,10 @@ def _mask_ctrl_c() -> Generator[None, None, None]:
     Windows/others: temporarily ignore SIGINT (best available), then restore.
     Keep the critical section *tiny* (just around Process.start()).
     """
+    if threading.current_thread() is not threading.main_thread():
+        # signal handling only works in the main thread
+        yield
+        return
     if hasattr(signal, "pthread_sigmask"):  # POSIX
         signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGINT])
         try:
