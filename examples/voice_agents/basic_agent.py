@@ -95,11 +95,14 @@ async def entrypoint(ctx: JobContext):
         vad=ctx.proc.userdata["vad"],
         # allow the LLM to generate a response while waiting for the end of turn
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
-        preemptive_generation=True,
+        preemptive_generation=False,
+        # tighten interruption sensitivity for fillers vs real barge-ins
+        min_interruption_words=2,
+        min_interruption_duration=0.5,
         # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
         # when it's detected, you may resume the agent's speech
         resume_false_interruption=True,
-        false_interruption_timeout=1.0,
+        false_interruption_timeout=0.7,
     )
 
     # log metrics as they are emitted, and total usage after session is over
