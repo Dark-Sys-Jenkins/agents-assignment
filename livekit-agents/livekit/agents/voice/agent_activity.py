@@ -40,6 +40,9 @@ from ..tokenize.basic import split_words
 from ..types import NOT_GIVEN, FlushSentinel, NotGivenOr
 from ..utils.misc import is_given
 from ._utils import _set_participant_attributes
+
+# Backchannel filtering - Intelligent Interruption Handling
+from .backchannel_filter import should_ignore, classify
 from .agent import (
     Agent,
     ModelSettings,
@@ -1241,26 +1244,53 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
-            self._interrupt_by_audio_activity()
+            # Check if agent is speaking and interruptible
+            agent_speaking = (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            )
+            
+            if agent_speaking:
+                # BACKCHANNEL HANDLING: Don't interrupt at VAD level when speaking
+                # Wait for STT transcript to classify as backchannel vs real content
+                # This prevents false interrupts from "yeah", "ok", etc.
+                return
+            else:
+                # Agent not speaking - normal behavior
+                self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        text = ev.alternatives[0].text or ""
+
+        # Emit interim transcript for UI
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=text,
                 is_final=False,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
-            "manual",
-            "realtime_llm",
-        ):
+        # Check if agent is speaking
+        agent_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        )
+
+        if agent_speaking:
+            # Agent speaking - only interrupt for real content (interrupt words)
+            if classify(text) == "interrupt":
+                self._interrupt_by_audio_activity()
+            # If backchannel, ignore - don't interrupt
+        elif text and self._turn_detection not in ("manual", "realtime_llm"):
+            # Agent NOT speaking - normal interrupt behavior
             self._interrupt_by_audio_activity()
 
             if (
@@ -1276,22 +1306,36 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        text = ev.alternatives[0].text or ""
+
+        # Check if agent is speaking
+        agent_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        )
+
+        # BACKCHANNEL FILTERING: Core logic for intelligent interruption handling
+        # If agent is speaking and this is a backchannel, ignore it completely
+        if agent_speaking and should_ignore(text, agent_speaking=True):
+            logger.debug(f"Backchannel ignored while speaking: '{text}'")
+            return  # Don't emit transcript to LLM, don't interrupt
+
+        # Emit the final transcript
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=text,
                 is_final=True,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
-        # agent speech might not be interrupted if VAD failed and a final transcript is received
-        # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
-        # which will also be immediately interrupted
 
-        if self._audio_recognition and self._turn_detection not in (
-            "manual",
-            "realtime_llm",
-        ):
+        # Handle interruption
+        if agent_speaking:
+            # Agent speaking and this is real content - interrupt now
+            self._interrupt_by_audio_activity()
+        elif self._audio_recognition and self._turn_detection not in ("manual", "realtime_llm"):
             self._interrupt_by_audio_activity()
 
             if (
@@ -1378,6 +1422,23 @@ class AgentActivity(RecognitionHooks):
             self._cancel_preemptive_generation()
             # avoid interruption if the new_transcript is too short
             return False
+
+        # ===== BACKCHANNEL FILTERING at Turn Boundary =====
+        # Secondary filter: also check at end-of-turn for safety
+        if (
+            self._current_speech is not None
+            and self._current_speech.allow_interruptions
+            and not self._current_speech.interrupted
+            and self._session.agent_state == "speaking"
+            and should_ignore(info.new_transcript, agent_speaking=True)
+        ):
+            self._cancel_preemptive_generation()
+            logger.debug(
+                "Backchannel ignored at end-of-turn",
+                extra={"user_input": info.new_transcript},
+            )
+            return False
+        # ===== END BACKCHANNEL FILTERING =====
 
         old_task = self._user_turn_completed_atask
         self._user_turn_completed_atask = self._create_speech_task(

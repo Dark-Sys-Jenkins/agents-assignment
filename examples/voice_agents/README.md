@@ -71,7 +71,76 @@ This directory contains a comprehensive collection of voice-based agent examples
 - [`error_callback.py`](./error_callback.py) - Error handling callback
 - [`session_close_callback.py`](./session_close_callback.py) - Session lifecycle management
 
-## 📖 Additional Resources
+### Intelligent Interruption Handling
+
+Context-aware backchannel filtering that distinguishes between passive acknowledgements
+("yeah", "ok", "hmm") and active interruptions ("stop", "wait", "no").
+
+**Implementation:**
+
+The solution is implemented in two files:
+
+1. **Core Filter Module:** `livekit-agents/livekit/agents/voice/backchannel_filter.py`
+   - `classify(text)` - O(1) classification as "ignore" or "interrupt"
+   - `should_ignore(text, agent_speaking)` - Main API for filtering
+   - `BackchannelConfig` - Configurable word lists via code or environment variables
+
+2. **Agent Integration:** `livekit-agents/livekit/agents/voice/agent_activity.py`
+   - `on_vad_inference_done()` - Skips interrupt when agent is speaking
+   - `on_interim_transcript()` - Only interrupts for real content
+   - `on_final_transcript()` - Filters backchannels and returns early
+
+**Demo Agent:**
+- [`backchannel_agent.py`](./backchannel_agent.py) - Full demonstration agent
+
+**Testing:**
+- [`test_backchannel.py`](./test_backchannel.py) - Unit tests for detection logic
+
+#### Decision Logic
+
+| User Input | Agent State | Behavior |
+|------------|-------------|----------|
+| "Yeah / Ok / Hmm" | Speaking | IGNORE - Continue speaking |
+| "Stop / Wait / No" | Speaking | INTERRUPT - Stop and listen |
+| "Yeah / Ok / Hmm" | Silent | RESPOND - Process as valid input |
+| Mixed (e.g. "Yeah but wait") | Speaking | INTERRUPT - Contains interrupt word |
+
+#### Architecture
+
+```
+VAD triggers while speaking -> SKIP (don't interrupt)
+                                  |
+                    Wait for STT transcript
+                                  |
+            +---------------------+---------------------+
+            |                                           |
+    "yeah/ok/hmm"                         "stop/wait/real content"
+            |                                           |
+    Return early                            Emit + interrupt
+    (agent continues)                       (agent stops)
+```
+
+#### Quick Start
+
+```bash
+# Run unit tests
+python test_backchannel.py
+
+# Run demo agent (terminal mode)
+python backchannel_agent.py console
+
+# Run demo agent (connect to LiveKit)
+python backchannel_agent.py dev
+```
+
+#### Configuration
+
+Environment variables for customization:
+- `BACKCHANNEL_IGNORE_WORDS` - Comma-separated ignore words
+- `BACKCHANNEL_INTERRUPT_WORDS` - Comma-separated interrupt words
+- `BACKCHANNEL_DEBUG` - Enable debug logging (true/false)
+
+## Additional Resources
 
 - [LiveKit Agents Documentation](https://docs.livekit.io/agents/)
 - [Agents Starter Example](https://github.com/livekit-examples/agent-starter-python)
