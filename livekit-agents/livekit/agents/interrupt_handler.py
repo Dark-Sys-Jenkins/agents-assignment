@@ -1,5 +1,7 @@
+import re
+
 IGNORE_WORDS = {"yeah", "ok", "okay", "hmm", "right", "uh-huh"}
-INTERRUPT_WORDS = {"stop", "wait", "no", "hold"}
+INTERRUPT_WORDS = {"stop", "wait", "no", "cancel"}
 
 class InterruptionHandler:
     def __init__(self):
@@ -9,12 +11,15 @@ class InterruptionHandler:
         self.agent_is_speaking = speaking
 
     def contains_interrupt(self, text: str):
-        text = text.lower()
-        return any(word in text for word in INTERRUPT_WORDS)
+        words = set(re.findall(r"\b[\w-]+\b", text.lower()))
+        return bool(words & INTERRUPT_WORDS)
 
     def check_input(self, text: str):
         text = text.lower().strip()
-        words = set(text.split())
+        if not text:
+            return "IGNORE"
+
+        words = set(re.findall(r"\b[\w-]+\b", text))
 
         if self.agent_is_speaking:
             if self.contains_interrupt(text):
