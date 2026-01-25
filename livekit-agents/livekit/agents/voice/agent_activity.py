@@ -37,6 +37,10 @@ from ..metrics import (
 )
 from ..telemetry import trace_types, tracer, utils as trace_utils
 from ..tokenize.basic import split_words
+IGNORE_WORDS = { "yeah", "ok", "okay", "hmm", "mhmm", "mm-hmm",
+    "right", "yep", "yup", "sure", "got it", "i see"}
+INTERRUPT_WORDS = { "stop", "wait", "no", "cancel", "hold on", "pause",
+    "hang on", "actually", "but", "however"}
 from ..types import NOT_GIVEN, FlushSentinel, NotGivenOr
 from ..utils.misc import is_given
 from ._utils import _set_participant_attributes
@@ -1166,6 +1170,28 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
+     def _should_ignore_transcript(self, transcript: str) -> bool:
+        """
+        Determine if transcript should be ignored based on word content.
+        Returns True if transcript contains only filler words.
+        """
+        if not transcript or not transcript.strip():
+            return True
+        
+        words = split_words(transcript.lower().strip(), split_character=True)
+        
+        if not words:
+            return True
+        
+        all_ignored = all(word in IGNORE_WORDS for word in words)
+        has_interrupt_word = any(word in INTERRUPT_WORDS for word in words)
+        
+        if has_interrupt_word:
+            return False
+        
+        return all_ignored
+
+
     def _interrupt_by_audio_activity(self) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
@@ -1176,14 +1202,22 @@ class AgentActivity(RecognitionHooks):
 
         if (
             self.stt is not None
-            and opt.min_interruption_words > 0
             and self._audio_recognition is not None
         ):
             text = self._audio_recognition.current_transcript
-
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+            if opt.min_interruption_words > 0:
+            	if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                    return
+        
+            agent_is_speaking = (
+                self._current_speech is not None 
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            )
+        
+            if agent_is_speaking and self._should_ignore_transcript(text):
                 return
+            
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
