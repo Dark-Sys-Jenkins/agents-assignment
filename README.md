@@ -359,7 +359,14 @@ Runs the agent with production-ready optimizations.
 ## Contributing
 
 The Agents framework is under active development in a rapidly evolving field. We welcome and appreciate contributions of any kind, be it feedback, bugfixes, features, new plugins and tools, or better documentation. You can file issues under this repo, open a PR, or chat with us in LiveKit's [Slack community](https://livekit.io/join-slack).
+## Proof of Functionality
+The file 'test_interruption.py' demonsrates the core behaviors required by this assignment:
 
+- Agent ignores passive filler words (e.g., "yeah", "ok", "hmm") while it is speaking
+- Agent correctly processes filler words as valid input when it is silent
+- Agent immediately interrupts speech on semantic commands such as "stop", "wait", or "no"
+
+These tests validate the context-aware interruption handling logic without modifying the underlying VAD implementation.  
 <!--BEGIN_REPO_NAV-->
 <br/><table>
 <thead><tr><th colspan="2">LiveKit Ecosystem</th></tr></thead>
