@@ -348,13 +348,199 @@ The agent connects to LiveKit Cloud or your self-hosted server. Set the followin
 You can connect using any LiveKit client SDK or telephony integration.
 To get started quickly, try the [Agents Playground](https://agents-playground.livekit.io/).
 
-### Running for production
+## 🎯 Intelligent Interruption Handling
 
-```shell
-python myagent.py start
+This agent implements sophisticated interruption handling that distinguishes between **soft acknowledgements** (fillers) and **real interruptions**. This prevents the agent from pausing unnecessarily when users say "yeah," "okay," or "uh-huh" while listening.
+
+### 🧠 How It Works
+
+The interruption system operates in three stages:
+
+#### 1. **VAD (Voice Activity Detection) - First Line**
+- Detects audio activity in real-time using the Silero VAD model
+- Fires immediately when speech is detected (faster than STT)
+- When VAD triggers while the agent is speaking:
+  - Sets a `_pending_interruption` flag
+  - **Does NOT pause immediately** - waits for STT confirmation
+
+#### 2. **STT (Speech-to-Text) - Validation Layer**
+- Transcribes the user's speech with ~0.5-0.7s delay
+- Analyzes the transcript using the `InterruptionFilter`
+- Three possible outcomes:
+
+   **a) Filler words detected while agent is speaking:**
+   ```python
+   User: "yeah" (while agent speaking)
+   Decision: IGNORE → Continue speaking without pause
+   ```
+   - Sets `_ignore_current_user_turn = True`
+   - Clears `_pending_interruption`
+   - **Agent continues speaking seamlessly**
+
+   **b) Interrupt words detected:**
+   ```python
+   User: "wait" or "stop" (while agent speaking)
+   Decision: INTERRUPT → Stop immediately
+   ```
+   - Calls `interrupt()` to cancel current speech
+   - Clears `_pending_interruption`
+   - Agent stops and listens
+
+   **c) Filler words when agent is silent:**
+   ```python
+   User: "yeah" (agent silent)
+   Decision: RESPOND → Treat as valid input
+   ```
+   - Agent generates appropriate response
+   - Example: "Great! What would you like to talk about?"
+
+#### 3. **Turn Detection - Final Gate**
+- End-of-utterance (EOU) model predicts when user has finished speaking
+- Before triggering a response:
+  ```python
+  if self._ignore_current_user_turn:
+      return False  # Drop this turn entirely
+  ```
+- Prevents the LLM from wasting tokens on "yeah" / "okay"
+
+### 🔧 State Management
+
+The system tracks agent speaking state through multiple sources:
+
+1. **Session state**: `self._session.agent_state == "speaking"`
+2. **Active speech tasks**: `self._speech_tasks` not empty
+3. **Paused speech**: `self._paused_speech` is not None
+4. **Audio playback**: `audio_output.is_playing` (checks pending frames)
+
+```python
+def _agent_is_speaking(self) -> bool:
+    # Most authoritative: session state
+    if self._session.agent_state == "speaking":
+        return True
+    
+    # Fallback checks for edge cases
+    if any(not t.done() for t in self._speech_tasks) or self._paused_speech:
+        return True
+    
+    # Check if audio is still queued for playback
+    audio_output = self._session.output.audio
+    return bool(audio_output and audio_output.is_playing)
 ```
 
-Runs the agent with production-ready optimizations.
+### 📋 Configuration
+
+#### Environment Variables
+Override default word lists for your use case. The system automatically parses comma-separated values and lowercases them.
+
+**How it works:**
+1. **Default values** are defined in `interrupt_filter.py`
+2. **Environment variables override** defaults in `agent_activity.py`
+3. Words are automatically **lowercased and trimmed**
+4. Empty environment variable → **falls back to defaults**
+
+### 🧪 Testing Scenarios
+
+#### 🎥 Video Demonstration
+Watch the complete testing demonstration:  
+**[View Demo Video](https://drive.google.com/file/d/1LBsiFXKJMqZQ3kyvM8HrwBV74nPXppJx/view?usp=drivesdk)**
+
+#### Test Cases
+
+| User Input | Agent State | Expected Behavior | Result |
+|------------|-------------|-------------------|--------|
+| "yeah" | Speaking | Continue without pause | ✅ IGNORE |
+| "okay" | Speaking | Continue without pause | ✅ IGNORE |
+| "stop" | Speaking | Stop immediately | ✅ INTERRUPT |
+| "wait" | Speaking | Stop immediately | ✅ INTERRUPT |
+| "yeah" | Silent | Generate response | ✅ RESPOND |
+| "hello" | Silent | Generate response | ✅ RESPOND |
+
+### 🚀 Running the Agent
+
+#### 1. Install Dependencies
+
+**Using requirements.txt (Recommended)**
+```bash
+pip install -r requirements.txt
+```
+
+#### 2. Download Model Files
+```bash
+python examples/voice_agents/basic_agent.py download-files
+```
+
+#### 3. Set Environment Variables
+Create a `.env` file:
+```bash
+OPENAI_API_KEY=your_openai_key
+DEEPGRAM_API_KEY=your_deepgram_key
+CARTESIA_API_KEY=your_cartesia_key
+
+# Optional: Customize interruption words
+LK_IGNORE_WORDS="yeah,ok,okay,hmm,uh-huh,right,yep,ah"
+LK_INTERRUPT_WORDS="wait,stop,no,hold,cancel"
+```
+
+#### 4. Run in Console Mode (Testing)
+```bash
+python examples/voice_agents/basic_agent.py console
+```
+
+**Test the interruption logic:**
+1. Say "Tell me a long story"
+2. While the agent is speaking, say "yeah" or "okay" → Agent continues
+3. While the agent is speaking, say "stop" → Agent stops immediately
+4. When agent is silent, say "yeah" → Agent responds appropriately
+
+#### 5. Run in Development Mode
+```bash
+# Set LiveKit server credentials
+export LIVEKIT_URL=wss://your-server.livekit.cloud
+export LIVEKIT_API_KEY=your_api_key
+export LIVEKIT_API_SECRET=your_api_secret
+
+# Start the agent server
+python examples/voice_agents/basic_agent.py dev
+```
+
+Connect using the [Agents Playground](https://agents-playground.livekit.io/)
+
+### 📊 System Architecture
+
+```
+User Speech
+    ↓
+┌─────────────────────────────────────────────────┐
+│ 1. VAD Detection (Silero)                      │
+│    - Fast audio activity detection              │
+│    - Sets _pending_interruption if speaking    │
+└─────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────┐
+│ 2. STT Transcription (Deepgram)                │
+│    - Converts speech to text                    │
+│    - ~0.5-0.7s latency                         │
+└─────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────┐
+│ 3. Interruption Filter Analysis                │
+│    ┌─────────────────────────────────────────┐ │
+│    │ Is agent speaking?                      │ │
+│    │  YES → Check word lists                 │ │
+│    │    - In IGNORE_WORDS? → DROP TURN       │ │
+│    │    - In INTERRUPT_WORDS? → INTERRUPT    │ │
+│    │    - Neither? → Normal handling         │ │
+│    │  NO → Treat as valid input              │ │
+│    └─────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────┐
+│ 4. Turn Detection (Multilingual EOU)           │
+│    - Checks _ignore_current_user_turn flag     │
+│    - If True → Return False (skip LLM call)    │
+│    - If False → Trigger agent response         │
+└─────────────────────────────────────────────────┘
+```
 
 ## Contributing
 
