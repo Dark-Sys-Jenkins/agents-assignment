@@ -246,6 +246,11 @@ class AudioOutput(ABC, rtc.EventEmitter[Literal["playback_finished"]]):
     def can_pause(self) -> bool:
         return self._capabilities.pause and (not self.next_in_chain or self.next_in_chain.can_pause)
 
+    @property
+    def is_playing(self) -> bool:
+        """Whether there is pending audio playback for this output chain."""
+        return self.__playback_segments_count > self.__playback_finished_count
+
     @abstractmethod
     async def capture_frame(self, frame: rtc.AudioFrame) -> None:
         """Capture an audio frame for playback, frames can be pushed faster than real-time"""
