@@ -373,3 +373,85 @@ The Agents framework is under active development in a rapidly evolving field. We
 </tbody>
 </table>
 <!--END_REPO_NAV-->
+
+
+##  Semantic Interruption Handling - Assignment Solution
+
+This branch implements semantic interruption handling for the LiveKit voice agent as part of the interrupt-handler assignment.
+
+The goal is to correctly distinguish between:
+
+- **Soft backchannel words** like "yeah", "ok", "hmm" that should be ignored while the agent is speaking, and  
+- **Hard interruption commands** like "stop", "wait", "pause" that must immediately stop the agent.
+
+The solution is implemented entirely using LiveKit agent event handlers without modifying the VAD kernel.
+
+---
+
+##  Implemented Behavior
+
+### Case 1 - Ignore soft words while speaking  
+If the agent is currently speaking and the user says:
+
+- yeah  
+- ok / okay  
+- hmm  
+- uh-huh  
+- right  
+
+**Result:**  
+ Agent continues speaking  
+ No pause, no interruption  
+ No hiccups or resets  
+
+---
+
+### Case 2 - Respond to soft words when silent  
+If the agent is silent and the user says:
+
+- "yeah"  
+- "ok"  
+
+**Result:**  
+ Agent treats this as valid input  
+ Agent responds normally  
+
+This ensures correct state awareness between speaking and listening modes.
+
+---
+
+### Case 3 - Hard interruption commands  
+If the agent is speaking and the user says:
+
+- stop  
+- wait  
+- pause  
+- hold on  
+- no  
+
+**Result:**  
+ Audio playback stops immediately  
+ Next LLM generation is suppressed  
+ Agent remains silent and does not acknowledge  
+
+---
+
+### Case 4 - Mixed input sentences  
+If the agent is speaking and the user says:
+
+- "yeah okay but wait"  
+- "no stop"  
+
+**Result:**  
+ Stop command detected inside the sentence  
+ Agent interrupts immediately  
+
+---
+
+##  Configuration
+
+The ignore and stop word lists are configurable using environment variables:
+
+```bash
+LK_IGNORE_WORDS=yeah,ok,okay,hmm,uh-huh,right,aha
+LK_STOP_WORDS=stop,wait,no,hold on,pause
