@@ -100,14 +100,14 @@ The following log transcript demonstrates all required scenarios:
 
 text
 Copy code
-✅ LiveKit Intelligent Interruption Handling – Proof Logs
+### ✅ LiveKit Intelligent Interruption Handling – Proof Logs
 
 Agent: Kelly
 Mode: Console
 Purpose: Demonstrate correct handling of backchannel vs interruption
 Environment: LiveKit Agents, STT = Deepgram Nova-3, TTS = Cartesia Sonic-2
 
-🧪 Scenario 1 – Backchannel While Agent is Speaking (IGNORE)
+#### 🧪 Scenario 1 – Backchannel While Agent is Speaking (IGNORE)
 
 Expected Behavior:
 Agent must continue speaking when user says filler words like yeah / okay / yes.
@@ -133,7 +133,7 @@ Transcript Evidence
 
 ✔️ PASS — Agent does not stop or pause on passive acknowledgements.
 
-🧪 Scenario 2 – Mixed Input While Speaking (INTERRUPT)
+#### 🧪 Scenario 2 – Mixed Input While Speaking (INTERRUPT)
 
 Expected Behavior:
 If user says a filler plus an interrupt command, the agent must stop.
@@ -150,7 +150,7 @@ Transcript Evidence
 
 ✔️ PASS — Semantic interruption detected correctly.
 
-🧪 Scenario 3 – Hard Stop Command While Speaking (INTERRUPT)
+#### 🧪 Scenario 3 – Hard Stop Command While Speaking (INTERRUPT)
 
 Expected Behavior:
 Agent must stop immediately on commands like stop / wait / no.
@@ -167,7 +167,7 @@ Transcript Evidence
 
 ✔️ PASS — Hard interruption works correctly.
 
-🧪 Scenario 4 – Backchannel While Agent is Silent (RESPOND / ACCEPT)
+#### 🧪 Scenario 4 – Backchannel While Agent is Silent (RESPOND / ACCEPT)
 
 Expected Behavior:
 When the agent is silent, short acknowledgements are treated as valid input.
@@ -191,7 +191,7 @@ Transcript Evidence
 
 ✔ No partial pauses, hiccups, or resumptions
 
-##🎥 Video Demonstration
+## 🎥 Video Demonstration
 A short screen recording was created showing:
 
 Agent telling a long story
