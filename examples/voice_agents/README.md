@@ -35,6 +35,7 @@ This directory contains a comprehensive collection of voice-based agent examples
 - [`inactive_user.py`](./inactive_user.py) - Handling inactive users with the `user_state_changed` event hook
 - [`resume_interrupted_agent.py`](./resume_interrupted_agent.py) - Resuming agent speech after false interruption detection
 - [`toggle_io.py`](./toggle_io.py) - Dynamically toggling audio input/output during conversations
+- [`basic_agent.py`](./basic_agent.py) - Backchannel-aware interruption handling (ignore-list driven)
 
 ### 🤖 Multi-agent & AgentTask Use Cases
 
@@ -76,3 +77,42 @@ This directory contains a comprehensive collection of voice-based agent examples
 - [LiveKit Agents Documentation](https://docs.livekit.io/agents/)
 - [Agents Starter Example](https://github.com/livekit-examples/agent-starter-python)
 - [More Agents Examples](https://github.com/livekit-examples/python-agents-examples)
+
+## 🛑 Intelligent Interruption Handling (voice_agents)
+
+This example implements semantic interruption handling that **ignores backchannels while speaking**
+but **stops immediately** on real interruption commands. It does **not** modify the VAD kernel.
+
+### Behavior matrix
+
+- **Speaking + soft word (“yeah/ok/hmm”) → IGNORE** (agent continues seamlessly)
+- **Speaking + stop word (“stop/wait/no”) → INTERRUPT** (agent stops immediately, then listens)
+- **Silent + soft word → RESPOND** (treated as valid input)
+- **Silent + normal input → RESPOND**
+
+### Configuration (comma-separated)
+
+```
+LK_IGNORE_WORDS=yeah,ok,okay,hmm,uh-huh,right,got it
+LK_STOP_WORDS=stop,wait,hold on,no,cancel
+```
+
+### How it works
+
+- `agent_state_changed` tracks when the agent is `"speaking"` or `"idle"`.
+- `user_input_transcribed` inspects partial + final transcripts:
+  - If a stop word is detected, it calls `session.interrupt()` immediately.
+- If the agent is speaking and the **final** transcript is only soft words, the next reply is
+  suppressed without stopping audio.
+
+### Where it lives
+
+- Logic: `interruption_handler.py`
+
+### Run
+
+From this folder:
+
+```
+python interruption_handler.py console
+```

@@ -118,6 +118,78 @@ You'll need the following environment variables for this example:
 - OPENAI_API_KEY
 - ELEVEN_API_KEY
 
+### Intelligent interruption handling (voice_agents)
+
+This repo includes a semantic interruption handler that distinguishes soft
+backchannels from real interruptions while the agent is speaking, without
+modifying the VAD kernel. It uses transcript events for fast semantic checks
+and agent state to decide whether to ignore or interrupt. The result matches
+the required behavior matrix:
+
+- **Speaking + soft word (“yeah/ok/hmm”) → IGNORE** (agent continues seamlessly)
+- **Speaking + stop word (“stop/wait/no”) → INTERRUPT** (agent stops immediately, then listens)
+- **Silent + soft word → RESPOND** (treated as valid input)
+- **Silent + normal input → RESPOND**
+
+#### Configuration (comma-separated)
+
+```
+LK_IGNORE_WORDS=yeah,ok,okay,hmm,uh-huh,right,got it
+LK_STOP_WORDS=stop,wait,hold on,no,cancel
+```
+
+#### Logic overview
+
+1. **State tracking**
+    - `agent_state_changed` updates `agent_state` to `"speaking"` or `"idle"`.
+
+2. **Semantic interruption (fast path)**
+    - `user_input_transcribed` inspects **partial and final** transcripts.
+    - If any stop word is detected, it calls `session.interrupt()` immediately.
+    - If the agent was speaking, it interrupts immediately and yields to the user.
+
+3. **Soft backchannel suppression (final transcript only)**
+    - When the agent is speaking and a **final** transcript contains only soft words,
+      `_ignore_next_turn` is set.
+    - `on_user_turn_completed` consumes that turn by raising `StopResponse`, so the
+      agent does **not** generate a reply and does **not** stop audio.
+
+4. **Mixed input handling**
+    - Phrases like “yeah wait a second” contain a stop word, so they trigger
+      the hard interrupt path immediately.
+
+Implementation is in [examples/voice_agents/interruption_handler.py](examples/voice_agents/interruption_handler.py).
+
+#### How to run the interruption handler
+
+1. Create a `.env` at the repo root and set required keys, for example:
+
+```
+LIVEKIT_URL=...
+LIVEKIT_API_KEY=...
+LIVEKIT_API_SECRET=...
+DEEPGRAM_API_KEY=...
+```
+
+2. Install dependencies (recommended):
+
+```
+pip install -r examples/voice_agents/requirements.txt
+```
+
+Optional one-liner (equivalent to the requirements file for this example):
+
+```
+pip install "livekit-agents[openai,silero,deepgram,cartesia,turn-detector]~=1.0"
+```
+
+3. Run the agent:
+
+```
+cd examples/voice_agents
+python interruption_handler.py console
+```
+
 ### Multi-agent handoff
 
 ---
