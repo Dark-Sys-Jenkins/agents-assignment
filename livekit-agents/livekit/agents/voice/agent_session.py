@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import time
+import os
 from collections.abc import AsyncIterable, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
@@ -89,6 +90,7 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    ignore_list: list[str]
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -129,7 +131,17 @@ class VoiceActivityVideoSampler:
 
 
 DEFAULT_TTS_TEXT_TRANSFORMS: list[TextTransforms] = ["filter_markdown", "filter_emoji"]
+# Fallback Ignore List
+DEFAULT_IGNORE_LIST: list[str] = [
+    "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "alright", "all right", "right", "fine", "cool",
+    "i see", "got it", "understood", "makes sense",
+    "uh-huh", "mhmm", "hmm", "aha", "mm-hmm", "mhm",
+    "go on", "keep going", "continue",
+    "oh", "ohh", "ah", "wow", "k",
+]
 
+if custom_words := os.getenv("INTERRUPT_IGNORE_WORDS"):
+    DEFAULT_IGNORE_LIST = custom_words.split(",")
 
 class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
     def __init__(
@@ -159,6 +171,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        ignore_list: list[str] | None = None,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -245,6 +258,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                 Defaults to ``False``.
             ivr_detection (bool): Whether to detect if the agent is interacting with an IVR system.
                 Default ``False``.
+            ignore_list (list[str], optional): List of words that can be considered as backchannels 
+                and can be ignored when the agent is speaking.
             conn_options (SessionConnectOptions, optional): Connection options for
                 stt, llm, and tts.
             loop (asyncio.AbstractEventLoop, optional): Event loop to bind the
@@ -285,6 +300,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             ),
             preemptive_generation=preemptive_generation,
             ivr_detection=ivr_detection,
+            ignore_list=ignore_list if ignore_list is not None else DEFAULT_IGNORE_LIST,
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
