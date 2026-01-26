@@ -1,5 +1,4 @@
-LiveKit Intelligent Interruption Handling
-
+🎙️ LiveKit Intelligent Interruption Handling
 Challenge Submission
 
 Author: N M Amlan
@@ -11,32 +10,32 @@ Branch: feature/interrupt-handler-amlan
 
 This project implements context-aware intelligent interruption handling for a real-time LiveKit voice agent.
 
-By default, LiveKit’s Voice Activity Detection (VAD) is overly sensitive and treats listener backchanneling (e.g., “yeah”, “ok”, “hmm”) as interruptions.
+By default, LiveKit’s Voice Activity Detection (VAD) is overly sensitive and treats listener backchanneling
+(e.g., “yeah”, “ok”, “hmm”) as interruptions.
 This causes the agent to pause or stop mid-sentence, degrading conversational quality.
 
 This solution introduces a logic layer above VAD that correctly distinguishes between:
 
 Passive acknowledgements (backchanneling)
 
-Active interruptions (commands)
+Active interruptions (explicit commands)
 
-✅ No VAD kernel modifications were made
-✅ Implemented entirely within the agent event loop
+✅ No VAD kernel modifications
+✅ Implemented entirely inside the agent event loop
 ✅ Fully real-time with imperceptible latency
 
 ❗ Problem Statement
+When the agent is speaking:
 
-When the agent is explaining something important:
+User says “yeah” / “ok” / “hmm” → ❌ Agent must NOT stop
 
-User says “yeah”, “ok”, “hmm” → Agent must NOT stop
-
-User says “stop”, “wait”, “no” → Agent must stop immediately
+User says “stop” / “wait” / “no” → ✅ Agent must stop immediately
 
 When the agent is silent:
 
-User says “yeah” → Agent should respond normally
+User says “yeah” → ✅ Agent should respond normally
 
-User says “hello”, “start” → Normal conversation flow
+User says “hello” / “start” → ✅ Normal conversational behavior
 
 🎯 Goal
 
@@ -46,39 +45,34 @@ The same word (e.g., “yeah”) is treated differently
 
 Behavior depends on whether the agent is speaking or silent
 
-Mixed inputs like “yeah wait” correctly interrupt
+Mixed inputs like “yeah wait” correctly trigger interruption
 
-## Logic Matrix
-
-| User Input              | Agent State | Behavior     |
-|------------------------|-------------|--------------|
-| yeah / ok / hmm        | Speaking    | IGNORE       |
-| stop / wait / no       | Speaking    | INTERRUPT    |
-| yeah / ok / hmm        | Silent      | RESPOND      |
-| hello / start          | Silent      | RESPOND      |
-| yeah wait              | Speaking    | INTERRUPT    |
-
----
+🧠 Logic Matrix
+User Input	Agent State	Expected Behavior
+yeah / ok / hmm	Speaking	IGNORE
+stop / wait / no	Speaking	INTERRUPT
+yeah / ok / hmm	Silent	RESPOND
+hello / start	Silent	RESPOND
+yeah wait	Speaking	INTERRUPT
 🛠️ Solution Design
 Key Concepts Used
+1️⃣ Configurable Word Lists
 
-Configurable Word Lists
+Ignore words → soft listener acknowledgements
 
-Ignore words → soft backchannel inputs
+Interrupt words → explicit stop commands
 
-Interrupt words → hard commands
+2️⃣ Agent Speaking State
 
-Agent Speaking State
+Tracked using tts_start and tts_end events
 
-Tracked via tts_start and tts_end events
+3️⃣ Transcription-Based Filtering
 
-Transcription-Based Filtering
+Uses STT output to semantically classify intent
 
-Uses STT output to semantically classify user intent
+Prevents false interruptions caused by early VAD triggers
 
-Prevents false interruptions caused by VAD firing early
-
-Hard Drop Strategy
+4️⃣ Hard-Drop Strategy
 
 Backchannel words while speaking are fully ignored
 
@@ -96,9 +90,9 @@ INTERRUPT_WORDS = {
 
 State Tracking
 
-agent_speaking = True when TTS starts
+agent_speaking = True → when TTS starts
 
-agent_speaking = False when TTS ends
+agent_speaking = False → when TTS ends
 
 Decision Logic (High Level)
 IF agent is speaking:
@@ -114,8 +108,9 @@ IF agent is silent:
 examples/voice_agents/basic_agent.py
 
 
-No new dependencies were added.
-requirements.txt remains unchanged.
+No new dependencies added
+
+requirements.txt remains unchanged
 
 ▶️ How to Run
 python examples/voice_agents/basic_agent.py console
@@ -128,11 +123,11 @@ OPENAI_API_KEY
 DEEPGRAM_API_KEY
 
 
-⚠️ .env file is NOT committed (security best practice).
+⚠️ .env file is NOT committed (security best practice)
 
 🧪 Proof of Correct Behavior (Log Transcript)
 
-The following transcript demonstrates all required scenarios:
+The following log transcript demonstrates all required scenarios:
 
 [TRANSCRIPT] speaking=True | text='yeah'
 [DECISION] IGNORE (backchannel)
@@ -149,15 +144,15 @@ The following transcript demonstrates all required scenarios:
 [TRANSCRIPT] speaking=True | text='no stop'
 [DECISION] INTERRUPT
 
-What This Proves
+✅ What This Proves
 
-✅ Agent continues speaking over “yeah / ok / hmm”
+✔ Agent continues speaking over “yeah / ok / hmm”
 
-✅ Agent responds to “yeah” when silent
+✔ Agent responds to “yeah” when silent
 
-✅ Agent immediately stops on “stop”
+✔ Agent immediately stops on “stop”
 
-✅ No partial pauses, hiccups, or resumptions
+✔ No partial pauses, hiccups, or resumptions
 
 🎥 Video Demonstration
 
@@ -173,4 +168,4 @@ User says “stop”
 
 Agent immediately halts
 
-(Video provided separately as per submission instructions.)
+📎 Video provided separately as per submission instructions.
