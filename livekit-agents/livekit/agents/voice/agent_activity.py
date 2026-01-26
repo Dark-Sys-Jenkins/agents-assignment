@@ -1195,7 +1195,7 @@ class AgentActivity(RecognitionHooks):
             ignore_list = self._session.options.ignore_list
 
             if(can_ignore(transcript, ignore_list)):
-                logger.info(f"LOGGER: '{transcript}' is a backchannel, Agent not interrupted")
+                # Transcript is a backchannel, Agent not interrupted
                 return
 
         # --- INTERRUPT HANDLING ENDS HERE ---
