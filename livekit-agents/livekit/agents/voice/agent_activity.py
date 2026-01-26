@@ -5,6 +5,7 @@ import contextvars
 import heapq
 import json
 import time
+import string
 from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
@@ -75,6 +76,7 @@ from .generation import (
     update_instructions,
 )
 from .speech_handle import SpeechHandle
+from ..utils.interrupt_handler import can_ignore
 
 if TYPE_CHECKING:
     from ..llm import mcp
@@ -1184,7 +1186,20 @@ class AgentActivity(RecognitionHooks):
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
                 return
+            
+        # --- INTERRUPT HANDLING STARTS HERE ---
+        
+        is_agent_speaking = self.stt and self._audio_recognition and self._session.agent_state == "speaking"
+        if is_agent_speaking:
+            transcript = self._audio_recognition.current_transcript        
+            ignore_list = self._session.options.ignore_list
 
+            if(can_ignore(transcript, ignore_list)):
+                # Transcript is a backchannel, Agent not interrupted
+                return
+
+        # --- INTERRUPT HANDLING ENDS HERE ---
+        
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
 
@@ -1344,6 +1359,16 @@ class AgentActivity(RecognitionHooks):
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool:
         # IMPORTANT: This method is sync to avoid it being cancelled by the AudioRecognition
         # We explicitly create a new task here
+
+        # --- INTERRUPT HANDLING STARTS HERE ---
+        if self._session.agent_state == "speaking":
+            transcript = info.new_transcript
+            ignore_list = self._session.options.ignore_list
+        
+            if can_ignore(transcript, ignore_list):
+                return False
+            
+        # --- INTERRUPT HANDLING ENDS HERE ---
 
         if self._scheduling_paused:
             self._cancel_preemptive_generation()

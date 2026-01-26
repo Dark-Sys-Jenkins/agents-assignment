@@ -1,375 +1,586 @@
-<!--BEGIN_BANNER_IMAGE-->
+# LiveKit Intelligent Interruption Handling
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="/.github/banner_dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="/.github/banner_light.png">
-  <img style="width:100%;" alt="The LiveKit icon, the name of the repository and some sample code in the background." src="https://raw.githubusercontent.com/livekit/agents/main/.github/banner_light.png">
-</picture>
+This repository implements a context-aware interruption handler that distinguishes between passive "backchanneling" and active user interruptions, as required by the LiveKit Intelligent Interruption Handling Challenge.
 
-<!--END_BANNER_IMAGE-->
-<br />
+## Overview
 
-![PyPI - Version](https://img.shields.io/pypi/v/livekit-agents)
-[![PyPI Downloads](https://static.pepy.tech/badge/livekit-agents/month)](https://pepy.tech/projects/livekit-agents)
-[![Slack community](https://img.shields.io/endpoint?url=https%3A%2F%2Flivekit.io%2Fbadges%2Fslack)](https://livekit.io/join-slack)
-[![Twitter Follow](https://img.shields.io/twitter/follow/livekit)](https://twitter.com/livekit)
-[![Ask DeepWiki for understanding the codebase](https://deepwiki.com/badge.svg)](https://deepwiki.com/livekit/agents)
-[![License](https://img.shields.io/github/license/livekit/livekit)](https://github.com/livekit/livekit/blob/master/LICENSE)
+The default Voice Activity Detection (VAD) in real-time agents can be overly sensitive, cutting off the agent when the user says simple filler words like "yeah" or "uh-huh".
 
-<br />
+This solution implements a logic filtering layer that adheres to the following behavioral matrix:
 
-Looking for the JS/TS library? Check out [AgentsJS](https://github.com/livekit/agents-js)
-
-## What is Agents?
-
-<!--BEGIN_DESCRIPTION-->
-
-The Agent Framework is designed for building realtime, programmable participants
-that run on servers. Use it to create conversational, multi-modal voice
-agents that can see, hear, and understand.
-
-<!--END_DESCRIPTION-->
+| User Input | Agent State | Behavior | Outcome |
+|:-----------|:------------|:---------|:--------|
+| "Yeah" / "Ok" / "Hmm" | Speaking | IGNORE | Agent continues speaking seamlessly. |
+| "Stop" / "Wait" | Speaking | INTERRUPT | Agent stops immediately. |
+| "Yeah" / "Ok" | Silent | RESPOND | Agent treats this as a conversational turn. |
+| "Yeah but wait" | Speaking | INTERRUPT | Mixed input triggers a stop. |
 
 ## Features
 
-- **Flexible integrations**: A comprehensive ecosystem to mix and match the right STT, LLM, TTS, and Realtime API to suit your use case.
-- **Integrated job scheduling**: Built-in task scheduling and distribution with [dispatch APIs](https://docs.livekit.io/agents/build/dispatch/) to connect end users to agents.
-- **Extensive WebRTC clients**: Build client applications using LiveKit's open-source SDK ecosystem, supporting all major platforms.
-- **Telephony integration**: Works seamlessly with LiveKit's [telephony stack](https://docs.livekit.io/sip/), allowing your agent to make calls to or receive calls from phones.
-- **Exchange data with clients**: Use [RPCs](https://docs.livekit.io/home/client/data/rpc/) and other [Data APIs](https://docs.livekit.io/home/client/data/) to seamlessly exchange data with clients.
-- **Semantic turn detection**: Uses a transformer model to detect when a user is done with their turn, helps to reduce interruptions.
-- **MCP support**: Native support for MCP. Integrate tools provided by MCP servers with one loc.
-- **Builtin test framework**: Write tests and use judges to ensure your agent is performing as expected.
-- **Open-source**: Fully open-source, allowing you to run the entire stack on your own servers, including [LiveKit server](https://github.com/livekit/livekit), one of the most widely used WebRTC media servers.
+* **Context Awareness:** Dynamically checks if the agent is "speaking" or "listening" before deciding to interrupt.
+* **Configurable Ignore List:** The list of "soft" interruption words is customizable via environment variables and via session options.
+* **Greedy Matching Strategy:** Accurately detects phrases (e.g., "make sense") and handles complex sentences to prevent false positives.
+* **Latency Optimized:** Logic is injected directly into the audio activity loop to ensure real-time performance.
+* **Test Coverage (pytest):** Comprehensive automated test suite written in pytest to validate interrupt logic, edge cases, and regression scenarios.
 
-## Installation
+## Installation & Setup
 
-To install the core Agents library, along with plugins for popular model providers:
+### 1. Prerequisites
+* Python 3.8+
+* LiveKit API Credentials
 
+### 2. Setup
+Clone the repository and install dependencies:
 ```bash
-pip install "livekit-agents[openai,silero,deepgram,cartesia,turn-detector]~=1.0"
+# Install dependencies
+pip install "livekit-agents[openai,silero,deepgram,cartesia,turn-detector]>=1.0"
+pip install "python-dotenv" "opentelemetry-api>=1.34" "opentelemetry-sdk>=1.34.1" "opentelemetry-exporter-otlp>=1.34.1"
+
+# Install the local package in editable mode (Critical for local dev)
+pip install -e livekit-agents
 ```
 
-## Docs and guides
+### 3. Configuration
+Create a `.env` file in the root directory. You must configure the standard LiveKit keys, and you can optionally override the ignore list.
+```bash
+# LiveKit Configuration
+LIVEKIT_URL=wss://your-project.livekit.cloud
+LIVEKIT_API_KEY=API...
+LIVEKIT_API_SECRET=Secret...
+OPENAI_API_KEY=sk-...
 
-Documentation on the framework and how to use it can be found [here](https://docs.livekit.io/agents/)
+# Custom Ignore List (Optional)
+INTERRUPT_IGNORE_WORDS=yes,yeah,yep,yup,sure,ok,okay
+```
 
-## Core concepts
-
-- Agent: An LLM-based application with defined instructions.
-- AgentSession: A container for agents that manages interactions with end users.
-- entrypoint: The starting point for an interactive session, similar to a request handler in a web server.
-- Worker: The main process that coordinates job scheduling and launches agents for user sessions.
-
-## Usage
-
-### Simple voice agent
-
----
+If `INTERRUPT_IGNORE_WORDS` is not set, the agent defaults to a standard list of backchannel phrases.
+**Default Ignore List:**
+```python
+DEFAULT_IGNORE_LIST: list[str] = [
+    "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "alright", "all right", "right", "fine", "cool",
+    "i see", "got it", "understood", "makes sense",
+    "uh-huh", "mhmm", "hmm", "aha", "mm-hmm", "mhm",
+    "go on", "keep going", "continue",
+    "oh", "ohh", "ah", "wow", "k",
+]
+```
+## Programmatic Configuration
+You can also configure the ignore list directly while creating a agent using livekit by passing it to the session options. This takes precedence over default settings and allows for per-session customization.
 
 ```python
-from livekit.agents import (
-    Agent,
-    AgentSession,
-    JobContext,
-    RunContext,
-    WorkerOptions,
-    cli,
-    function_tool,
-)
-from livekit.plugins import deepgram, elevenlabs, openai, silero
+from livekit.agents import (AgentSession)
 
-@function_tool
-async def lookup_weather(
-    context: RunContext,
-    location: str,
-):
-    """Used to look up weather information."""
-
-    return {"weather": "sunny", "temperature": 70}
-
-
+@server.rtc_session()
 async def entrypoint(ctx: JobContext):
-    await ctx.connect()
-
-    agent = Agent(
-        instructions="You are a friendly voice assistant built by LiveKit.",
-        tools=[lookup_weather],
-    )
+    # ... other fields ...
+    
     session = AgentSession(
-        vad=silero.VAD.load(),
-        # any combination of STT, LLM, TTS, or realtime API can be used
-        stt=deepgram.STT(model="nova-3"),
-        llm=openai.LLM(model="gpt-4o-mini"),
-        tts=elevenlabs.TTS(),
+        # ... other configs ...
+        ignore_list=["yeah", "ok", "absolutely", "continue"]
     )
 
-    await session.start(agent=agent, room=ctx.room)
-    await session.generate_reply(instructions="greet the user and ask about their day")
-
-
-if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
 ```
 
-You'll need the following environment variables for this example:
+## Logic Implementation
 
-- DEEPGRAM_API_KEY
-- OPENAI_API_KEY
-- ELEVEN_API_KEY
+The core logic is implemented in `_interrupt_by_audio_activity`.
 
-### Multi-agent handoff
+1. **State Check:** The handler first verifies if `self._session.agent_state == "speaking"`.
+2. **Transcription Analysis:** If speaking, it captures the incoming user transcript.
+3. **Filtering:** It runs `can_ignore(transcript, ignore_list)`:
+   * It normalizes text (removes punctuation/case).
+   * It checks if the entirety of the user's speech consists only of ignored words.
+   * If True: The interruption signal is suppressed, and the agent continues.
+   * If False (e.g., "Yeah stop"): The standard interruption sequence proceeds.
 
----
+## Testing
 
-This code snippet is abbreviated. For the full example, see [multi_agent.py](examples/voice_agents/multi_agent.py)
+### Automated Tests
+Run the included pytest suite to verify the logic matrix:
+```bash
+pip install pytest pytest-asyncio
 
-```python
-...
-class IntroAgent(Agent):
-    def __init__(self) -> None:
-        super().__init__(
-            instructions=f"You are a story teller. Your goal is to gather a few pieces of information from the user to make the story personalized and engaging."
-            "Ask the user for their name and where they are from"
-        )
-
-    async def on_enter(self):
-        self.session.generate_reply(instructions="greet the user and gather information")
-
-    @function_tool
-    async def information_gathered(
-        self,
-        context: RunContext,
-        name: str,
-        location: str,
-    ):
-        """Called when the user has provided the information needed to make the story personalized and engaging.
-
-        Args:
-            name: The name of the user
-            location: The location of the user
-        """
-
-        context.userdata.name = name
-        context.userdata.location = location
-
-        story_agent = StoryAgent(name, location)
-        return story_agent, "Let's start the story!"
-
-
-class StoryAgent(Agent):
-    def __init__(self, name: str, location: str) -> None:
-        super().__init__(
-            instructions=f"You are a storyteller. Use the user's information in order to make the story personalized."
-            f"The user's name is {name}, from {location}"
-            # override the default model, switching to Realtime API from standard LLMs
-            llm=openai.realtime.RealtimeModel(voice="echo"),
-            chat_ctx=chat_ctx,
-        )
-
-    async def on_enter(self):
-        self.session.generate_reply()
-
-
-async def entrypoint(ctx: JobContext):
-    await ctx.connect()
-
-    userdata = StoryData()
-    session = AgentSession[StoryData](
-        vad=silero.VAD.load(),
-        stt=deepgram.STT(model="nova-3"),
-        llm=openai.LLM(model="gpt-4o-mini"),
-        tts=openai.TTS(voice="echo"),
-        userdata=userdata,
-    )
-
-    await session.start(
-        agent=IntroAgent(),
-        room=ctx.room,
-    )
-...
+pytest -v tests/test_interrupt_handler.py
 ```
 
-### Testing
+## Test Evidence
 
-Automated tests are essential for building reliable agents, especially with the non-deterministic behavior of LLMs. LiveKit Agents include native test integration to help you create dependable agents.
+### Automated Test Results (Screenshot)
+![Pytest Results](./.github/unit_test_results.png "Pytest output screenshot")
 
-```python
-@pytest.mark.asyncio
-async def test_no_availability() -> None:
-    llm = google.LLM()
-    async AgentSession(llm=llm) as sess:
-        await sess.start(MyAgent())
-        result = await sess.run(
-            user_input="Hello, I need to place an order."
-        )
-        result.expect.skip_next_event_if(type="message", role="assistant")
-        result.expect.next_event().is_function_call(name="start_order")
-        result.expect.next_event().is_function_call_output()
-        await (
-            result.expect.next_event()
-            .is_message(role="assistant")
-            .judge(llm, intent="assistant should be asking the user what they would like")
-        )
 
-```
+### Manual Test Video
+[Watch Manual Verification Video](https://drive.google.com/file/d/1fcADRNEMX3eJtvRIdkjzw3zs8N0nIvVT/view?usp=sharing)
 
-## Examples
 
-<table>
-<tr>
-<td width="50%">
-<h3>🎙️ Starter Agent</h3>
-<p>A starter agent optimized for voice conversations.</p>
-<p>
-<a href="examples/voice_agents/basic_agent.py">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>🔄 Multi-user push to talk</h3>
-<p>Responds to multiple users in the room via push-to-talk.</p>
-<p>
-<a href="examples/voice_agents/push_to_talk.py">Code</a>
-</p>
-</td>
-</tr>
-
-<tr>
-<td width="50%">
-<h3>🎵 Background audio</h3>
-<p>Background ambient and thinking audio to improve realism.</p>
-<p>
-<a href="examples/voice_agents/background_audio.py">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>🛠️ Dynamic tool creation</h3>
-<p>Creating function tools dynamically.</p>
-<p>
-<a href="examples/voice_agents/dynamic_tool_creation.py">Code</a>
-</p>
-</td>
-</tr>
-
-<tr>
-<td width="50%">
-<h3>☎️ Outbound caller</h3>
-<p>Agent that makes outbound phone calls</p>
-<p>
-<a href="https://github.com/livekit-examples/outbound-caller-python">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>📋 Structured output</h3>
-<p>Using structured output from LLM to guide TTS tone.</p>
-<p>
-<a href="examples/voice_agents/structured_output.py">Code</a>
-</p>
-</td>
-</tr>
-
-<tr>
-<td width="50%">
-<h3>🔌 MCP support</h3>
-<p>Use tools from MCP servers</p>
-<p>
-<a href="examples/voice_agents/mcp">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>💬 Text-only agent</h3>
-<p>Skip voice altogether and use the same code for text-only integrations</p>
-<p>
-<a href="examples/other/text_only.py">Code</a>
-</p>
-</td>
-</tr>
-
-<tr>
-<td width="50%">
-<h3>📝 Multi-user transcriber</h3>
-<p>Produce transcriptions from all users in the room</p>
-<p>
-<a href="examples/other/transcription/multi-user-transcriber.py">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>🎥 Video avatars</h3>
-<p>Add an AI avatar with Tavus, Beyond Presence, and Bithuman</p>
-<p>
-<a href="examples/avatar_agents/">Code</a>
-</p>
-</td>
-</tr>
-
-<tr>
-<td width="50%">
-<h3>🍽️ Restaurant ordering and reservations</h3>
-<p>Full example of an agent that handles calls for a restaurant.</p>
-<p>
-<a href="examples/voice_agents/restaurant_agent.py">Code</a>
-</p>
-</td>
-<td width="50%">
-<h3>👁️ Gemini Live vision</h3>
-<p>Full example (including iOS app) of Gemini Live agent that can see.</p>
-<p>
-<a href="https://github.com/livekit-examples/vision-demo">Code</a>
-</p>
-</td>
-</tr>
-
-</table>
-
-## Running your agent
-
-### Testing in terminal
-
-```shell
-python myagent.py console
-```
-
-Runs your agent in terminal mode, enabling local audio input and output for testing.
-This mode doesn't require external servers or dependencies and is useful for quickly validating behavior.
-
-### Developing with LiveKit clients
-
-```shell
-python myagent.py dev
-```
-
-Starts the agent server and enables hot reloading when files change. This mode allows each process to host multiple concurrent agents efficiently.
-
-The agent connects to LiveKit Cloud or your self-hosted server. Set the following environment variables:
-- LIVEKIT_URL
-- LIVEKIT_API_KEY
-- LIVEKIT_API_SECRET
-
-You can connect using any LiveKit client SDK or telephony integration.
-To get started quickly, try the [Agents Playground](https://agents-playground.livekit.io/).
-
-### Running for production
-
-```shell
-python myagent.py start
-```
-
-Runs the agent with production-ready optimizations.
-
-## Contributing
-
-The Agents framework is under active development in a rapidly evolving field. We welcome and appreciate contributions of any kind, be it feedback, bugfixes, features, new plugins and tools, or better documentation. You can file issues under this repo, open a PR, or chat with us in LiveKit's [Slack community](https://livekit.io/join-slack).
-
-<!--BEGIN_REPO_NAV-->
-<br/><table>
-<thead><tr><th colspan="2">LiveKit Ecosystem</th></tr></thead>
-<tbody>
-<tr><td>LiveKit SDKs</td><td><a href="https://github.com/livekit/client-sdk-js">Browser</a> · <a href="https://github.com/livekit/client-sdk-swift">iOS/macOS/visionOS</a> · <a href="https://github.com/livekit/client-sdk-android">Android</a> · <a href="https://github.com/livekit/client-sdk-flutter">Flutter</a> · <a href="https://github.com/livekit/client-sdk-react-native">React Native</a> · <a href="https://github.com/livekit/rust-sdks">Rust</a> · <a href="https://github.com/livekit/node-sdks">Node.js</a> · <a href="https://github.com/livekit/python-sdks">Python</a> · <a href="https://github.com/livekit/client-sdk-unity">Unity</a> · <a href="https://github.com/livekit/client-sdk-unity-web">Unity (WebGL)</a> · <a href="https://github.com/livekit/client-sdk-esp32">ESP32</a></td></tr><tr></tr>
-<tr><td>Server APIs</td><td><a href="https://github.com/livekit/node-sdks">Node.js</a> · <a href="https://github.com/livekit/server-sdk-go">Golang</a> · <a href="https://github.com/livekit/server-sdk-ruby">Ruby</a> · <a href="https://github.com/livekit/server-sdk-kotlin">Java/Kotlin</a> · <a href="https://github.com/livekit/python-sdks">Python</a> · <a href="https://github.com/livekit/rust-sdks">Rust</a> · <a href="https://github.com/agence104/livekit-server-sdk-php">PHP (community)</a> · <a href="https://github.com/pabloFuente/livekit-server-sdk-dotnet">.NET (community)</a></td></tr><tr></tr>
-<tr><td>UI Components</td><td><a href="https://github.com/livekit/components-js">React</a> · <a href="https://github.com/livekit/components-android">Android Compose</a> · <a href="https://github.com/livekit/components-swift">SwiftUI</a> · <a href="https://github.com/livekit/components-flutter">Flutter</a></td></tr><tr></tr>
-<tr><td>Agents Frameworks</td><td><b>Python</b> · <a href="https://github.com/livekit/agents-js">Node.js</a> · <a href="https://github.com/livekit/agent-playground">Playground</a></td></tr><tr></tr>
-<tr><td>Services</td><td><a href="https://github.com/livekit/livekit">LiveKit server</a> · <a href="https://github.com/livekit/egress">Egress</a> · <a href="https://github.com/livekit/ingress">Ingress</a> · <a href="https://github.com/livekit/sip">SIP</a></td></tr><tr></tr>
-<tr><td>Resources</td><td><a href="https://docs.livekit.io">Docs</a> · <a href="https://github.com/livekit-examples">Example apps</a> · <a href="https://livekit.io/cloud">Cloud</a> · <a href="https://docs.livekit.io/home/self-hosting/deployment">Self-hosting</a> · <a href="https://github.com/livekit/livekit-cli">CLI</a></td></tr>
-</tbody>
-</table>
-<!--END_REPO_NAV-->
+### Log Output
+```text
+    07:37:21 DEBUG  asyncio          Using selector: EpollSelector  
+             DEV    livekit.agents   Watching /workspaces/agents-assignment/examples/voice_agents  
+             DEV    livekit.agents   Watching /workspaces/agents-assignment/livekit-agents  
+             DEV    livekit.agents   Watching /workspaces/agents-assignment/livekit-plugins/livekit-plugins-silero  
+             DEV    livekit.agents   Watching /workspaces/agents-assignment/livekit-plugins/livekit-plugins-turn-detector  
+    07:37:23 DEBUG  asyncio          Using selector: EpollSelector  
+             INFO   livekit.agents   starting worker {"version": "1.3.3", "rtc-version": "1.0.19"}
+             INFO   livekit.agents   preloading plugins {"packages": ["livekit.plugins.silero", "livekit.plugins.turn_detector", "av"]}
+             INFO   livekit.agents   starting inference executor  
+    07:37:24 INFO   livekit.agents   initializing process {"pid": 14146, "inference": true}
+    07:37:26 INFO   livekit.agents   process initialized {"pid": 14146, "inference": true, "elapsed_time": 2.45}
+    07:37:27 INFO   livekit.agents   registered worker {"agent_name": "", "id": "AW_duX62PuC4MWW", "url":                                      
+                                                       "wss://testassignment-aaca19ol.livekit.cloud", "region": "India West", "protocol": 16}  
+    07:38:22 INFO   livekit.agents   received job request {"job_id": "AJ_5Kb6HzKCgmLE", "dispatch_id": "AD_9Gs8RxLhukFA", "room":              
+                                                          "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "room_id": "RM_Q9fmwZ8VaZdc", "agent_name": "", 
+                                                          "resuming": false, "enable_recording": false}                                        
+             DEBUG  livekit.agents   received assignment {"agent_name": "", "room_id": "RM_Q9fmwZ8VaZdc", "room":                              
+                                                         "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "job_id": "AJ_5Kb6HzKCgmLE", "dispatch_id":      
+                                                         "AD_9Gs8RxLhukFA", "enable_recording": false}                                         
+             INFO   livekit.agents   initializing process {"pid": 14596}
+             INFO   livekit.agents   process initialized {"pid": 14596, "elapsed_time": 0.08}
+             DEBUG  asyncio          Using selector: EpollSelector {"pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}
+             DEBUG  livekit.agents   input stream attached {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "participant": null, "source":        
+                                                           "SOURCE_UNKNOWN", "accepted_sources": ["SOURCE_MICROPHONE"], "pid": 14596, "job_id":
+                                                           "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                    
+             DEBUG  livekit.agents   http_session(): creating a new httpclient ctx {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 14596, 
+                                                                                   "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}  
+    07:38:23 INFO   livekit.agents   LLM metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "openai/gpt-4.1-mini",            
+                                                 "model_provider": "livekit", "ttft": 0.85, "prompt_tokens": 185, "prompt_cached_tokens": 0,   
+                                                 "completion_tokens": 18, "tokens_per_second": 17.68, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:38:24 DEBUG  livekit.agents   using audio io: `RoomIO` -> `AgentSession` ->        {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     `TranscriptSynchronizer` -> `RoomIO`                 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             DEBUG  livekit.agents   using transcript io: `AgentSession` ->               {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     `TranscriptSynchronizer` -> `RoomIO`                 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   TTS metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "cartesia/sonic-2",               
+                                                 "model_provider": "livekit", "ttfb": 0.18825994100006938, "audio_duration": 3.85, "pid":      
+                                                 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                             
+    07:38:25 DEBUG  livekit.agents   start reading stream {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "participant": "reactive-wireframe",   
+                                                          "source": "SOURCE_MICROPHONE", "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": 
+                                                          "RM_Q9fmwZ8VaZdc"}                                                                   
+    07:38:27 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 2.6, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+    07:38:32 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 4.95, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:38:35 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 2.3, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+             DEBUG  livekit.agents   received user transcript {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "user_transcript": "Tell me a long 
+                                                              story.", "language": "en", "transcript_delay": 0.5689699649810791, "pid": 14596, 
+                                                              "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                       
+             DEBUG  livekit.plugins… eou prediction {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "eou_probability": 0.04410410299897194,      
+                                                    "duration": 0.114, "input": "<|im_start|>assistant\nhey there ready to chat or need some   
+                                                    info what's on your mind today<|im_end|>\n<|im_start|>user\ntell me a long story", "pid":  
+                                                    14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                          
+             DEBUG  livekit.agents   using preemptive generation {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "preemptive_lead_time":         
+                                                                 0.11973404884338379, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":    
+                                                                 "RM_Q9fmwZ8VaZdc"}                                                            
+             INFO   livekit.agents   EOU metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "multilingual", "model_provider": 
+                                                 "livekit", "end_of_utterance_delay": 0.69, "transcription_delay": 0.57, "pid": 14596,         
+                                                 "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                    
+    07:38:40 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 4.95, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+             INFO   livekit.agents   LLM metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "openai/gpt-4.1-mini",            
+                                                 "model_provider": "livekit", "ttft": 0.72, "prompt_tokens": 216, "prompt_cached_tokens": 0,   
+                                                 "completion_tokens": 297, "tokens_per_second": 50.78, "pid": 14596, "job_id":                 
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:38:43 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 3.05, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:38:46 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 3.7, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+    07:38:47 INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+    07:38:48 INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 1.35, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             DEBUG  livekit.agents   received user transcript {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "user_transcript": "Okay.",        
+                                                              "language": "en", "transcript_delay": 0.5689780712127686, "pid": 14596, "job_id":
+                                                              "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                 
+             DEBUG  livekit.plugins… eou prediction {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "eou_probability": 0.11288490146398544,      
+                                                    "duration": 0.117, "input": "<|im_start|>assistant\nhey there ready to chat or need some   
+                                                    info what's on your mind today<|im_end|>\n<|im_start|>user\ntell me a long story okay",    
+                                                    "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                   
+    07:38:49 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 1.65, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:38:53 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 3.5, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+    07:38:54 DEBUG  livekit.plugins… eou prediction {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "eou_probability": 0.11288490146398544,      
+                                                    "duration": 0.11, "input": "<|im_start|>assistant\nhey there ready to chat or need some    
+                                                    info what's on your mind today<|im_end|>\n<|im_start|>user\ntell me a long story okay",    
+                                                    "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                   
+             INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 0.95, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:38:59 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 5.0, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+    07:39:01 INFO   livekit.agents   TTS metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "cartesia/sonic-2",               
+                                                 "model_provider": "livekit", "ttfb": 0.19738785600020492, "audio_duration": 82.15, "pid":     
+                                                 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                             
+             INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 2.55, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:39:03 INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay.' is a backchannel, Agent not          {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+    07:39:04 DEBUG  livekit.plugins… eou prediction {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "eou_probability": 0.11288490146398544,      
+                                                    "duration": 0.103, "input": "<|im_start|>assistant\nhey there ready to chat or need some   
+                                                    info what's on your mind today<|im_end|>\n<|im_start|>user\ntell me a long story okay",    
+                                                    "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                   
+             INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 2.4, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             DEBUG  livekit.agents   received user transcript {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "user_transcript": "Fine.",        
+                                                              "language": "en", "transcript_delay": 0.868732213973999, "pid": 14596, "job_id": 
+                                                              "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                 
+             DEBUG  livekit.plugins… eou prediction {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "eou_probability": 0.08851706236600876,      
+                                                    "duration": 0.116, "input": "<|im_start|>assistant\nhey there ready to chat or need some   
+                                                    info what's on your mind today<|im_end|>\n<|im_start|>user\ntell me a long story okay      
+                                                    fine", "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}            
+    07:39:09 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 5.0, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+    07:39:10 INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: 'Okay. Fine.' is a backchannel, Agent not    {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             DEBUG  livekit.plugins… eou prediction {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "eou_probability": 0.08851706236600876,      
+                                                    "duration": 0.104, "input": "<|im_start|>assistant\nhey there ready to chat or need some   
+                                                    info what's on your mind today<|im_end|>\n<|im_start|>user\ntell me a long story okay      
+                                                    fine", "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}            
+             INFO   livekit.agents   EOU metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "multilingual", "model_provider": 
+                                                 "livekit", "end_of_utterance_delay": 0.65, "transcription_delay": 0.0, "pid": 14596, "job_id":
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+             INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 1.5, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+             DEBUG  livekit.agents   received user transcript {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "user_transcript": "Weight",       
+                                                              "language": "en", "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":          
+                                                              "RM_Q9fmwZ8VaZdc"}                                                               
+    07:39:11 DEBUG  livekit.plugins… eou prediction {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "eou_probability": 0.03572792932391167,      
+                                                    "duration": 0.455, "input": "<|im_start|>assistant\nhey there ready to chat or need some   
+                                                    info what's on your mind today<|im_end|>\n<|im_start|>user\ntell me a long                 
+                                                    story<|im_end|>\n<|im_start|>assistant\nalright settle in once upon a time in a small      
+                                                    village tucked between rolling hills there was an old clockmaker named eli eli wasnt just  
+                                                    any clockmakerhis clocks were said to hold a bit of magic people swore that when one of    
+                                                    elis clocks chimed time seemed to pause just long enough to catch a breath or remember a   
+                                                    forgotten dream one day a curious girl named mira came to elis shop she wasnt interested in
+                                                    just any clock she wanted a clock that could take her back to one special day in her       
+                                                    childhood eli smiled and said those clocks are tricky but maybe with a little magic and a  
+                                                    lot of heart we can try together they worked<|im_end|>\n<|im_start|>user\nokay fine        
+                                                    weight", "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}          
+             INFO   livekit.agents   EOU metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "multilingual", "model_provider": 
+                                                 "livekit", "end_of_utterance_delay": 0.0, "transcription_delay": 0.0, "pid": 14596, "job_id": 
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:39:12 INFO   livekit.agents   LLM metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "openai/gpt-4.1-mini",            
+                                                 "model_provider": "livekit", "ttft": 0.71, "prompt_tokens": 382, "prompt_cached_tokens": 0,   
+                                                 "completion_tokens": 30, "tokens_per_second": 25.01, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:39:14 INFO   livekit.agents   TTS metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "cartesia/sonic-2",               
+                                                 "model_provider": "livekit", "ttfb": 0.1871491869997044, "audio_duration": 6.36, "pid": 14596,
+                                                 "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                    
+    07:39:15 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 4.95, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:39:18 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 3.05, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:39:22 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 4.1, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+    07:39:25 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 2.6, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+             DEBUG  livekit.agents   received user transcript {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "user_transcript": "Continue the   
+                                                              story.", "language": "en", "transcript_delay": 0.7772245407104492, "pid": 14596, 
+                                                              "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                       
+             DEBUG  livekit.plugins… eou prediction {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "eou_probability": 0.21338395774364471,      
+                                                    "duration": 0.438, "input": "<|im_start|>user\ntell me a long                              
+                                                    story<|im_end|>\n<|im_start|>assistant\nalright settle in once upon a time in a small      
+                                                    village tucked between rolling hills there was an old clockmaker named eli eli wasnt just  
+                                                    any clockmakerhis clocks were said to hold a bit of magic people swore that when one of    
+                                                    elis clocks chimed time seemed to pause just long enough to catch a breath or remember a   
+                                                    forgotten dream one day a curious girl named mira came to elis shop she wasnt interested in
+                                                    just any clock she wanted a clock that could take her back to one special day in her       
+                                                    childhood eli smiled and said those clocks are tricky but maybe with a little magic and a  
+                                                    lot of heart we can try together they worked<|im_end|>\n<|im_start|>user\nokay fine        
+                                                    weight<|im_end|>\n<|im_start|>assistant\nare you asking about weight in general weight of  
+                                                    something specific or maybe how to manage it give me a bit more to go                      
+                                                    on<|im_end|>\n<|im_start|>user\ncontinue the story", "pid": 14596, "job_id":               
+                                                    "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                           
+             DEBUG  livekit.agents   using preemptive generation {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "preemptive_lead_time":         
+                                                                 0.4429595470428467, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":     
+                                                                 "RM_Q9fmwZ8VaZdc"}                                                            
+             INFO   livekit.agents   EOU metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "multilingual", "model_provider": 
+                                                 "livekit", "end_of_utterance_delay": 1.22, "transcription_delay": 0.78, "pid": 14596,         
+                                                 "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                    
+    07:39:28 INFO   livekit.agents   LLM metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "openai/gpt-4.1-mini",            
+                                                 "model_provider": "livekit", "ttft": 0.61, "prompt_tokens": 423, "prompt_cached_tokens": 0,   
+                                                 "completion_tokens": 149, "tokens_per_second": 50.64, "pid": 14596, "job_id":                 
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:39:30 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 5.0, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+    07:39:34 INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+    07:39:35 INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 4.65, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: '' is a backchannel, Agent not interrupted {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid":   
+                                                                                        14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":         
+                                                                                        "RM_Q9fmwZ8VaZdc"}                                     
+             INFO   livekit.agents   LOGGER: ' Mhmm.' is a backchannel, Agent not         {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: ' Mhmm.' is a backchannel, Agent not         {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: ' Mhmm.' is a backchannel, Agent not         {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: ' Mhmm.' is a backchannel, Agent not         {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   LOGGER: ' Mhmm.' is a backchannel, Agent not         {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 0.55, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+             INFO   livekit.agents   LOGGER: ' Mhmm.' is a backchannel, Agent not         {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "pid": 
+                                     interrupted                                          14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id":       
+                                                                                          "RM_Q9fmwZ8VaZdc"}                                   
+             DEBUG  livekit.agents   received user transcript {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "user_transcript": "Mhmm.",        
+                                                              "language": "en", "transcript_delay": 0.8642065525054932, "pid": 14596, "job_id":
+                                                              "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                 
+    07:39:36 DEBUG  livekit.plugins… eou prediction {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "eou_probability": 0.18716482818126678,      
+                                                    "duration": 0.524, "input": "<|im_start|>assistant\nalright settle in once upon a time in a
+                                                    small village tucked between rolling hills there was an old clockmaker named eli eli wasnt 
+                                                    just any clockmakerhis clocks were said to hold a bit of magic people swore that when one  
+                                                    of elis clocks chimed time seemed to pause just long enough to catch a breath or remember a
+                                                    forgotten dream one day a curious girl named mira came to elis shop she wasnt interested in
+                                                    just any clock she wanted a clock that could take her back to one special day in her       
+                                                    childhood eli smiled and said those clocks are tricky but maybe with a little magic and a  
+                                                    lot of heart we can try together they worked<|im_end|>\n<|im_start|>user\nokay fine        
+                                                    weight<|im_end|>\n<|im_start|>assistant\nare you asking about weight in general weight of  
+                                                    something specific or maybe how to manage it give me a bit more to go                      
+                                                    on<|im_end|>\n<|im_start|>user\ncontinue the story mhmm", "pid": 14596, "job_id":          
+                                                    "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                           
+    07:39:38 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 2.6, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+    07:39:39 INFO   livekit.agents   TTS metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "cartesia/sonic-2",               
+                                                 "model_provider": "livekit", "ttfb": 0.21798238499968647, "audio_duration": 44.77, "pid":     
+                                                 14596, "job_id": "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                             
+    07:39:43 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 5.0, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+             INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 0.55, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:39:47 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 3.65, "pid": 14596, "job_id":                  
+                                                 "AJ_5Kb6HzKCgmLE", "room_id": "RM_Q9fmwZ8VaZdc"}                                              
+    07:39:52 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 5.0, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
+    07:39:56 INFO   livekit.agents   STT metrics {"room": "sbx-2pt8bs-CAKFKEgkhYkCRkknUCSNPX", "model_name": "deepgram/nova-3",                
+                                                 "model_provider": "livekit", "audio_duration": 4.0, "pid": 14596, "job_id": "AJ_5Kb6HzKCgmLE",
+                                                 "room_id": "RM_Q9fmwZ8VaZdc"}                                                                 
