@@ -455,3 +455,17 @@ The ignore and stop word lists are configurable using environment variables:
 ```bash
 LK_IGNORE_WORDS=yeah,ok,okay,hmm,uh-huh,right,aha
 LK_STOP_WORDS=stop,wait,no,hold on,pause
+
+
+---
+
+## Demo Video
+
+A short demo video demonstrating the required behaviors for the assignment:
+
+- Ignoring "yeah / ok / hmm" while the agent is speaking  
+- Responding to "yeah" when the agent is silent  
+- Interrupting immediately when the user says "stop" or "wait"  
+
+Video file: interrupt-handler-demo-mahak.mp4
+
