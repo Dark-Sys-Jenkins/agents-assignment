@@ -93,14 +93,9 @@ No new dependencies were added.
 
 ---
 
-## ▶️ How to Run
 
-```bash
-python examples/voice_agents/basic_agent.py console
 
-⚠️ Note: The .env file is not committed (security best practice).
-
-🧪 Proof of Correct Behavior (Log Transcript)
+## 🧪 Proof of Correct Behavior (Log Transcript)
 The following log transcript demonstrates all required scenarios:
 
 text
