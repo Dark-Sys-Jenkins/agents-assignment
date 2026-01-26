@@ -86,7 +86,7 @@ but **stops immediately** on real interruption commands. It does **not** modify 
 ### Behavior matrix
 
 - **Speaking + soft word (“yeah/ok/hmm”) → IGNORE** (agent continues seamlessly)
-- **Speaking + stop word (“stop/wait/no”) → INTERRUPT** (agent stops immediately, no acknowledgement)
+- **Speaking + stop word (“stop/wait/no”) → INTERRUPT** (agent stops immediately, then listens)
 - **Silent + soft word → RESPOND** (treated as valid input)
 - **Silent + normal input → RESPOND**
 
@@ -102,7 +102,6 @@ LK_STOP_WORDS=stop,wait,hold on,no,cancel
 - `agent_state_changed` tracks when the agent is `"speaking"` or `"idle"`.
 - `user_input_transcribed` inspects partial + final transcripts:
   - If a stop word is detected, it calls `session.interrupt()` immediately.
-  - If the agent was speaking, it suppresses the next reply so the agent does **not** acknowledge.
 - If the agent is speaking and the **final** transcript is only soft words, the next reply is
   suppressed without stopping audio.
 

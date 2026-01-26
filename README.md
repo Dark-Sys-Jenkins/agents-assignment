@@ -127,7 +127,7 @@ and agent state to decide whether to ignore or interrupt. The result matches
 the required behavior matrix:
 
 - **Speaking + soft word (“yeah/ok/hmm”) → IGNORE** (agent continues seamlessly)
-- **Speaking + stop word (“stop/wait/no”) → INTERRUPT** (agent stops immediately, no acknowledgement)
+- **Speaking + stop word (“stop/wait/no”) → INTERRUPT** (agent stops immediately, then listens)
 - **Silent + soft word → RESPOND** (treated as valid input)
 - **Silent + normal input → RESPOND**
 
@@ -146,7 +146,7 @@ LK_STOP_WORDS=stop,wait,hold on,no,cancel
 2. **Semantic interruption (fast path)**
     - `user_input_transcribed` inspects **partial and final** transcripts.
     - If any stop word is detected, it calls `session.interrupt()` immediately.
-    - If the agent was speaking, it sets `_suppress_next_reply` so no acknowledgement is generated.
+    - If the agent was speaking, it interrupts immediately and yields to the user.
 
 3. **Soft backchannel suppression (final transcript only)**
     - When the agent is speaking and a **final** transcript contains only soft words,

@@ -54,7 +54,6 @@ STOP_WORDS = _load_word_set("LK_STOP_WORDS", DEFAULT_STOP_WORDS)
 # runtime flags / state
 agent_state = "idle"          # updated via agent_state_changed events by LiveKit
 _ignore_next_turn = False     # set for soft backchannel: suppress generation but do NOT stop audio
-_suppress_next_reply = False  # set for hard stop while speaking: interrupt + suppress any reply
 
 
 # Small helpers
@@ -110,7 +109,7 @@ class MyAgent(Agent):
         This runs in the agent lifecycle (generation context).
         Soft backchannel suppression happens here without stopping audio playback.
         """
-        global _ignore_next_turn, _suppress_next_reply
+        global _ignore_next_turn
 
         # Soft backchannel: consume the turn without generating a reply (no audio stop)
         if _ignore_next_turn:
@@ -118,11 +117,6 @@ class MyAgent(Agent):
             logger.info("Suppressing generation for backchannel turn (no audio stop)")
             raise StopResponse()
 
-        # Hard stop while speaking: do not acknowledge; just stop and listen
-        if _suppress_next_reply:
-            _suppress_next_reply = False
-            logger.info("Suppressing generation for hard stop turn")
-            raise StopResponse()
 
 
 # ---------------- Server / entrypoint ----------------
@@ -143,7 +137,7 @@ async def entrypoint(ctx: JobContext):
     Main session entrypoint. We disable LiveKit's automatic interruption behavior
     and implement semantic interruption in the transcript event handler + agent lifecycle.
     """
-    global agent_state, _ignore_next_turn, _suppress_next_reply
+    global agent_state, _ignore_next_turn
 
     ctx.log_context_fields = {"room": ctx.room.name}
 
@@ -180,7 +174,7 @@ async def entrypoint(ctx: JobContext):
         - If a stop token appears anywhere in the transcript (partial or final), interrupt immediately.
         - If the transcript is FINAL and agent is speaking and all tokens are soft -> set _ignore_next_turn.
         """
-        global _ignore_next_turn, _suppress_next_reply, agent_state
+        global _ignore_next_turn, agent_state
 
         transcript = getattr(ev, "transcript", "") or ""
         if not transcript:
@@ -193,8 +187,7 @@ async def entrypoint(ctx: JobContext):
         if contains_stop_token(text):
             logger.warning("Hard interrupt detected from transcript: %r", text)
             if agent_state == "speaking":
-                _suppress_next_reply = True
-            asyncio.ensure_future(session.interrupt())
+                asyncio.ensure_future(session.interrupt())
             return
 
         # Soft backchannels: only consider final transcripts and only when agent is speaking
