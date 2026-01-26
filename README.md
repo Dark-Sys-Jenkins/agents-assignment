@@ -1,14 +1,6 @@
 # LiveKit Intelligent Interruption Handling
 
-This repository contains a refined conversational logic layer for a real-time AI agent. It implements a context-aware interruption handler that distinguishes between passive "backchanneling" (listener feedback) and active user interruptions, as required by the LiveKit Intelligent Interruption Handling Challenge.
-
-### Submitted By
-**Name:** Hari Kishoare
-**GitHub Username:** atomiclifestyle
-**Branch:** feature/interrupt-handler-hariKishore
-**College:** International Institute of Information Technology(IIIT), Bhubaneswar
-**ID:** B423024
-**Date of Submission:** 26th January 2026
+This repository implements a context-aware interruption handler that distinguishes between passive "backchanneling" and active user interruptions, as required by the LiveKit Intelligent Interruption Handling Challenge.
 
 ## Overview
 
