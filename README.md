@@ -373,3 +373,129 @@ The Agents framework is under active development in a rapidly evolving field. We
 </tbody>
 </table>
 <!--END_REPO_NAV-->
+
+
+
+
+
+## Assignment Submission – Interrupt Handler Logic
+### Overview
+
+This assignment implements interrupt-handling logic for a voice agent.  
+The objective is to correctly differentiate between filler words and meaningful interruptions based on whether the agent is currently speaking or silent.
+
+The original LiveKit Agents framework is kept unchanged.  
+Only assignment-specific logic and documentation are added.
+
+---
+
+## Project Structure (Assignment Related)
+examples/
+├── interrupt_agent/
+│ ├── test_logic.py
+│ └── interrupt_handler.py
+| |---agent.py
+  |---config.py
+├── voice_agents/
+│ └── basic_agent.py
+
+##Problem Understanding
+
+In voice conversations, users often say short filler words such as "yeah", "ok", or "hmm" while the agent is speaking.
+
+These filler words should not interrupt the agent.
+
+However, when the agent is silent, the same words should be treated as valid user input and should receive a response.
+
+The challenge is to distinguish user intent based on the agent’s current speaking state, not only the words spoken.
+
+##Logic Explanation
+
+The interrupt-handling logic is based on two conditions:
+
+1. Agent State
+
+The agent can be in one of two states:
+
+SPEAKING
+
+SILENT
+
+The agent’s state determines how user input is processed.
+
+2. User Input Processing
+When the agent is SPEAKING
+
+User input is split into individual words.
+
+If all words are filler words, the input is ignored.
+
+If any meaningful word (such as "stop" or "wait") is present, the agent is interrupted.
+
+Examples:
+
+"yeah" → ignored
+
+"yeah ok" → ignored
+
+"yeah wait" → agent interrupted
+
+When the agent is SILENT
+
+No words are ignored.
+
+Even short responses like "yeah" or "ok" are treated as valid input.
+
+The agent responds normally.
+
+Configurable Filler Words
+
+The list of filler words is configurable and not hardcoded.
+This allows the logic to be easily modified or extended without changing the core implementation.
+
+File-wise Explanation
+interrupt_handler.py
+
+Contains the core logic that decides whether the agent should be interrupted.
+
+Separates interrupt logic from agent execution for better modularity.
+
+test_logic.py
+
+Simulates different conversational scenarios.
+
+Verifies correct behavior when the agent is speaking or silent.
+
+Used as the main validation tool for this assignment.
+
+basic_agent.py
+
+Demonstrates a simple voice agent.
+
+Used only for understanding and demo purposes.
+
+Not modified as part of this assignment.
+
+Proof of Correctness
+
+The test results confirm that:
+
+Filler words are ignored while the agent is speaking.
+
+Meaningful words correctly interrupt the agent.
+
+Filler words are processed normally when the agent is silent.
+
+All required test cases pass successfully.
+
+##Conclusion
+
+This solution fulfills all assignment requirements by:
+
+Correctly handling interruptions based on agent state
+
+Maintaining clean and modular logic
+
+Preserving the original framework code
+
+Providing clear documentation and test-based verification
