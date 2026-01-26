@@ -6,6 +6,8 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
+from typing_extensions import TypeAlias
+
 import aiofiles
 import aiohttp
 from google.protobuf.json_format import MessageToDict
@@ -15,13 +17,16 @@ from opentelemetry._logs.severity import SeverityNumber
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk._logs import (
-    LogData,
-    LoggerProvider,
-    LoggingHandler,
-    LogRecord,
-    LogRecordProcessor,
-)
+if TYPE_CHECKING:
+    from opentelemetry.sdk._logs import LogData, LogRecord
+else:  # pragma: no cover
+    LogData: TypeAlias = Any
+    LogRecord: TypeAlias = Any
+
+try:
+    from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler, LogRecordProcessor
+except Exception:  # pragma: no cover
+    from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler, LogRecordProcessor
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
