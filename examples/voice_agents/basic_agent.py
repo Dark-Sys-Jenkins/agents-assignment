@@ -88,18 +88,20 @@ async def entrypoint(ctx: JobContext):
         llm="openai/gpt-4.1-mini",
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
-        tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
+        tts="deepgram/aura-2:athena",
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
         # See more at https://docs.livekit.io/agents/build/turns
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         # allow the LLM to generate a response while waiting for the end of turn
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
-        preemptive_generation=True,
+        preemptive_generation=False,
         # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
         # when it's detected, you may resume the agent's speech
+        min_interruption_words=2,
+        min_interruption_duration=0.5,
         resume_false_interruption=True,
-        false_interruption_timeout=1.0,
+        false_interruption_timeout=0.5,
     )
 
     # log metrics as they are emitted, and total usage after session is over
