@@ -33,7 +33,6 @@ members = [
     "livekit-plugins-azure",
     "livekit-plugins-baseten",
     "livekit-plugins-bey",
-    "livekit-plugins-bithuman",
     "livekit-plugins-cartesia",
     "livekit-plugins-clova",
     "livekit-plugins-deepgram",
@@ -2042,7 +2041,7 @@ requires-dist = [
     { name = "livekit-plugins-azure", marker = "extra == 'azure'", editable = "livekit-plugins/livekit-plugins-azure" },
     { name = "livekit-plugins-baseten", marker = "extra == 'baseten'", editable = "livekit-plugins/livekit-plugins-baseten" },
     { name = "livekit-plugins-bey", marker = "extra == 'bey'", editable = "livekit-plugins/livekit-plugins-bey" },
-    { name = "livekit-plugins-bithuman", marker = "extra == 'bithuman'", editable = "livekit-plugins/livekit-plugins-bithuman" },
+    { name = "livekit-plugins-bithuman", marker = "extra == 'bithuman'", specifier = ">=1.3.3" },
     { name = "livekit-plugins-cartesia", marker = "extra == 'cartesia'", editable = "livekit-plugins/livekit-plugins-cartesia" },
     { name = "livekit-plugins-clova", marker = "extra == 'clova'", editable = "livekit-plugins/livekit-plugins-clova" },
     { name = "livekit-plugins-deepgram", marker = "extra == 'deepgram'", editable = "livekit-plugins/livekit-plugins-deepgram" },
@@ -2263,16 +2262,15 @@ requires-dist = [{ name = "livekit-agents", editable = "livekit-agents" }]
 
 [[package]]
 name = "livekit-plugins-bithuman"
-source = { editable = "livekit-plugins/livekit-plugins-bithuman" }
+version = "1.3.3"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bithuman" },
     { name = "livekit-agents" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "bithuman", specifier = ">=0.5.25" },
-    { name = "livekit-agents", editable = "livekit-agents" },
+sdist = { url = "https://files.pythonhosted.org/packages/65/87/fc334c0d071b3bc49d0d6fe31ee77f044653522a9bf059153ffe1b07225b/livekit_plugins_bithuman-1.3.3.tar.gz", hash = "sha256:8a2b78379813f976f2ea17a1eff2fcd45899bca2924fbf6ee6f050b86ee03c40", size = 7717, upload-time = "2025-11-19T21:20:50.566Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/29/96974ebc4c42fe5da80b776b6573801797e04f7f80123af2cfd0d22673eb/livekit_plugins_bithuman-1.3.3-py3-none-any.whl", hash = "sha256:6ecb98eef03c5f8b8d39ed680f36733cc9ed11040373cd53dc29d3ef38b6146f", size = 7887, upload-time = "2025-11-19T21:20:49.775Z" },
 ]
 
 [[package]]

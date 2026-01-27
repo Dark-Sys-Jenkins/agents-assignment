@@ -1261,6 +1261,20 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # Intelligent interruption handling: skip audio interruption for backchanneling
+            try:
+                from .interruption_handler import should_ignore_as_backchanneling
+                if (
+                    self._current_speech is not None
+                    and not self._current_speech.interrupted
+                    and should_ignore_as_backchanneling(ev.alternatives[0].text)
+                ):
+                    # Don't interrupt for backchanneling - just return without calling _interrupt_by_audio_activity
+                    return
+            except Exception:
+                # If there's any error with the backchanneling check, proceed normally
+                pass
+            
             self._interrupt_by_audio_activity()
 
             if (

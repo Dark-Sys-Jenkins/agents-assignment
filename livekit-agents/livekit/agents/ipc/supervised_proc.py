@@ -39,7 +39,13 @@ def _mask_ctrl_c() -> Generator[None, None, None]:
         finally:
             signal.pthread_sigmask(signal.SIG_UNBLOCK, [signal.SIGINT])
     else:
-        old = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        # on Windows, signal.signal() can only be called from the main thread
+        try:
+            old = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        except ValueError:
+            # signal.signal() was called from a non-main thread; just skip masking
+            yield
+            return
         try:
             yield
         finally:
