@@ -7,7 +7,31 @@ from typing import Any, Callable
 
 from .. import llm, utils
 
+IGNORE_WORDS = {
+    "yeah", "ok", "okay", "hmm", "uh-huh", "mm-hmm", "right", "yep"
+}
 
+INTERRUPT_WORDS = {
+    "stop", "wait", "no", "pause", "cancel", "hold"
+}
+
+
+def should_interrupt_from_text(text: str) -> bool:
+
+    if not text:
+        return False
+
+    text = text.lower().strip()
+    words = text.split()
+
+    for w in words:
+        if w in INTERRUPT_WORDS:
+            return True
+
+    if all(w in IGNORE_WORDS for w in words):
+        return False
+    return False
+    
 class SpeechHandle:
     SPEECH_PRIORITY_LOW = 0
     """Priority for messages that should be played after all other messages in the queue"""
@@ -97,20 +121,23 @@ class SpeechHandle:
     def done(self) -> bool:
         return self._done_fut.done()
 
-    def interrupt(self, *, force: bool = False) -> SpeechHandle:
-        """Interrupt the current speech generation.
+def interrupt(
+    self,
+    *,
+    force: bool = False,
+    transcript: str | None = None,
+) -> SpeechHandle:
+   
+    if not force and not self._allow_interruptions:
+        raise RuntimeError("This generation handle does not allow interruptions")
 
-        Raises:
-            RuntimeError: If this speech handle does not allow interruptions.
+    if transcript is not None and not force:
+        if not should_interrupt_from_text(transcript):
 
-        Returns:
-            SpeechHandle: The same speech handle that was interrupted.
-        """
-        if not force and not self._allow_interruptions:
-            raise RuntimeError("This generation handle does not allow interruptions")
+            return self
 
-        self._cancel()
-        return self
+    self._cancel()
+    return self
 
     async def wait_for_playout(self) -> None:
         """Waits for the entire assistant turn to complete playback.

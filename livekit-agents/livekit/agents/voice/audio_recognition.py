@@ -455,6 +455,18 @@ class AudioRecognition:
             chat_ctx = self._hooks.retrieve_chat_ctx().copy()
             self._run_eou_detection(chat_ctx)
 
+        elif ev.type == stt.SpeechEventType.FINAL_TRANSCRIPT:
+    transcript_text = ev.text.strip()
+
+  
+    if should_interrupt_from_text(transcript_text):
+  
+        if self._end_of_turn_task is not None:
+            self._end_of_turn_task.cancel()
+    else:
+    
+        return
+        
         elif ev.type == stt.SpeechEventType.START_OF_SPEECH and self._turn_detection_mode == "stt":
             with trace.use_span(self._ensure_user_turn_span()):
                 self._hooks.on_start_of_speech(None)
