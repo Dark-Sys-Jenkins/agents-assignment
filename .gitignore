@@ -180,3 +180,6 @@ examples/dev/*
 
 #for api
 .env
+
+#testing tokens
+generate_token.py

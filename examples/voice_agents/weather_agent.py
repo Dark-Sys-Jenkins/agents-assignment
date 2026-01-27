@@ -18,7 +18,7 @@ class WeatherAgent(Agent):
     def __init__(self) -> None:
         super().__init__(
             instructions="You are a weather agent.",
-            llm=openai.realtime.RealtimeModel(),
+            llm=openai.realtime.RealtimeModel(model="gpt-4o-realtime-preview"),
         )
 
     @function_tool
