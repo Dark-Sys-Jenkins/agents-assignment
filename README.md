@@ -373,20 +373,20 @@ The Agents framework is under active development in a rapidly evolving field. We
 </tbody>
 </table>
 <!--END_REPO_NAV-->
-🧠 Intelligent Interruption Logic
+## 🧠 Intelligent Interruption Logic
 This agent implements a custom logic layer to distinguish between filler words (backchanneling) and actual commands during speech.
 
-User Input,Agent State,Action,Reason
-"""Yeah"", ""Okay"", ""Aha""",Speaking,Ignore,Passive listening shouldn't stop the flow.
-"""Stop"", ""Wait""",Speaking,Interrupt,Direct commands should force silence immediately.
-"""Yeah"", ""Okay""",Silent,Respond,Filler words at the end of a turn are valid prompts.
+### **The Logic Matrix**
+| User Input | Agent State | Action | Reason |
+| :--- | :--- | :--- | :--- |
+| "Yeah", "Okay", "Aha" | **Speaking** | **Ignore** | Passive listening shouldn't stop the flow. |
+| "Stop", "Wait" | **Speaking** | **Interrupt** | Direct commands should force silence immediately. |
+| "Yeah", "Okay" | **Silent** | **Respond** | Filler words at the end of a turn are valid prompts. |
 
-Technical Implementation
-Custom STT Node: Overrode the stt_node to intercept transcripts before they reach the LLM.
+### **Technical Implementation**
+* **Custom STT Node**: Overrode the `stt_node` to intercept transcripts before they reach the LLM.
+* **Session Control**: Used `session.interrupt()` to bypass SDK `RuntimeErrors` when forcing an interruption on an uninterruptible handle.
+* **State Awareness**: Implemented a state-check using `session.speaking` to determine behavior based on the agent's current activity.
 
-Session Control: Used session.interrupt() to bypass SDK RuntimeErrors when forcing an interruption on an uninterruptible handle.
-
-State Awareness: Implemented a state-check using session.speaking to determine behavior based on the agent's current activity.
-
-📺 Demonstration
-A video file titled DEMONSTRATION.mp4 is included in the repository, showcasing the agent successfully ignoring "Yeah" while narrating a story but stopping immediately upon hearing "Stop".
+### **📺 Demonstration**
+A video file titled **DEMONSTRATION.mp4** is included in the repository, showcasing the agent successfully ignoring "Yeah" while narrating a story but stopping immediately upon hearing "Stop".
