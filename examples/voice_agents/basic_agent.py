@@ -15,7 +15,7 @@ from livekit.agents import (
     room_io,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import silero
+from livekit.plugins import silero, deepgram, google
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 # uncomment to enable Krisp background voice/noise cancellation
@@ -81,14 +81,15 @@ async def entrypoint(ctx: JobContext):
     }
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt="deepgram/nova-3",
+        # Deepgram requires DEEPGRAM_API_KEY environment variable
+        stt=deepgram.STT(model="nova-3"),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-        # See all available models at https://docs.livekit.io/agents/models/llm/
-        llm="openai/gpt-4.1-mini",
+        # Google Gemini requires GOOGLE_API_KEY environment variable
+        llm=google.LLM(model="gemini-3-flash-preview"),
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-        # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
-        tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
+        # Deepgram requires DEEPGRAM_API_KEY environment variable
+        # Available voices: aura-2-andromeda-en, aura-2-arcas-en, aura-2-athena-en, aura-2-hera-en, aura-2-orpheus-en, aura-2-apollo-en, aura-2-zeus-en
+        tts=deepgram.TTS(model="aura-2-andromeda-en"),
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
         # See more at https://docs.livekit.io/agents/build/turns
         turn_detection=MultilingualModel(),
@@ -125,6 +126,7 @@ async def entrypoint(ctx: JobContext):
                 # uncomment to enable the Krisp BVC noise cancellation
                 # noise_cancellation=noise_cancellation.BVC(),
             ),
+            audio_output=room_io.AudioOutputOptions(),
         ),
     )
 
