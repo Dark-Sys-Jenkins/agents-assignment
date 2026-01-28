@@ -76,3 +76,46 @@ This directory contains a comprehensive collection of voice-based agent examples
 - [LiveKit Agents Documentation](https://docs.livekit.io/agents/)
 - [Agents Starter Example](https://github.com/livekit-examples/agent-starter-python)
 - [More Agents Examples](https://github.com/livekit-examples/python-agents-examples)
+
+## Intelligent Interruption Handling
+
+- This example builds on `resume_interrupted_agent.py` to improve how the agent handles interruptions during speech.
+- It prevents the agent from stopping when the user gives short backchannel responses like “yeah”, “ok”, or “hmm” while listening.
+
+### Behavior
+- When the agent is speaking, brief acknowledgement words are ignored so the audio continues naturally without any pauses or breaks.  
+- If the user says an actual command such as “stop” or “wait”, the agent interrupts immediately.  
+- When the agent is not speaking, short responses like “yeah” are treated as normal user input and handled as part of the conversation.
+
+### Implementation Details
+- The agent keeps track of whether it is currently speaking by listening to TTS start and finish events.  
+- Voice Activity Detection (VAD) is left untouched and used only to detect incoming speech.  
+- Instead of interrupting immediately, the agent waits for the speech-to-text transcript only if the agent is currently speaking and a pending interruption is detected.
+- Both ignore words and interrupt words are defined as configurable lists, making the logic easy to adjust.
+
+### Proof of Intelligent Interruption Handling
+
+The following video demonstrates:
+
+1. The agent ignoring "yeah" while it is speaking.
+2. The agent responding to "yeah" when it is silent.
+3. The agent immediately stopping when the user says "stop".
+
+Video Proof:
+https://drive.google.com/file/d/1n3izpa9-fN4JUWQ2Dqb5uBCzyaNsc6Yq/view?usp=drive_link
+
+Notes:
+- The OpenAI LLM returns 429 quota errors in console due to zero credits.
+- This does NOT affect interruption logic validation, which is handled
+  before LLM inference.
+
+### Running the Example
+```bash
+python examples/voice_agents/resume_interrupted_agent.py
+
+
+
+
+
+
+
