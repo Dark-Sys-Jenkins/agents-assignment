@@ -106,6 +106,14 @@ class _PreemptiveGeneration:
 
 # NOTE: AgentActivity isn't exposed to the public API
 class AgentActivity(RecognitionHooks):
+    # List of backchanneling words (filler words) that should not interrupt the agent while speaking
+    # These are typically short acknowledgements like "yeah", "ok", "hmm", etc.
+    BACKCHANNELING_WORDS = {
+        "yeah", "yep", "yes", "yup", "ok", "okay", "right", "got it", "gotcha",
+        "hmm", "mm-hmm", "mmhmm", "uh-huh", "uhhuh", "uhuh", "huh", "um", "uh", "ah",
+        "sure", "fine", "cool", "good", "great"
+    }
+    
     def __init__(self, agent: Agent, sess: AgentSession) -> None:
         self._agent, self._session = agent, sess
         self._rt_session: llm.RealtimeSession | None = None
@@ -1184,6 +1192,11 @@ class AgentActivity(RecognitionHooks):
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
                 return
+            
+            # Check if this is a backchanneling interrupt (agent is speaking, user only said filler words)
+            if self._session.agent_state == "speaking" and self._is_backchanneling(text):
+                # Ignore backchanneling interrupts while agent is speaking
+                return
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
@@ -1208,6 +1221,32 @@ class AgentActivity(RecognitionHooks):
                     self._rt_session.interrupt()
 
                 self._current_speech.interrupt()
+    
+    def _is_backchanneling(self, text: str) -> bool:
+        """Check if the given text is purely backchanneling (filler words).
+        
+        Returns True if all words in the text are in the backchanneling list,
+        False otherwise.
+        """
+        import string
+        if not text:
+            return False
+        
+        # Normalize the text: lowercase and strip whitespace
+        text = text.lower().strip()
+        
+        # Split into words, remove punctuation, and filter out empty strings
+        words = []
+        for w in text.split():
+            word_clean = w.translate(str.maketrans('', '', string.punctuation))
+            if word_clean:
+                words.append(word_clean)
+        
+        if not words:
+            return False
+        
+        # Check if all words are in the backchanneling list
+        return all(word in self.BACKCHANNELING_WORDS for word in words)
 
     # region recognition hooks
 
@@ -1634,12 +1673,18 @@ class AgentActivity(RecognitionHooks):
                     audio_output=audio_output, tts_output=tts_gen_data.audio_ch
                 )
                 tasks.append(forward_task)
+                
+                # Emit "speaking" state immediately when TTS starts to generate audio
+                self._session._update_agent_state("speaking")
             else:
                 # use the provided audio
                 forward_task, audio_out = perform_audio_forwarding(
                     audio_output=audio_output, tts_output=audio
                 )
                 tasks.append(forward_task)
+                
+                # Emit "speaking" state immediately when audio starts
+                self._session._update_agent_state("speaking")
 
             audio_out.first_frame_fut.add_done_callback(_on_first_frame)
 
@@ -1844,6 +1889,11 @@ class AgentActivity(RecognitionHooks):
             tasks.append(forward_task)
 
             audio_out.first_frame_fut.add_done_callback(_on_first_frame)
+            
+            # Emit "speaking" state immediately when TTS starts to generate audio
+            # Don't wait for the first frame to arrive, as frame delivery might be delayed
+            self._session._update_agent_state("speaking")
+            started_speaking_at = time.time()
         elif text_out is not None:
             text_out.first_text_fut.add_done_callback(_on_first_frame)
 
@@ -2245,6 +2295,10 @@ class AgentActivity(RecognitionHooks):
                                 tts_output=realtime_audio_result,
                             )
                             forward_tasks.append(forward_task)
+                            
+                            # Emit "speaking" state immediately when realtime audio starts
+                            self._session._update_agent_state("speaking")
+                            
                             audio_out.first_frame_fut.add_done_callback(_on_first_frame)
 
                     # text output
