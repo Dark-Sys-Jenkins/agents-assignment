@@ -75,6 +75,7 @@ from .generation import (
     update_instructions,
 )
 from .speech_handle import SpeechHandle
+from .interruption_filter import should_ignore_interruption
 
 if TYPE_CHECKING:
     from ..llm import mcp
@@ -1174,6 +1175,12 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
+        if self.stt and self._audio_recognition:
+            # Context-aware interruption handling
+            # If the user is just saying filler words (or STT is empty/pending), we ignore the interruption.
+            if should_ignore_interruption(self._audio_recognition.current_transcript):
+                return
+
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
@@ -1371,13 +1378,19 @@ class AgentActivity(RecognitionHooks):
             and self._current_speech is not None
             and self._current_speech.allow_interruptions
             and not self._current_speech.interrupted
-            and self._session.options.min_interruption_words > 0
-            and len(split_words(info.new_transcript, split_character=True))
-            < self._session.options.min_interruption_words
         ):
-            self._cancel_preemptive_generation()
-            # avoid interruption if the new_transcript is too short
-            return False
+            if should_ignore_interruption(info.new_transcript):
+                self._cancel_preemptive_generation()
+                return False
+
+            if (
+                self._session.options.min_interruption_words > 0
+                and len(split_words(info.new_transcript, split_character=True))
+                < self._session.options.min_interruption_words
+            ):
+                self._cancel_preemptive_generation()
+                # avoid interruption if the new_transcript is too short
+                return False
 
         old_task = self._user_turn_completed_atask
         self._user_turn_completed_atask = self._create_speech_task(

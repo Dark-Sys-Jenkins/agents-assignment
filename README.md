@@ -50,6 +50,74 @@ To install the core Agents library, along with plugins for popular model provide
 pip install "livekit-agents[openai,silero,deepgram,cartesia,turn-detector]~=1.0"
 ```
 
+## Quickstart 
+
+A short, practical walkthrough to get the **basic agent** running and join it from a web client.
+
+1) Prerequisites
+
+- Python 3.11+ and a virtual environment (recommended)
+- Docker (optional, for containers)
+- A LiveKit server (self-hosted or LiveKit Cloud)
+- API keys for any plugins you plan to use (example: **DEEPGRAM_API_KEY**, **GOOGLE_API_KEY**, **OPENAI_API_KEY**)
+
+2) Setup (local, Windows PowerShell)
+
+```powershell
+git clone https://github.com/livekit/agents.git
+cd agents
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+# Install from PyPI (quick) or from source if you're developing locally
+pip install "livekit-agents[openai,silero,deepgram,cartesia,turn-detector]~=1.0"
+# OR (from local source)
+pip install -e .
+```
+
+3) Create a `.env` file with the minimal variables the examples need (example):
+
+```
+LIVEKIT_URL=https://your-livekit.example
+LIVEKIT_API_KEY=abcd1234
+LIVEKIT_API_SECRET=secret
+DEEPGRAM_API_KEY=deepgram_key_here
+GOOGLE_API_KEY=google_key_here
+OPENAI_API_KEY=openai_key_here
+```
+
+4) Run Server (Docker) (example)
+
+```bash
+docker run --rm --env-file .env -p 7880:7880 -p 7881:7881 livekit/livekit-server --keys "LIVEKIT_API_KEY: LIVEKIT_API_SECRET"
+```
+
+5) Try the Basic Agent example (hot-reload dev server)
+
+```powershell
+# from repo root
+python examples/voice_agents/basic_agent.py dev
+```
+
+- Modes: `console` (local audio testing), `dev` (hot reload & local development), `start` (production-ready)
+- The basic agent example is at `examples/voice_agents/basic_agent.py` and demonstrates STT, LLM, TTS, VAD and turn detection.
+
+
+
+6) Join via web (web meet)
+- Run Following python script to create Token for Local Server
+```bash
+    python create_token.py
+```
+- Use the Livekit meet: https://meet.livekit.io/
+- Create or join a Custom room ; add credentails; the running agent will accept and participate in sessions in that room when a job is dispatched.
+- OR you can just Visit URL generated from `create_token.py`.
+
+Troubleshooting & tips
+
+- If the agent doesn't respond, verify the environment variables and plugin API keys.
+- Check logs for authentication errors (LiveKit keys) or plugin initialization errors (missing API keys).
+- Use `python examples/voice_agents/basic_agent.py console` for a local, fast feedback loop without a LiveKit server.
+
 ## Docs and guides
 
 Documentation on the framework and how to use it can be found [here](https://docs.livekit.io/agents/)
