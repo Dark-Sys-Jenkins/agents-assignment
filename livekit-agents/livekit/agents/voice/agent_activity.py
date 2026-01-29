@@ -76,6 +76,14 @@ from .generation import (
 )
 from .speech_handle import SpeechHandle
 
+# Words that should be ignored while agent is speaking
+IGNORE_WORDS = {"yeah", "ok", "okay", "hmm", "uh", "uhh", "right", "mm"}
+
+def is_passive_ack(text: str) -> bool:
+    words = text.lower().strip().split()
+    return len(words) > 0 and all(w in IGNORE_WORDS for w in words)
+
+
 if TYPE_CHECKING:
     from ..llm import mcp
     from .agent_session import AgentSession
@@ -1537,7 +1545,15 @@ class AgentActivity(RecognitionHooks):
             # (We still create the SpeechHandle and the generate_reply coroutine, otherwise we may
             # lose data like the beginning of a user speech).
             # await the interrupt to make sure user message is added to the chat context before the new task starts
-            await speech_handle.interrupt()
+            
+            # Only interrupt if not a passive acknowledgement while agent is speaking
+            user_text = user_message.content if hasattr(user_message, "content") else str(user_message)
+
+            if not (self._current_speech and is_passive_ack(user_text)):
+                await speech_handle.interrupt()
+            else:
+                # Ignore filler like "yeah", "hmm" while speaking
+                logger.debug(f"Ignored passive ack during speech: {user_text}")
 
         metadata: Metadata | None = None
         if isinstance(self._turn_detection, str):
