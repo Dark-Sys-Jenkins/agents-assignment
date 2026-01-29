@@ -6,8 +6,8 @@ This PR improves turn-taking behavior in the LiveKit Agents runtime by preventin
 short user backchannels (e.g. “yeah”, “uh-huh”, “okay”) from interrupting an agent’s
 speech, while still allowing meaningful user interruptions.
 
-The fix aligns with production voice-assistant behavior and avoids premature
-speech cancellation caused by brief acknowledgements.
+The change results in more natural conversational flow and matches the behavior
+expected from production-grade voice assistants.
 
 ---
 
@@ -19,20 +19,20 @@ In the default configuration, very short user utterances such as:
 - “uh huh”
 - “okay”
 
-were triggering interruptions because turn detection occurs before transcript
-handlers (`on_user_message`) are invoked.
+were causing the agent to stop speaking.
 
-Filtering these messages at the text level alone is insufficient, as the agent
-speech is already interrupted by the time the handler runs.
+This occurs because turn detection happens at the **audio level** before transcript
+callbacks (`on_user_message`) are executed. Filtering text alone is therefore
+insufficient, as the interruption has already occurred by the time text handlers run.
 
 ---
 
 ## Solution
 
-The solution introduces **interruption gating at the audio level** using
+The fix introduces **audio-level interruption gating** using
 `min_interruption_duration`.
 
-### Key Change
+### Key Configuration
 
 ```python
 AgentSession(
