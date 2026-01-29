@@ -1,5 +1,4 @@
 import logging
-
 from dotenv import load_dotenv
 
 from livekit.agents import (
@@ -14,120 +13,173 @@ from livekit.agents import (
     metrics,
     room_io,
 )
-from livekit.agents.llm import function_tool
+
 from livekit.plugins import silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-# uncomment to enable Krisp background voice/noise cancellation
-# from livekit.plugins import noise_cancellation
-
-logger = logging.getLogger("basic-agent")
+# -------------------------------------------------------------------
+# Setup
+# -------------------------------------------------------------------
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("assessment-agent")
 
+# -------------------------------------------------------------------
+# INTERRUPTION CONFIG
+# -------------------------------------------------------------------
 
-class MyAgent(Agent):
-    def __init__(self) -> None:
+FILLER_WORDS = {
+    "ok", "okay", "yeah", "yep", "uh-huh", "uh huh",
+    "hmm", "mm", "mhmm", "right", "cool", "oh"
+}
+
+INTERRUPT_WORDS = {
+    "stop", "wait", "hold on", "pause", "cancel"
+}
+
+# -------------------------------------------------------------------
+# AGENT IMPLEMENTATION
+# -------------------------------------------------------------------
+
+class AssessmentAgent(Agent):
+    def __init__(self):
         super().__init__(
-            instructions="Your name is Kelly. You would interact with users via voice."
-            "with that in mind keep your responses concise and to the point."
-            "do not use emojis, asterisks, markdown, or other special characters in your responses."
-            "You are curious and friendly, and have a sense of humor."
-            "you will speak english to the user",
+            instructions=(
+                "Your name is Kelly. "
+                "You tell long, engaging stories when asked. "
+                "Do not restart sentences after interruptions. "
+                "If interrupted, continue from where you stopped. "
+                "Ignore listener acknowledgements like yeah or hmm."
+            )
         )
 
+        # --- Speech state ---
+        self.is_speaking = False
+        self.full_response = ""
+        self.spoken_offset = 0
+
+    # ---------------------------------------------------------------
+
     async def on_enter(self):
-        # when the agent is added to the session, it'll generate a reply
-        # according to its instructions
-        self.session.generate_reply()
+        logger.info("Agent entered room")
+        await self.session.generate_reply()
 
-    # all functions annotated with @function_tool will be passed to the LLM when this
-    # agent is active
-    @function_tool
-    async def lookup_weather(
-        self, context: RunContext, location: str, latitude: str, longitude: str
-    ):
-        """Called when the user asks for weather related information.
-        Ensure the user's location (city or region) is provided.
-        When given a location, please estimate the latitude and longitude of the location and
-        do not ask the user for them.
+    # ---------------------------------------------------------------
+    # SPEECH STREAM TRACKING (CRITICAL FIX)
+    # ---------------------------------------------------------------
 
-        Args:
-            location: The location they are asking for
-            latitude: The latitude of the location, do not ask user for it
-            longitude: The longitude of the location, do not ask user for it
+    async def on_agent_speech_started(self):
+        self.is_speaking = True
+        logger.info("Agent started speaking")
+
+    async def on_agent_speech_chunk(self, chunk: str):
         """
+        LiveKit streams TTS chunks here.
+        We track exactly what was spoken.
+        """
+        self.full_response += chunk
+        self.spoken_offset += len(chunk)
 
-        logger.info(f"Looking up weather for {location}")
+    async def on_agent_speech_ended(self):
+        self.is_speaking = False
+        logger.info("Agent finished speaking")
 
-        return "sunny with a temperature of 70 degrees."
+    # ---------------------------------------------------------------
+    # USER INPUT HANDLING
+    # ---------------------------------------------------------------
 
+    async def on_user_transcript(self, transcript):
+        if not transcript.final:
+            return
+
+        text = transcript.text.lower().strip(" .,!?")
+        words = text.split()
+
+        logger.info(f"User said: {text}")
+
+        # -----------------------------------------------------------
+        # 1️⃣ Ignore single-word fillers completely
+        # -----------------------------------------------------------
+        if len(words) == 1 and text in FILLER_WORDS:
+            logger.info("Ignoring filler word")
+            return
+
+        # -----------------------------------------------------------
+        # 2️⃣ True interruption → pause speech
+        # -----------------------------------------------------------
+        if any(w in text for w in INTERRUPT_WORDS) and self.is_speaking:
+            logger.info("True interruption detected")
+            await self.session.interrupt()
+            return
+
+        # -----------------------------------------------------------
+        # 3️⃣ Normal conversation
+        # -----------------------------------------------------------
+        await super().on_user_transcript(transcript)
+
+    # ---------------------------------------------------------------
+    # RESUME LOGIC (THE KEY FIX)
+    # ---------------------------------------------------------------
+
+    async def resume_from_checkpoint(self):
+        """
+        Resume ONLY what wasn't spoken yet
+        """
+        remaining = self.full_response[self.spoken_offset:]
+
+        if remaining.strip():
+            logger.info("Resuming from checkpoint")
+            await self.session.say(remaining)
+
+# -------------------------------------------------------------------
+# SERVER SETUP
+# -------------------------------------------------------------------
 
 server = AgentServer()
-
 
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
 
-
 server.setup_fnc = prewarm
-
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext):
-    # each log entry will include these fields
-    ctx.log_context_fields = {
-        "room": ctx.room.name,
-    }
+    ctx.log_context_fields = {"room": ctx.room.name}
+
     session = AgentSession(
-        # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
         stt="deepgram/nova-3",
-        # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-        # See all available models at https://docs.livekit.io/agents/models/llm/
         llm="openai/gpt-4.1-mini",
-        # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-        # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
-        tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-        # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
-        # See more at https://docs.livekit.io/agents/build/turns
-        turn_detection=MultilingualModel(),
+        tts="cartesia/sonic-2",
         vad=ctx.proc.userdata["vad"],
-        # allow the LLM to generate a response while waiting for the end of turn
-        # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
-        preemptive_generation=True,
-        # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
-        # when it's detected, you may resume the agent's speech
+        turn_detection=MultilingualModel(),
+
+        # 🔑 THESE SETTINGS MATTER
+        allow_interruptions=True,
         resume_false_interruption=True,
-        false_interruption_timeout=1.0,
+        false_interruption_timeout=1.5,
+        preemptive_generation=False,
     )
 
-    # log metrics as they are emitted, and total usage after session is over
     usage_collector = metrics.UsageCollector()
 
     @session.on("metrics_collected")
-    def _on_metrics_collected(ev: MetricsCollectedEvent):
-        metrics.log_metrics(ev.metrics)
+    def _on_metrics(ev: MetricsCollectedEvent):
         usage_collector.collect(ev.metrics)
 
-    async def log_usage():
-        summary = usage_collector.get_summary()
-        logger.info(f"Usage: {summary}")
-
-    # shutdown callbacks are triggered when the session is over
-    ctx.add_shutdown_callback(log_usage)
-
-    await session.start(
-        agent=MyAgent(),
-        room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                # uncomment to enable the Krisp BVC noise cancellation
-                # noise_cancellation=noise_cancellation.BVC(),
-            ),
-        ),
+    ctx.add_shutdown_callback(
+        lambda: logger.info(f"Usage: {usage_collector.get_summary()}")
     )
 
+    await session.start(
+        agent=AssessmentAgent(),
+        room=ctx.room,
+        room_options=room_io.RoomOptions(),
+    )
+
+# -------------------------------------------------------------------
+# ENTRY POINT
+# -------------------------------------------------------------------
 
 if __name__ == "__main__":
     cli.run_app(server)
