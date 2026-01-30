@@ -9,6 +9,8 @@ from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
+import re
+
 from opentelemetry import context as otel_context, trace
 
 from livekit import rtc
@@ -235,6 +237,61 @@ class AgentActivity(RecognitionHooks):
             )
 
         return mode
+
+    def _is_soft_input(self, text: str) -> bool:
+        """
+        Check if the given text consists only of ignored/backchannel words.
+
+        Returns True if all words in the text are in the ignored_words list,
+        meaning this is likely a passive acknowledgement rather than an
+        intentional interruption.
+        """
+        if not text:
+            return True  # Empty text is considered soft
+
+        ignored_words = set(w.lower() for w in self._session.options.ignored_words)
+        if not ignored_words:
+            return False  # No ignored words configured, nothing is soft
+
+        # Normalize and extract words from the transcript
+        normalized = text.lower().strip()
+        # Split on whitespace and punctuation, keep only alphanumeric words
+        words = re.findall(r"[a-z0-9]+(?:[-'][a-z0-9]+)?", normalized)
+
+        if not words:
+            return True  # No actual words found
+
+        # Check if ALL words are in the ignored list
+        return all(word in ignored_words for word in words)
+
+    def _should_ignore_interruption(self, transcript: str | None = None) -> bool:
+        """
+        Determine if an interruption should be ignored based on agent state and transcript.
+
+        Returns True if:
+        - Agent is currently speaking (has active, uninterrupted speech)
+        - The transcript (if available) consists only of backchannel words
+        """
+        # Agent must be speaking and have active, non-interrupted speech
+        if (
+            self._current_speech is None
+            or self._current_speech.interrupted
+            or not self._current_speech.allow_interruptions
+        ):
+            return False  # Agent is not speaking or already interrupted
+
+        # If we have a transcript, check if it's soft input
+        if transcript is not None:
+            return self._is_soft_input(transcript)
+
+        # If STT is available, check the current transcript from audio recognition
+        if self._audio_recognition is not None:
+            current = self._audio_recognition.current_transcript
+            if current:
+                return self._is_soft_input(current)
+
+        # No transcript available - cannot determine, allow interruption
+        return False
 
     @property
     def scheduling_paused(self) -> bool:
@@ -1166,12 +1223,21 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
-    def _interrupt_by_audio_activity(self) -> None:
+    def _interrupt_by_audio_activity(self, *, transcript: str | None = None) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
             # ignore if realtime model has turn detection enabled
+            return
+
+        # Check for soft/backchannel input - if the agent is speaking and the
+        # user only said ignored words, skip the interruption entirely
+        if self._should_ignore_interruption(transcript):
+            logger.debug(
+                "ignoring soft input while agent is speaking",
+                extra={"transcript": transcript or self._audio_recognition.current_transcript if self._audio_recognition else ""},
+            )
             return
 
         if (
@@ -1248,20 +1314,23 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=False,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
+        if transcript_text and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # Pass the transcript to enable soft input detection
+            self._interrupt_by_audio_activity(transcript=transcript_text)
 
             if (
                 speaking is False
@@ -1276,10 +1345,12 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=True,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
@@ -1292,7 +1363,8 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # Pass the transcript to enable soft input detection
+            self._interrupt_by_audio_activity(transcript=transcript_text)
 
             if (
                 speaking is False

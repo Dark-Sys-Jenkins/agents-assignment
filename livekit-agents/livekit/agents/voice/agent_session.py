@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import copy
 import time
 from collections.abc import AsyncIterable, Sequence
@@ -72,6 +73,27 @@ class SessionConnectOptions:
     """Maximum number of consecutive unrecoverable errors from llm or tts."""
 
 
+DEFAULT_IGNORED_WORDS: list[str] = [
+    "yeah",
+    "yep",
+    "yes",
+    "ok",
+    "okay",
+    "hmm",
+    "right",
+    "uh-huh",
+    "uh",
+    "mhm",
+    "mm",
+    "ah",
+    "aha",
+    "sure",
+    "got it",
+    "i see",
+]
+"""Default backchannel words that are ignored when the agent is speaking."""
+
+
 @dataclass
 class AgentSessionOptions:
     allow_interruptions: bool
@@ -88,6 +110,8 @@ class AgentSessionOptions:
     use_tts_aligned_transcript: bool | None
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
+    ignored_words: Sequence[str]
+    """Words that are ignored when the agent is speaking (backchannel words)."""
     ivr_detection: bool
 
 
@@ -157,6 +181,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         min_consecutive_speech_delay: float = 0.0,
         use_tts_aligned_transcript: NotGivenOr[bool] = NOT_GIVEN,
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
+        ignored_words: NotGivenOr[Sequence[str]] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
@@ -284,6 +309,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                 else DEFAULT_TTS_TEXT_TRANSFORMS
             ),
             preemptive_generation=preemptive_generation,
+            ignored_words=self._resolve_ignored_words(ignored_words),
             ivr_detection=ivr_detection,
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
@@ -357,6 +383,21 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
 
         # ivr activity
         self._ivr_activity: IVRActivity | None = None
+
+    @staticmethod
+    def _resolve_ignored_words(
+        ignored_words: NotGivenOr[Sequence[str]],
+    ) -> Sequence[str]:
+        """Resolve ignored words from parameter, environment variable, or default."""
+        if is_given(ignored_words):
+            return ignored_words
+
+        # Check environment variable (comma-separated list)
+        env_words = os.environ.get("LIVEKIT_AGENT_IGNORED_WORDS")
+        if env_words:
+            return [w.strip().lower() for w in env_words.split(",") if w.strip()]
+
+        return DEFAULT_IGNORED_WORDS
 
     def emit(self, event: EventTypes, arg: AgentEvent) -> None:  # type: ignore
         self._recorded_events.append(arg)
