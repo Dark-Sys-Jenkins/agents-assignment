@@ -1,0 +1,70 @@
+INTELLIGENT INTERRUPTION HANDLING - DEMO TRANSCRIPT
+===================================================
+
+This transcript demonstrates the backchannel filtering feature.
+The agent ignores passive acknowledgements (mhmm, okay, yeah) while speaking,
+but correctly stops when given actual interrupt commands (stop, wait).
+
+
+SESSION START
+-------------
+
+AGENT: Hello! I'm Alex, and I'm here to tell you some great stories. 
+       Would you like to hear a story today? Just let me know what 
+       topic interests you!
+
+USER:  Sure.
+
+AGENT: Great! Let me tell you a story about an unexpected adventure 
+       that begins in a quiet, ordinary town and leads to extraordinary 
+       discoveries.
+
+       In the small town of Willowbrook, nestled between rolling hills 
+       and dense forests, lived a curious young girl named Elara. She 
+       had always been fascinated by the tales her grandmother told her 
+       about ancient times and hidden realms. One day, while exploring 
+       the attic of her...
+
+
+BACKCHANNEL TEST (Agent continues speaking without pause)
+---------------------------------------------------------
+
+USER:  Mhmm.          <-- IGNORED (agent kept speaking)
+USER:  Okay.          <-- IGNORED (agent kept speaking)  
+USER:  Yes.           <-- IGNORED (agent kept speaking)
+USER:  Uh-huh.        <-- IGNORED (agent kept speaking)
+
+
+INTERRUPT TEST (Agent stops immediately)
+----------------------------------------
+
+USER:  Stop.          <-- INTERRUPT DETECTED
+
+AGENT: Got it, I'll pause here for a moment. If you want me to continue 
+       or switch to a different story or topic, just let me know!
+
+
+RESPONSE WHEN SILENT (Normal conversation)
+------------------------------------------
+
+USER:  Yeah.
+
+AGENT: Alright, picking up from where I left off—Elara was rummaging 
+       through the dusty attic filled with forgotten treasures and old 
+       trunks. Among the cobweb-covered boxes, she found a...
+
+
+MIXED INPUT TEST (Contains interrupt word -> Agent stops)
+---------------------------------------------------------
+
+USER:  Mhmm. But wait. Stop.    <-- "but wait" triggers interrupt
+
+AGENT: [Stopped and listened]
+
+
+RESULTS
+-------
+- Backchannel while speaking: PASSED (agent continued seamlessly)
+- Interrupt word while speaking: PASSED (agent stopped)
+- Response when silent: PASSED (agent responded normally)
+- Mixed input with interrupt: PASSED (agent detected "wait/stop")
