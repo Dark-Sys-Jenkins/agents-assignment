@@ -75,6 +75,12 @@ from .generation import (
     update_instructions,
 )
 from .speech_handle import SpeechHandle
+from .interruption_filter import (
+    InterruptionFilter,
+    InterruptionFilterConfig,
+    DEFAULT_BACKCHANNELING_WORDS,
+    DEFAULT_INTERRUPT_KEYWORDS,
+)
 
 if TYPE_CHECKING:
     from ..llm import mcp
@@ -160,6 +166,17 @@ class AgentActivity(RecognitionHooks):
             else self._session.turn_detection
         )
         self._turn_detection = self._validate_turn_detection(turn_detection)
+
+        # Initialize intelligent interruption filter
+        opts = self._session.options
+        self._interruption_filter = InterruptionFilter(
+            InterruptionFilterConfig(
+                enabled=opts.intelligent_interruption_enabled,
+                backchanneling_words=opts.backchanneling_words or DEFAULT_BACKCHANNELING_WORDS,
+                interrupt_keywords=opts.interrupt_keywords or DEFAULT_INTERRUPT_KEYWORDS,
+                max_backchanneling_words=opts.max_backchanneling_words,
+            )
+        )
 
         # speeches that audio playout finished but not done because of tool calls
         self._background_speeches: set[SpeechHandle] = set()
@@ -1241,6 +1258,29 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
+            # When intelligent interruption is enabled and agent is speaking,
+            # we defer the interruption decision to STT to avoid pausing on backchanneling.
+            # VAD is faster than STT, so we can't know yet if the user said "yeah" or "stop".
+            # The STT handler (on_interim_transcript/on_final_transcript) will make the
+            # decision based on the actual transcript content.
+            opts = self._session.options
+            agent_is_speaking = self._session.agent_state == "speaking"
+
+            if (
+                opts.intelligent_interruption_enabled
+                and agent_is_speaking
+                and self.stt is not None  # STT must be available for transcript-based filtering
+            ):
+                # Skip VAD-triggered interruption when agent is speaking and intelligent
+                # interruption is enabled. Let STT decide based on transcript content.
+                # This prevents the agent from pausing/stuttering on backchanneling like "yeah".
+                logger.debug(
+                    "Deferring interruption decision to STT (intelligent interruption enabled, "
+                    f"agent speaking, speech_duration={ev.speech_duration:.2f}s)"
+                )
+                return
+
+            # Default behavior: interrupt based on VAD
             self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
@@ -1248,19 +1288,40 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=False,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
+        if transcript_text and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
+            # Use intelligent interruption filter to determine if we should interrupt
+            agent_is_speaking = self._session.agent_state == "speaking"
+            decision = self._interruption_filter.analyze(transcript_text, agent_is_speaking)
+
+            if decision.action == "ignore":
+                # Backchanneling while agent is speaking - ignore and continue
+                logger.debug(
+                    f"Ignoring backchanneling during agent speech: '{transcript_text}' "
+                    f"(reason: {decision.reason})"
+                )
+                return
+
+            # Either "interrupt" or "respond" - proceed with interruption handling
+            if decision.action == "interrupt":
+                logger.debug(
+                    f"Interrupting agent speech: '{transcript_text}' "
+                    f"(reason: {decision.reason})"
+                )
+
             self._interrupt_by_audio_activity()
 
             if (
@@ -1276,10 +1337,12 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=True,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
@@ -1292,6 +1355,26 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # Use intelligent interruption filter to determine if we should interrupt
+            agent_is_speaking = self._session.agent_state == "speaking"
+            decision = self._interruption_filter.analyze(transcript_text, agent_is_speaking)
+
+            if decision.action == "ignore":
+                # Backchanneling while agent is speaking - ignore completely
+                # Don't interrupt the paused speech either
+                logger.debug(
+                    f"Ignoring final backchanneling during agent speech: '{transcript_text}' "
+                    f"(reason: {decision.reason})"
+                )
+                return
+
+            # Proceed with interruption for "interrupt" or "respond" actions
+            if decision.action == "interrupt":
+                logger.debug(
+                    f"Interrupting (final transcript): '{transcript_text}' "
+                    f"(reason: {decision.reason})"
+                )
+
             self._interrupt_by_audio_activity()
 
             if (
