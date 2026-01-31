@@ -1,0 +1,43 @@
+intent_words:
+  - stop
+  - wait
+  - pause
+  - hold
+  - enough
+  - cancel
+  - quit
+  - exit
+  - leave
+  - forget
+  - stop it
+  - halt
+  - terminate
+  - abort
+
+backchannel_words:
+  - okay
+  - ok
+  - yeah
+  - yes
+  - yep
+  - uh
+  - um
+  - hmm
+  - hm
+  - mhm
+  - uh-huh
+  - uhhuh
+  - right
+  - sure
+  - gotcha
+  - oh
+  - ah
+  - alright
+  - wow
+  - omg
+  - great
+  - excellent
+  - perfect
+  - huh
+  - uh
+  - uhm
