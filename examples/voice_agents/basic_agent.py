@@ -48,58 +48,56 @@ server.setup_fnc = prewarm
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext):
-    # === CRITICAL: Configure false interruption handling ===
+   
     session = AgentSession(
         stt="deepgram/nova-3",
         llm="openai/gpt-4o-mini",
         tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
         vad=ctx.proc.userdata["vad"],
         turn_detection=MultilingualModel(),
-        
-        # === PRIMARY DEFENSE: Built-in False Interruption Handling ===
-        # These parameters tell LiveKit to wait for real speech before committing to an interruption
         allow_interruptions=True,
-        
-        # Require at least 0.8 seconds of detected speech before interrupting
-        # This filters out most short fillers like "yeah", "ok", "hmm"
         min_interruption_duration=0.8,  
-        
-        # Require at least 2 words to be transcribed before confirming interruption
-        # Single filler words won't trigger interruption
         min_interruption_words=2,
-        
-        # Wait up to 1 second for transcription after VAD detects speech
-        # If no real words are transcribed, treat it as a false interruption
         false_interruption_timeout=1.0,
-        
-        # Automatically resume speaking if interruption was false positive
-        # This is THE KEY FEATURE for seamless continuation
         resume_false_interruption=True,
-        
-        # Don't buffer audio while agent is speaking
         discard_audio_if_uninterruptible=True,
-        
-        # Other important settings
         preemptive_generation=False,
         min_endpointing_delay=0.6,
         max_endpointing_delay=3.0,
     )
+    kelly = MyAgent()
+    @session.on("speech_created")
+    def on_speech_created(ev: SpeechCreatedEvent):
+        """Track when Kelly actually starts speaking audio"""
+        kelly.is_speaking = True
+        kelly.current_speech_handle = ev.speech_handle
+        logger.info("🎤 KELLY STARTED SPEAKING")
+    
+    @session.on("agent_state_changed")
+    def on_agent_state_changed(ev: AgentStateChangedEvent):
+        """Track agent state transitions"""
+        logger.info(f"🎭 AGENT STATE: {ev.old_state} → {ev.new_state}")
+        
+        # Kelly is no longer speaking when she returns to listening
+        if ev.new_state == "listening":
+            kelly.is_speaking = False
+            kelly.current_speech_handle = None
+            logger.info("👂 Kelly finished and is now listening")
+    
+    @session.on("user_state_changed")
+    def on_user_state_changed(ev: UserStateChangedEvent):
+        """Track user state for debugging"""
+        logger.info(f"👤 USER STATE: {ev.old_state} → {ev.new_state}")
+    
+    @session.on("agent_false_interruption")
+    def on_false_interruption(ev: AgentFalseInterruptionEvent):
+        """Log when false interruptions are detected and resumed"""
+        if ev.resumed:
+            logger.info("✅ FALSE INTERRUPTION: Kelly resumed seamlessly")
+        else:
+            logger.warning("⚠️ FALSE INTERRUPTION: Not auto-resumed")
 
-    # log metrics as they are emitted, and total usage after session is over
-    usage_collector = metrics.UsageCollector()
-
-    @session.on("metrics_collected")
-    def _on_metrics_collected(ev: MetricsCollectedEvent):
-        metrics.log_metrics(ev.metrics)
-        usage_collector.collect(ev.metrics)
-
-    async def log_usage():
-        summary = usage_collector.get_summary()
-        logger.info(f"Usage: {summary}")
-
-    # shutdown callbacks are triggered when the session is over
-    ctx.add_shutdown_callback(log_usage)
-
+    
     await session.start(
         agent=MyAgent(),
         room=ctx.room,
