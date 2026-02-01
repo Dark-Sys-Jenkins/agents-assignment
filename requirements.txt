@@ -1,0 +1,23 @@
+# LiveKit Core
+livekit>=0.10.0
+livekit-agents>=0.8.0
+
+# LiveKit Plugins
+livekit-plugins-openai>=0.6.0
+livekit-plugins-deepgram>=0.6.0
+livekit-plugins-silero>=0.6.0
+
+# AI/ML Dependencies
+openai>=1.0.0
+aiohttp>=3.9.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# Logging
+coloredlogs>=15.0.1
