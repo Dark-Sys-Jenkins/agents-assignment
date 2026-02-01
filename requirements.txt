@@ -1,0 +1,5 @@
+livekit
+livekit-agents[openai,assemblyai,cartesia]
+livekit-plugins-silero
+livekit-plugins-noise-cancellation
+python-dotenv
