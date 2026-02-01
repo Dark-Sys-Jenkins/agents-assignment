@@ -1,0 +1,29 @@
+2026-02-01 19:08:37,920 INFO [history-agent] IntroAgent entering the session, generating intro message
+2026-02-01 19:08:37,920 INFO [history-agent] Speech created → AgentSpeaking TRUE
+2026-02-01 19:08:51,679 INFO [history-agent] AgentSpeaking : False Committing user turn: Hello. I am Ayush from India.
+2026-02-01 19:08:51,682 INFO [history-agent] Speech created → AgentSpeaking TRUE
+2026-02-01 19:09:07,091 INFO [history-agent] AgentSpeaking:True Mixed/non-ignored expression detected: ['tell', 'me', 'about'] — treating as interrupt
+2026-02-01 19:09:07,092 INFO [history-agent] Semantic interruption confirmed: Tell me about.
+2026-02-01 19:09:11,292 INFO [history-agent] AgentSpeaking : False Committing user turn: Emperor Ashok.
+2026-02-01 19:09:11,295 INFO [history-agent] Speech created → AgentSpeaking TRUE
+2026-02-01 19:09:20,661 INFO [history-agent] AgentSpeaking:True Backchanneling detected: ['okay'] — ignoring
+2026-02-01 19:09:22,831 INFO [history-agent] AgentSpeaking:True Backchanneling detected: ['okay'] — ignoring
+2026-02-01 19:09:26,470 INFO [history-agent] AgentSpeaking:True Backchanneling detected: ['good'] — ignoring
+2026-02-01 19:09:31,179 INFO [history-agent] AgentSpeaking:True Backchanneling detected: ['okay'] — ignoring
+2026-02-01 19:09:35,305 INFO [history-agent] AgentSpeaking:True Mixed/non-ignored expression detected: ['but', 'why', 'did', 'he', 'deny', 'his', 'phone'] — treating as interrupt
+2026-02-01 19:09:35,306 INFO [history-agent] Semantic interruption confirmed: But why did he deny his phone?
+2026-02-01 19:09:42,779 INFO [history-agent] AgentSpeaking : False Committing user turn: Why did he denounce his throne?
+2026-02-01 19:09:42,782 INFO [history-agent] Speech created → AgentSpeaking TRUE
+2026-02-01 19:09:45,759 INFO [history-agent] AgentSpeaking:True Mixed/non-ignored expression detected: ['why', 'did'] — treating as interrupt
+2026-02-01 19:09:45,760 INFO [history-agent] Semantic interruption confirmed: Why did
+2026-02-01 19:09:52,352 INFO [history-agent] AgentSpeaking : False Committing user turn: Why did he denounce his throne?
+2026-02-01 19:09:52,354 INFO [history-agent] Speech created → AgentSpeaking TRUE
+2026-02-01 19:10:07,986 INFO [history-agent] AgentSpeaking:True Interrupt words detected: ['stop'] — interrupting flow
+2026-02-01 19:10:07,987 INFO [history-agent] Semantic interruption confirmed: Okay. Stop.
+2026-02-01 19:10:15,152 INFO [history-agent] AgentSpeaking : False Committing user turn: Tell me something about reward of eighteen fifty seven.
+2026-02-01 19:10:15,155 INFO [history-agent] Speech created → AgentSpeaking TRUE
+2026-02-01 19:11:13,315 INFO [history-agent] AgentSpeaking : False Committing user turn: Okay.
+2026-02-01 19:11:13,320 INFO [history-agent] Speech created → AgentSpeaking TRUE
+2026-02-01 19:11:26,491 INFO [history-agent] AgentSpeaking : False Committing user turn: Okay. Bye bye.
+2026-02-01 19:11:26,494 INFO [history-agent] Speech created → AgentSpeaking TRUE
+2026-02-01 19:11:56,428 INFO [history-agent] Usage: UsageSummary(llm_prompt_tokens=4545, llm_prompt_cached_tokens=0, llm_input_audio_tokens=0, llm_input_cached_audio_tokens=0, llm_input_text_tokens=0, llm_input_cached_text_tokens=0, llm_input_image_tokens=0, llm_input_cached_image_tokens=0, llm_completion_tokens=759, llm_output_audio_tokens=0, llm_output_image_tokens=0, llm_output_text_tokens=0, tts_characters_count=2669, tts_audio_duration=149.16454166666676, stt_audio_duration=175.09999999999965)
