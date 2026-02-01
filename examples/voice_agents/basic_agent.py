@@ -1,5 +1,5 @@
 import logging
-
+import re
 from dotenv import load_dotenv
 
 from livekit.agents import (
@@ -13,7 +13,13 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 # uncomment to enable Krisp background voice/noise cancellation
 # from livekit.plugins import noise_cancellation
-
+STOP_WORDS = {"wait", "no", "stop", "finish", "hold", "pause", "hold on"}
+FILLER_WORDS = {
+    "uhhuh", "okay", "alright", "mhm", "yeah", "yep", "yup", 
+    "hmm", "right", "uh", "um", "ah", "gotit", "isee", "ok", "k",
+    "sure", "yes", "interesting", "really", "wow", "ohh", "ooh",
+    "aha", "uhuh", "mhmm", "gotcha", "nice"
+}
 logger = logging.getLogger("intelligent-kelly")
 
 load_dotenv()
@@ -98,17 +104,43 @@ async def entrypoint(ctx: JobContext):
             logger.warning("⚠️ FALSE INTERRUPTION: Not auto-resumed")
 
     
-    await session.start(
-        agent=MyAgent(),
-        room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                # uncomment to enable the Krisp BVC noise cancellation
-                # noise_cancellation=noise_cancellation.BVC(),
-            ),
-        ),
-    )
-
+    @session.on("user_input_transcribed")
+    def on_user_input_transcribed(ev: UserInputTranscribedEvent):
+        """
+        This handler provides a SECONDARY layer of defense.
+        It runs after STT completes, so it can't prevent the initial VAD interruption,
+        but it can prevent filler words from reaching the LLM and generating responses.
+        """
+        if not ev.is_final or not ev.transcript:
+            return
+        
+        clean_text = re.sub(r'[^\w\s]', '', ev.transcript.lower()).strip()
+        words = set(clean_text.split())
+        raw_phrase = clean_text.replace(" ", "")  # For "uhhuh" type phrases
+        
+        if not words:
+            return
+        
+        logger.info(f"📝 TRANSCRIPT: '{clean_text}' | Kelly speaking: {kelly.is_speaking}")
+        
+        
+        if words.intersection(STOP_WORDS):
+            logger.info(f"🛑 COMMAND DETECTED: '{clean_text}' → Calling interrupt()")
+            session.interrupt()
+            return
+    
+        if kelly.is_speaking and (raw_phrase in FILLER_WORDS or words.issubset(FILLER_WORDS)):
+            logger.info(f"🔇 FILLER SUPPRESSED: '{clean_text}' ignored during speech")
+           
+            return
+        
+        if not kelly.is_speaking and (raw_phrase in FILLER_WORDS or words.issubset(FILLER_WORDS)):
+            logger.info(f"🍃 LONE FILLER: '{clean_text}' suppressed (Kelly idle)")
+            return
+        
+        logger.info(f"✅ VALID INPUT: '{clean_text}' forwarded to LLM")
+       
+    await session.start(agent=kelly, room=ctx.room)
 
 if __name__ == "__main__":
     cli.run_app(server)
