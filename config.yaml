@@ -1,0 +1,26 @@
+interrupt_handler:
+  ignore_words:
+    - yeah
+    - ok
+    - hmm
+    - right
+    - uh-huh
+    - aha
+    - mmm
+    - yes
+    - yep
+    - okay
+    - got it
+    - I see
+    
+  command_words:
+    - wait
+    - stop
+    - no
+    - halt
+    - cancel
+    - pause
+    - hold on
+    
+  buffer_timeout: 0.3
+  min_interrupt_confidence: 0.7
