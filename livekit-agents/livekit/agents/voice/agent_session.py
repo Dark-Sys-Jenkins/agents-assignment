@@ -89,6 +89,10 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    # Filler word filtering options
+    ignore_filler_interruptions: bool
+    filler_words: set[str] | None
+    command_words: set[str] | None
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -130,6 +134,15 @@ class VoiceActivityVideoSampler:
 
 DEFAULT_TTS_TEXT_TRANSFORMS: list[TextTransforms] = ["filter_markdown", "filter_emoji"]
 
+# Default word lists for filler word filtering
+DEFAULT_FILLER_WORDS: set[str] = {
+    "yeah", "ok", "okay", "hmm", "hmmm", "hmmmm", "uh-huh", "right", "aha", "ahaa",
+    "mm", "mmm", "mhm", "mhmm", "mhmmm", "uh", "uhh", "uhm", "um", "umm",
+    "yep", "yes", "sure", "aah", "aaha", "aah-ha"
+}
+DEFAULT_COMMAND_WORDS: set[str] = {"wait", "stop", "no", "hold", "pause"}
+
+
 
 class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
     def __init__(
@@ -161,6 +174,10 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         ivr_detection: bool = False,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
+        # Filler word filtering
+        ignore_filler_interruptions: bool = False,
+        filler_words: NotGivenOr[list[str] | None] = NOT_GIVEN,
+        command_words: NotGivenOr[list[str] | None] = NOT_GIVEN,
         # deprecated
         agent_false_interruption_timeout: NotGivenOr[float | None] = NOT_GIVEN,
     ) -> None:
@@ -288,6 +305,18 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            # Filler word filtering
+            ignore_filler_interruptions=ignore_filler_interruptions,
+            filler_words=(
+                set(w.lower() for w in filler_words)
+                if is_given(filler_words) and filler_words
+                else DEFAULT_FILLER_WORDS if ignore_filler_interruptions else None
+            ),
+            command_words=(
+                set(w.lower() for w in command_words)
+                if is_given(command_words) and command_words
+                else DEFAULT_COMMAND_WORDS if ignore_filler_interruptions else None
+            ),
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False

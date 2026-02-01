@@ -38,12 +38,16 @@ def _mask_ctrl_c() -> Generator[None, None, None]:
             yield
         finally:
             signal.pthread_sigmask(signal.SIG_UNBLOCK, [signal.SIGINT])
-    else:
+    elif threading.current_thread() is threading.main_thread():
+        # Windows: only set signal handler if in main thread
         old = signal.signal(signal.SIGINT, signal.SIG_IGN)
         try:
             yield
         finally:
             signal.signal(signal.SIGINT, old)
+    else:
+        # Windows worker thread: cannot use signal.signal(), just yield
+        yield
 
 
 @dataclass

@@ -1,0 +1,15 @@
+[project]
+name = "interrupt-handeler-test"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9.0, <3.14"
+dependencies = [
+    "livekit-agents",
+    "livekit-plugins-noise-cancellation>=0.2.5",
+    "livekit-plugins-silero",
+]
+
+[tool.uv.sources]
+livekit-agents = { workspace = true }
+livekit-plugins-silero = { workspace = true }

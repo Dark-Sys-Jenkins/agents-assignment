@@ -93,6 +93,22 @@ class _OnEnterData:
 _OnEnterContextVar = contextvars.ContextVar["_OnEnterData"]("agents_activity_on_enter")
 
 
+def _classify_transcript(
+    text: str,
+    filler_words: set[str] | None,
+    command_words: set[str] | None
+) -> str:
+    """Classify transcript as 'filler', 'command', or 'speech'."""
+    if not text or not text.strip():
+        return 'filler'
+    words = set(text.lower().replace(",", "").replace(".", "").replace("?", "").split())
+    if command_words and (words & command_words):
+        return 'command'
+    if filler_words and words.issubset(filler_words):
+        return 'filler'
+    return 'speech'
+
+
 @dataclass
 class _PreemptiveGeneration:
     speech_handle: SpeechHandle
@@ -1174,6 +1190,16 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
+        # Filler word filtering: skip interrupt if current transcript is just filler words
+        if opt.ignore_filler_interruptions and self._audio_recognition:
+            transcript = self._audio_recognition.current_transcript
+            classification = _classify_transcript(
+                transcript, opt.filler_words, opt.command_words
+            )
+            if classification == 'filler':
+                # Don't interrupt for filler words - agent continues speaking
+                return
+
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
@@ -1284,6 +1310,32 @@ class AgentActivity(RecognitionHooks):
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
+        
+        opt = self._session.options
+        
+        # STATE-AWARE FILLER WORD HANDLING:
+        # When using manual turn detection + filler filtering,
+        # only ignore fillers when agent is SPEAKING
+        if self._turn_detection == "manual" and opt.ignore_filler_interruptions:
+            transcript = ev.alternatives[0].text
+            classification = _classify_transcript(
+                transcript, opt.filler_words, opt.command_words
+            )
+            
+            agent_is_speaking = (self._session.agent_state == "speaking")
+            
+            if agent_is_speaking:
+                # Agent is SPEAKING - ignore fillers, respond to commands/speech
+                if classification == 'filler':
+                    # Filler: do nothing, agent continues speaking
+                    return
+                # Command or speech: commit turn to interrupt
+                self._session.commit_user_turn()
+            else:
+                # Agent is LISTENING - respond to everything including fillers
+                self._session.commit_user_turn()
+            return
+        
         # agent speech might not be interrupted if VAD failed and a final transcript is received
         # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
         # which will also be immediately interrupted
