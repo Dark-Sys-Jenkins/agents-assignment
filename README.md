@@ -42,6 +42,80 @@ agents that can see, hear, and understand.
 - **Builtin test framework**: Write tests and use judges to ensure your agent is performing as expected.
 - **Open-source**: Fully open-source, allowing you to run the entire stack on your own servers, including [LiveKit server](https://github.com/livekit/livekit), one of the most widely used WebRTC media servers.
 
+## GEN AI Assignment: Intelligent Interruption Handling
+
+This repo implements the **GEN AI Campus assignment** (see [GEN AI Assignment Campus (New).pdf](GEN%20AI%20Assignment%20Campus%20(New).pdf)): a context-aware logic layer so the agent distinguishes backchannel from real interruptions.
+
+- **Problem:** Default Voice Activity Detection (VAD) is too sensitive; when the user says "yeah", "ok", or "hmm" (backchannel) while the agent is speaking, the agent stops.
+- **Goal:** A logic layer that (1) **ignores** backchannel when the agent is speaking so it continues without stopping, (2) **interrupts** on "wait", "stop", "no" or mixed input like "yeah but wait", and (3) **responds** to "yeah" etc. when the agent is silent (e.g. "Are you ready?" → "Yeah" → "Okay, starting now").
+- **Solution:** [examples/dev/interrupt_handler_agent.py](examples/dev/interrupt_handler_agent.py) with configurable ignore/stop word lists and state-aware filtering in the agent event loop (no VAD changes).
+
+**Acceptance:** (1) Agent continues over "yeah/ok" while speaking; (2) Responds to "yeah" when silent; (3) Stops on "stop/no" and on mixed input like "yeah but wait."
+
+### How to run the solution
+
+**Prerequisites:** [uv](https://astral.sh/uv/install) (e.g. `curl -LsSf https://astral.sh/uv/install.sh | sh`), Python 3.9–3.13, [LiveKit server](https://github.com/livekit/livekit) (`livekit-server`), and the API keys below. All commands are run from the **repo root**.
+
+1. **Environment**  
+   Copy the example env and set your keys:
+   ```bash
+   cp examples/.env.example examples/.env
+   ```
+   Edit `examples/.env` and set:
+
+   | Variable             | Purpose                  | Example / note                          |
+   |----------------------|--------------------------|-----------------------------------------|
+   | `LIVEKIT_URL`        | WebSocket URL of LiveKit | `ws://127.0.0.1:7880` for local dev      |
+   | `LIVEKIT_API_KEY`    | LiveKit API key          | `devkey` when using `livekit-server --dev` |
+   | `LIVEKIT_API_SECRET` | LiveKit API secret       | `secret` when using `livekit-server --dev` |
+   | `OPENAI_API_KEY`     | OpenAI (LLM)             | Required for voice agent                 |
+   | `DEEPGRAM_API_KEY`   | Deepgram (STT)           | Required for voice agent                 |
+   | `CARTESIA_API_KEY`   | Cartesia (TTS)           | Required for voice agent                 |
+
+2. **Install and download models** (once):
+   ```bash
+   uv sync --all-extras --dev
+   uv run python examples/dev/interrupt_handler_agent.py download-files
+   ```
+   Wait for "Finished downloading files for…" for silero and turn_detector.
+
+3. **Terminal 1 – Start LiveKit server** (leave running):
+   ```bash
+   livekit-server --dev
+   ```
+
+4. **Terminal 2 – Start the agent** (leave running):
+   ```bash
+   export $(grep -v '^#' examples/.env | xargs)
+   uv run python examples/dev/interrupt_handler_agent.py dev
+   ```
+
+5. **Terminal 3 – Generate a room token** (run once, copy the printed JWT):
+   ```bash
+   uv run python examples/dev/generate_playground_token.py
+   ```
+
+6. **Browser – Connect**  
+   Open [Agents Playground](https://agents-playground.livekit.io/) → **Connect** → **Manual** tab → URL: `ws://127.0.0.1:7880`, paste the token → **Connect**. The agent joins and you can test with your microphone.
+
+**Quick reference**
+
+| Order | Terminal   | Command |
+|-------|------------|---------|
+| 1     | Terminal 1 | `livekit-server --dev` (leave running) |
+| 2     | Terminal 2 | `export $(grep -v '^#' examples/.env \| xargs)` then `uv run python examples/dev/interrupt_handler_agent.py dev` (leave running) |
+| 3     | Terminal 3 | `uv run python examples/dev/generate_playground_token.py` (copy token once) |
+| 4     | Browser    | Agents Playground → Manual → URL: `ws://127.0.0.1:7880`, paste token → Connect |
+
+**Troubleshooting**
+
+- **"Could not find file model_q8.onnx"** – Run step 2 again: `uv run python examples/dev/interrupt_handler_agent.py download-files`.
+- **Missing OPENAI_API_KEY / DEEPGRAM_API_KEY / CARTESIA_API_KEY** – Add them to `examples/.env`.
+- **Playground doesn’t connect** – Ensure LiveKit server and agent are running; generate a new token (tokens expire).
+- **Agent doesn’t join** – Ensure agent is running and `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` in `examples/.env` match the server (e.g. `ws://127.0.0.1:7880`, `devkey`, `secret` for `livekit-server --dev`).
+
+For logic details, configuration options, and acceptance scenarios, see [examples/dev/README.md](examples/dev/README.md).
+
 ## Installation
 
 To install the core Agents library, along with plugins for popular model providers:
@@ -218,6 +292,13 @@ async def test_no_availability() -> None:
 
 <table>
 <tr>
+<td width="50%">
+<h3>🎯 Intelligent interruption handling</h3>
+<p>GEN AI Assignment: context-aware backchannel vs. real interruptions. Ignore "yeah/ok" while speaking; stop on "wait/stop/no"; respond to "yeah" when silent.</p>
+<p>
+<a href="examples/dev/interrupt_handler_agent.py">Code</a> · <a href="examples/dev/README.md">How to run</a>
+</p>
+</td>
 <td width="50%">
 <h3>🎙️ Starter Agent</h3>
 <p>A starter agent optimized for voice conversations.</p>

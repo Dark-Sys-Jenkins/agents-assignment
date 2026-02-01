@@ -54,6 +54,9 @@ dependencies = [
     "prometheus-client>=0.22",
     "openai>=1.99.2",
     "aiofiles>=24",
+    # For fuzzy matching of ignore/stop words in interruption handling (lazy import in _token_matches_list).
+    # If not installed, only exact token matching is used for ignore/stop words.
+    "rapidfuzz>=3.0",
 ]
 
 [project.optional-dependencies]

@@ -89,6 +89,10 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    interruption_ignore_words: Sequence[str]
+    interruption_stop_words: Sequence[str]
+    interruption_fuzzy_match: bool
+    interruption_fuzzy_threshold: float
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +163,10 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        interruption_ignore_words: Sequence[str] = (),
+        interruption_stop_words: Sequence[str] = (),
+        interruption_fuzzy_match: bool = False,
+        interruption_fuzzy_threshold: float = 0.8,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -245,6 +253,17 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                 Defaults to ``False``.
             ivr_detection (bool): Whether to detect if the agent is interacting with an IVR system.
                 Default ``False``.
+            interruption_ignore_words (Sequence[str]): Words to treat as backchannel when the agent
+                is speaking (e.g. "yeah", "ok", "hmm"). When the agent is speaking and the user
+                says only these words, the agent does not stop. Empty = disabled. Default ``()``.
+            interruption_stop_words (Sequence[str]): Words that always trigger an interrupt when
+                the agent is speaking (e.g. "wait", "stop", "no"). If the transcript contains any
+                of these, the agent stops. Empty = disabled. Default ``()``.
+            interruption_fuzzy_match (bool): When True, match interruption ignore/stop words
+                with fuzzy string matching so variants (e.g. "hmmm", "hm") match "hmm".
+                Default ``False``.
+            interruption_fuzzy_threshold (float): Similarity ratio in [0, 1] for fuzzy matching.
+                Only used when interruption_fuzzy_match is True. Default ``0.8``.
             conn_options (SessionConnectOptions, optional): Connection options for
                 stt, llm, and tts.
             loop (asyncio.AbstractEventLoop, optional): Event loop to bind the
@@ -285,6 +304,10 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             ),
             preemptive_generation=preemptive_generation,
             ivr_detection=ivr_detection,
+            interruption_ignore_words=tuple(interruption_ignore_words),
+            interruption_stop_words=tuple(interruption_stop_words),
+            interruption_fuzzy_match=interruption_fuzzy_match,
+            interruption_fuzzy_threshold=interruption_fuzzy_threshold,
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
@@ -957,6 +980,27 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             raise RuntimeError("AgentSession isn't running")
 
         return self._activity.interrupt(force=force)
+
+    def should_ignore_text_input(self, text: str) -> bool:
+        """Return True when the agent is speaking and the text is backchannel-only.
+
+        When True, chat/text input handlers should not interrupt or generate a reply
+        (e.g. user typed "hmm" or "yeah" while the agent is speaking). When False,
+        process the text input normally (interrupt if needed and generate reply).
+        """
+        if self._activity is None:
+            return False
+        return self._activity.should_ignore_text_input(text)
+
+    def should_reply_to_text_input(self, text: str) -> bool:
+        """Return False when the agent is speaking and the text is only stop words.
+
+        When False, chat/text handlers should interrupt but not generate a reply
+        (e.g. user typed "stop" -> agent stops and stays silent until next input).
+        """
+        if self._activity is None:
+            return True
+        return self._activity.should_reply_to_text_input(text)
 
     def clear_user_turn(self) -> None:
         # clear the transcription or input audio buffer of the user turn

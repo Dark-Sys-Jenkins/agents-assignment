@@ -76,6 +76,71 @@ from .generation import (
 )
 from .speech_handle import SpeechHandle
 
+
+def _token_matches_list(
+    token: str,
+    word_list: Sequence[str],
+    fuzzy_match: bool,
+    fuzzy_threshold: float,
+) -> bool:
+    """Return True if token exactly or (when fuzzy_match) fuzzily matches any word."""
+    lower_list = [w.lower() for w in word_list]
+    if token in set(lower_list):
+        return True
+    if not fuzzy_match:
+        return False
+    try:
+        from rapidfuzz import fuzz
+    except ImportError:
+        return False
+    return any(fuzz.ratio(token, w) / 100.0 >= fuzzy_threshold for w in lower_list)
+
+
+def _classify_interruption_transcript(
+    transcript: str,
+    ignore_words: Sequence[str],
+    stop_words: Sequence[str],
+    fuzzy_match: bool = False,
+    fuzzy_threshold: float = 0.8,
+) -> tuple[bool, bool, bool, bool]:
+    """Classify user transcript for interruption logic.
+
+    Returns (should_ignore, should_stop, only_stop, stop_no_reply). When agent is speaking:
+    - should_stop True: interrupt (user said a stop word or mixed content).
+    - should_ignore True and not should_stop: do not interrupt (backchannel only).
+    - only_stop True: transcript is exclusively stop words.
+    - stop_no_reply True: interrupt and do not reply (only stop words, or stop + backchannel
+      e.g. "Okay. Stop."); agent stays silent until user says something else.
+    - else: interrupt (unknown or mixed; stop takes precedence over ignore).
+    """
+    if not transcript or (not ignore_words and not stop_words):
+        return False, False, False, False
+    normalized = transcript.lower().strip()
+    if not normalized:
+        return False, False, False, False
+    tokens = [t[0].lower() for t in split_words(normalized, split_character=True)]
+    if not tokens:
+        return False, False, False, False
+    has_stop = any(_token_matches_list(t, stop_words, fuzzy_match, fuzzy_threshold) for t in tokens)
+    all_stop = bool(stop_words) and all(
+        _token_matches_list(t, stop_words, fuzzy_match, fuzzy_threshold) for t in tokens
+    )
+    all_ignore = bool(ignore_words) and all(
+        _token_matches_list(t, ignore_words, fuzzy_match, fuzzy_threshold) for t in tokens
+    )
+    # Stop + backchannel only (e.g. "Okay. Stop.") -> interrupt but do not reply
+    all_ignore_or_stop = all(
+        _token_matches_list(t, ignore_words, fuzzy_match, fuzzy_threshold)
+        or _token_matches_list(t, stop_words, fuzzy_match, fuzzy_threshold)
+        for t in tokens
+    )
+    stop_no_reply = (only_stop := all_stop) or (has_stop and all_ignore_or_stop)
+    # Stop takes precedence: "yeah wait" -> interrupt
+    should_ignore = all_ignore and not has_stop
+    should_stop = has_stop
+    return should_ignore, should_stop, only_stop, stop_no_reply
+
+
 if TYPE_CHECKING:
     from ..llm import mcp
     from .agent_session import AgentSession
@@ -975,6 +1040,52 @@ class AgentActivity(RecognitionHooks):
         if self._rt_session is not None:
             self._rt_session.clear_audio()
 
+    def should_ignore_text_input(self, text: str) -> bool:
+        """Return True when the agent is speaking and the text is backchannel-only."""
+        agent_speaking = (
+            self._current_speech is not None
+            and self._current_speech.allow_interruptions
+            and not self._current_speech.interrupted
+        )
+        if not agent_speaking:
+            return False
+        opt = self._session.options
+        if not (opt.interruption_ignore_words or opt.interruption_stop_words):
+            return False
+            should_ignore, should_stop, _, _ = _classify_interruption_transcript(
+                text,
+                opt.interruption_ignore_words,
+                opt.interruption_stop_words,
+                fuzzy_match=opt.interruption_fuzzy_match,
+                fuzzy_threshold=opt.interruption_fuzzy_threshold,
+            )
+            return should_ignore and not should_stop
+
+    def should_reply_to_text_input(self, text: str) -> bool:
+        """Return False when the agent is speaking and the text is only stop words.
+
+        When False, chat/text handlers should interrupt but not generate a reply
+        (e.g. user typed "stop" -> agent stops and stays silent until next input).
+        """
+        agent_speaking = (
+            self._current_speech is not None
+            and self._current_speech.allow_interruptions
+            and not self._current_speech.interrupted
+        )
+        if not agent_speaking:
+            return True
+        opt = self._session.options
+        if not (opt.interruption_ignore_words or opt.interruption_stop_words):
+            return True
+        _, _, _, stop_no_reply = _classify_interruption_transcript(
+            text,
+            opt.interruption_ignore_words,
+            opt.interruption_stop_words,
+            fuzzy_match=opt.interruption_fuzzy_match,
+            fuzzy_threshold=opt.interruption_fuzzy_threshold,
+        )
+        return not stop_no_reply
+
     def commit_user_turn(self, *, transcript_timeout: float, stt_flush_duration: float) -> None:
         assert self._audio_recognition is not None
         self._audio_recognition.commit_user_turn(
@@ -1174,7 +1285,32 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
-        if (
+        # Semantic interruption filtering: ignore backchannel when agent is speaking
+        agent_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        )
+        if agent_speaking and (opt.interruption_ignore_words or opt.interruption_stop_words):
+            text = (
+                self._audio_recognition.current_transcript
+                if self._audio_recognition is not None
+                else ""
+            )
+            if not (text or "").strip():
+                # VAD-only, no transcript yet: wait for STT to reduce false starts
+                return
+            should_ignore, should_stop, _, _ = _classify_interruption_transcript(
+                text,
+                opt.interruption_ignore_words,
+                opt.interruption_stop_words,
+                fuzzy_match=opt.interruption_fuzzy_match,
+                fuzzy_threshold=opt.interruption_fuzzy_threshold,
+            )
+            if should_ignore:
+                return
+            # should_stop or mixed/unknown: fall through to interrupt
+        elif (
             self.stt is not None
             and opt.min_interruption_words > 0
             and self._audio_recognition is not None
@@ -1365,15 +1501,37 @@ class AgentActivity(RecognitionHooks):
             # TODO(theomonnom): should we "forward" this new turn to the next agent/activity?
             return True
 
+        # Semantic filtering: when agent is speaking, ignore backchannel-only turns
+        agent_speaking = (
+            self._current_speech is not None
+            and self._current_speech.allow_interruptions
+            and not self._current_speech.interrupted
+        )
+        opt = self._session.options
         if (
             self.stt is not None
             and self._turn_detection != "manual"
-            and self._current_speech is not None
-            and self._current_speech.allow_interruptions
-            and not self._current_speech.interrupted
-            and self._session.options.min_interruption_words > 0
+            and agent_speaking
+            and (opt.interruption_ignore_words or opt.interruption_stop_words)
+        ):
+            should_ignore, _, _, stop_no_reply = _classify_interruption_transcript(
+                info.new_transcript,
+                opt.interruption_ignore_words,
+                opt.interruption_stop_words,
+                fuzzy_match=opt.interruption_fuzzy_match,
+                fuzzy_threshold=opt.interruption_fuzzy_threshold,
+            )
+            if should_ignore or stop_no_reply:
+                self._cancel_preemptive_generation()
+                return False
+            # stop+other or mixed: fall through to process as new turn
+        elif (
+            self.stt is not None
+            and self._turn_detection != "manual"
+            and agent_speaking
+            and opt.min_interruption_words > 0
             and len(split_words(info.new_transcript, split_character=True))
-            < self._session.options.min_interruption_words
+            < opt.min_interruption_words
         ):
             self._cancel_preemptive_generation()
             # avoid interruption if the new_transcript is too short

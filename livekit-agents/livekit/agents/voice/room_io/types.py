@@ -50,7 +50,11 @@ NoiseCancellationSelector = Callable[
 
 
 def _default_text_input_cb(sess: AgentSession, ev: TextInputEvent) -> None:
+    if sess.should_ignore_text_input(ev.text):
+        return
     sess.interrupt()
+    if not sess.should_reply_to_text_input(ev.text):
+        return
     sess.generate_reply(user_input=ev.text)
 
 
