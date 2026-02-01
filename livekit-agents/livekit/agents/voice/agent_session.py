@@ -89,6 +89,11 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    # Intelligent interruption handling options
+    intelligent_interruption_enabled: bool
+    backchanneling_words: frozenset[str] | None
+    interrupt_keywords: frozenset[str] | None
+    max_backchanneling_words: int
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -161,6 +166,11 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         ivr_detection: bool = False,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
+        # Intelligent interruption handling
+        intelligent_interruption_enabled: bool = True,
+        backchanneling_words: frozenset[str] | None = None,
+        interrupt_keywords: frozenset[str] | None = None,
+        max_backchanneling_words: int = 3,
         # deprecated
         agent_false_interruption_timeout: NotGivenOr[float | None] = NOT_GIVEN,
     ) -> None:
@@ -249,6 +259,21 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                 stt, llm, and tts.
             loop (asyncio.AbstractEventLoop, optional): Event loop to bind the
                 session to. Falls back to :pyfunc:`asyncio.get_event_loop()`.
+            intelligent_interruption_enabled (bool): Whether to enable intelligent
+                interruption handling that distinguishes between backchanneling
+                (e.g., "yeah", "ok", "hmm") and real interruptions when the agent
+                is speaking. When enabled, backchanneling words are ignored while
+                the agent speaks, but treated as valid input when the agent is silent.
+                Default ``True``.
+            backchanneling_words (frozenset[str], optional): Custom set of words to
+                treat as backchanneling (passive acknowledgements). If None, uses
+                the default set including "yeah", "ok", "hmm", "right", etc.
+            interrupt_keywords (frozenset[str], optional): Custom set of words that
+                always trigger interruption regardless of backchanneling filter.
+                If None, uses the default set including "wait", "stop", "no", etc.
+            max_backchanneling_words (int): Maximum number of words in user input
+                to consider as potential backchanneling. If user says more than
+                this many words, it's treated as real input. Default ``3``.
         """
         super().__init__()
         self._loop = loop or asyncio.get_event_loop()
@@ -288,6 +313,11 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            # Intelligent interruption handling
+            intelligent_interruption_enabled=intelligent_interruption_enabled,
+            backchanneling_words=backchanneling_words,
+            interrupt_keywords=interrupt_keywords,
+            max_backchanneling_words=max_backchanneling_words,
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False
