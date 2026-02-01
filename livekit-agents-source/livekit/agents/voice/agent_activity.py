@@ -1166,6 +1166,17 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
+    def _should_ignore_interruption(self, text: str) -> bool:
+        ignore_words = self._session.options.ignore_words
+        if not ignore_words:
+            return False
+
+        words = split_words(text.lower())
+        if not words:
+            return False
+
+        return all(word in ignore_words for word in words)
+
     def _interrupt_by_audio_activity(self) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
@@ -1183,6 +1194,10 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+                return
+
+            if self._should_ignore_interruption(text):
+                logger.info(f"Ignoring interruption: '{text}' matches ignore list")
                 return
 
         if self._rt_session is not None:
@@ -1377,6 +1392,15 @@ class AgentActivity(RecognitionHooks):
         ):
             self._cancel_preemptive_generation()
             # avoid interruption if the new_transcript is too short
+            return False
+
+        if (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._should_ignore_interruption(info.new_transcript)
+        ):
+            logger.info(f"Ignoring interruption (end of turn): '{info.new_transcript}' matches ignore list")
+            self._cancel_preemptive_generation()
             return False
 
         old_task = self._user_turn_completed_atask
