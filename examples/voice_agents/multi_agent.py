@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 from dotenv import load_dotenv
-
 from livekit import api
 from livekit.agents import (
     Agent,
@@ -15,35 +14,69 @@ from livekit.agents import (
     RunContext,
     cli,
     metrics,
+    inference,
 )
 from livekit.agents.job import get_job_context
 from livekit.agents.llm import function_tool
 from livekit.agents.voice import MetricsCollectedEvent
-from livekit.plugins import deepgram, openai, silero
-
-# uncomment to enable Krisp BVC noise cancellation, currently supported on Linux and MacOS
-# from livekit.plugins import noise_cancellation
-
-## The storyteller agent is a multi-agent that can handoff the session to another agent.
-## This example demonstrates more complex workflows with multiple agents.
-## Each agent could have its own instructions, as well as different STT, LLM, TTS,
-## or realtime models.
-
-logger = logging.getLogger("multi-agent")
+from livekit.plugins import deepgram, silero, elevenlabs, openai
 
 load_dotenv()
 
+logger = logging.getLogger("interrupt-demo")
+
+IGNORE_WORDS = {
+    "yeah", "ok", "okay", "hmm", "uh", "uh-huh",
+    "right", "mm", "aha", "i", "see"
+}
+
+INTERRUPT_WORDS = {
+    "stop", "wait", "no", "cancel", "hold", "pause"
+}
+
+
+def tokenize(text: str | None) -> set[str]:
+    if not text:
+        return set()
+    return {w.lower() for w in text.strip().split()}
+
+class StrictSemanticSession(AgentSession):
+    """
+    Guarantees:
+    - Ignore words cause ZERO pause / ZERO resume
+    - Interrupt words cut immediately
+    """
+
+    def _interrupt_by_audio_activity(self) -> None:
+        if self._current_speech is None:
+            return super()._interrupt_by_audio_activity()
+
+        if self._audio_recognition is None:
+            return
+
+        text = self._audio_recognition.current_transcript or ""
+        tokens = tokenize(text)
+        if tokens and tokens.issubset(IGNORE_WORDS):
+            return
+
+        if tokens & INTERRUPT_WORDS:
+            pass  
+        else:
+            
+            return
+
+        return super()._interrupt_by_audio_activity()
+
+
 common_instructions = (
-    "Your name is Echo. You are a story teller that interacts with the user via voice."
-    "You are curious and friendly, with a sense of humor."
+    "Your name is Meena. You are a calm storyteller. "
+    "You speak in long, uninterrupted narratives. "
+    "Do not stop unless explicitly told to stop."
 )
 
 
 @dataclass
 class StoryData:
-    # Shared data that's used by the storyteller agent.
-    # This structure is passed as a parameter to function calls.
-
     name: Optional[str] = None
     location: Optional[str] = None
 
@@ -51,16 +84,14 @@ class StoryData:
 class IntroAgent(Agent):
     def __init__(self) -> None:
         super().__init__(
-            instructions=f"{common_instructions} Your goal is to gather a few pieces of "
-            "information from the user to make the story personalized and engaging."
-            "You should ask the user for their name and where they are from."
-            "Start the conversation with a short introduction.",
+            instructions=(
+                f"{common_instructions} "
+                "Ask the user their name and location briefly."
+            )
         )
 
     async def on_enter(self):
-        # when the agent is added to the session, it'll generate a reply
-        # according to its instructions
-        self.session.generate_reply()
+        await self.session.generate_reply(allow_interruptions=False)
 
     @function_tool
     async def information_gathered(
@@ -69,66 +100,26 @@ class IntroAgent(Agent):
         name: str,
         location: str,
     ):
-        """Called when the user has provided the information needed to make the story
-        personalized and engaging.
-
-        Args:
-            name: The name of the user
-            location: The location of the user
-        """
-
         context.userdata.name = name
         context.userdata.location = location
-
-        story_agent = StoryAgent(name, location)
-        # by default, StoryAgent will start with a new context, to carry through the current
-        # chat history, pass in the chat_ctx
-        # story_agent = StoryAgent(name, location, chat_ctx=self.chat_ctx)
-
-        logger.info(
-            "switching to the story agent with the provided user data: %s", context.userdata
-        )
-        return story_agent, "Let's start the story!"
+        return StoryAgent(name, location), "Alright, let me tell you a story."
 
 
 class StoryAgent(Agent):
-    def __init__(self, name: str, location: str, *, chat_ctx: Optional[ChatContext] = None) -> None:
+    def __init__(self, name: str, location: str, *, chat_ctx: Optional[ChatContext] = None):
         super().__init__(
-            instructions=f"{common_instructions}. You should use the user's information in "
-            "order to make the story personalized."
-            "create the entire story, weaving in elements of their information, and make it "
-            "interactive, occasionally interating with the user."
-            "do not end on a statement, where the user is not expected to respond."
-            "when interrupted, ask if the user would like to continue or end."
-            f"The user's name is {name}, from {location}.",
-            # each agent could override any of the model services, including mixing
-            # realtime and non-realtime models
-            llm=openai.realtime.RealtimeModel(voice="echo"),
-            tts=None,
+            instructions=(
+                f"{common_instructions} "
+                f"Tell a long, slow, immersive story for {name} from {location}. "
+                "Speak continuously in multiple paragraphs."
+            ),
+            llm=openai.LLM(model="gpt-4o-mini"),
+            tts=elevenlabs.TTS(),
             chat_ctx=chat_ctx,
         )
 
     async def on_enter(self):
-        # when the agent is added to the session, we'll initiate the conversation by
-        # using the LLM to generate a reply
-        self.session.generate_reply()
-
-    @function_tool
-    async def story_finished(self, context: RunContext[StoryData]):
-        """When you are fininshed telling the story (and the user confirms they don't
-        want anymore), call this function to end the conversation."""
-        # interrupt any existing generation
-        self.session.interrupt()
-
-        # generate a goodbye message and hang up
-        # awaiting it will ensure the message is played out before returning
-        await self.session.generate_reply(
-            instructions=f"say goodbye to {context.userdata.name}", allow_interruptions=False
-        )
-
-        job_ctx = get_job_context()
-        await job_ctx.api.room.delete_room(api.DeleteRoomRequest(room=job_ctx.room.name))
-
+        await self.session.generate_reply()
 
 server = AgentServer()
 
@@ -142,33 +133,21 @@ server.setup_fnc = prewarm
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext):
-    session = AgentSession[StoryData](
+    session = StrictSemanticSession(
         vad=ctx.proc.userdata["vad"],
-        # any combination of STT, LLM, TTS, or realtime API can be used
-        llm=openai.LLM(model="gpt-4o-mini"),
         stt=deepgram.STT(model="nova-3"),
-        tts=openai.TTS(voice="echo"),
+        llm=inference.LLM(model="google/gemini-2.0-flash"),
+        tts=elevenlabs.TTS(),
         userdata=StoryData(),
     )
 
-    # log metrics as they are emitted, and total usage after session is over
     usage_collector = metrics.UsageCollector()
 
     @session.on("metrics_collected")
     def _on_metrics_collected(ev: MetricsCollectedEvent):
-        metrics.log_metrics(ev.metrics)
         usage_collector.collect(ev.metrics)
 
-    async def log_usage():
-        summary = usage_collector.get_summary()
-        logger.info(f"Usage: {summary}")
-
-    ctx.add_shutdown_callback(log_usage)
-
-    await session.start(
-        agent=IntroAgent(),
-        room=ctx.room,
-    )
+    await session.start(agent=IntroAgent(), room=ctx.room)
 
 
 if __name__ == "__main__":
