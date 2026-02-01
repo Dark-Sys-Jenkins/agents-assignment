@@ -61,6 +61,11 @@ from .events import (
     SpeechCreatedEvent,
     UserInputTranscribedEvent,
 )
+from .interruption_filter import (
+    InterruptDecision,
+    InterruptionContext,
+    InterruptionFilter,
+)
 from .generation import (
     ToolExecutionOutput,
     _AudioOutput,
@@ -1166,24 +1171,72 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
-    def _interrupt_by_audio_activity(self) -> None:
+    def _interrupt_by_audio_activity(
+        self,
+        *,
+        is_final_transcript: bool = False,
+        transcript_override: str | None = None,
+    ) -> bool:
+        """Decide whether to interrupt agent speech based on user audio/transcript.
+
+        Flow (runs in parallel with agent speaking):
+        - STT delivers interim/final transcripts; we get current transcript and run
+          intent classification (InterruptionFilter, rule-based, no LLM).
+        - IGNORE → return False, agent keeps speaking.
+        - INTERRUPT → pause/interrupt agent speech and return True.
+        - PENDING → return False until we have enough transcript.
+
+        Returns True if interruption should proceed, False if ignored/filtered.
+        """
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
-            # ignore if realtime model has turn detection enabled
-            return
+            return False
 
+        # Use override (e.g. final transcript including current segment) or live transcript
+        transcript = ""
+        word_count = 0
+        speech_duration = 0.0
+
+        if transcript_override is not None:
+            transcript = transcript_override
+            word_count = len(split_words(transcript, split_character=True))
+        elif self._audio_recognition is not None:
+            transcript = self._audio_recognition.current_transcript
+            word_count = len(split_words(transcript, split_character=True))
+
+        # Check interruption filter if configured
+        if opt.interruption_filter is not None and self._session.agent_state == "speaking":
+            ctx = InterruptionContext(
+                transcript=transcript,
+                is_final=is_final_transcript,
+                agent_speaking=True,
+                speech_duration=speech_duration,
+                word_count=word_count,
+            )
+            decision = opt.interruption_filter.should_interrupt(ctx)
+
+            if decision == InterruptDecision.IGNORE:
+                opt.interruption_filter.on_interruption_suppressed(ctx)
+                return False
+            elif decision == InterruptDecision.PENDING:
+                if not is_final_transcript and opt.min_interruption_words > 0:
+                    if word_count < opt.min_interruption_words:
+                        return False
+                elif not is_final_transcript:
+                    return False
+            # InterruptDecision.INTERRUPT or PASSTHROUGH - proceed with interruption
+
+        # Fallback to existing min_interruption_words check if no filter configured
         if (
-            self.stt is not None
+            opt.interruption_filter is None
+            and self.stt is not None
             and opt.min_interruption_words > 0
             and self._audio_recognition is not None
         ):
-            text = self._audio_recognition.current_transcript
-
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
-                return
+            if word_count < opt.min_interruption_words:
+                return False
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
@@ -1208,6 +1261,8 @@ class AgentActivity(RecognitionHooks):
                     self._rt_session.interrupt()
 
                 self._current_speech.interrupt()
+
+        return True
 
     # region recognition hooks
 
@@ -1237,7 +1292,6 @@ class AgentActivity(RecognitionHooks):
 
     def on_vad_inference_done(self, ev: vad.VADEvent) -> None:
         if self._turn_detection in ("manual", "realtime_llm"):
-            # ignore vad inference done event if turn_detection is manual or realtime_llm
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
@@ -1248,20 +1302,30 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=False,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
+        if transcript_text and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            interim_transcript = (
+                f"{self._audio_recognition.current_transcript} {transcript_text}".strip()
+                if self._audio_recognition
+                else transcript_text
+            )
+            self._interrupt_by_audio_activity(
+                is_final_transcript=False,
+                transcript_override=interim_transcript,
+            )
 
             if (
                 speaking is False
@@ -1276,23 +1340,30 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+        logger.info(f"Conversation user: {transcript_text!r}")
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=True,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
-        # agent speech might not be interrupted if VAD failed and a final transcript is received
-        # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
-        # which will also be immediately interrupted
-
+        # Intent check must use transcript including this final segment (recognition
+        # updates current_transcript after this hook).
         if self._audio_recognition and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            full_transcript = (
+                f"{self._audio_recognition.current_transcript} {transcript_text}".strip()
+            )
+            should_interrupt = self._interrupt_by_audio_activity(
+                is_final_transcript=True,
+                transcript_override=full_transcript,
+            )
 
             if (
                 speaking is False
@@ -1302,9 +1373,11 @@ class AgentActivity(RecognitionHooks):
                 # schedule a resume timer if interrupted after end_of_speech
                 self._start_false_interruption_timer(timeout)
 
-        self._interrupt_paused_speech_task = asyncio.create_task(
-            self._interrupt_paused_speech(old_task=self._interrupt_paused_speech_task)
-        )
+            # Only create the interrupt task if the filter didn't suppress the interruption
+            if should_interrupt:
+                self._interrupt_paused_speech_task = asyncio.create_task(
+                    self._interrupt_paused_speech(old_task=self._interrupt_paused_speech_task)
+                )
 
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None:
         if (
@@ -1378,6 +1451,30 @@ class AgentActivity(RecognitionHooks):
             self._cancel_preemptive_generation()
             # avoid interruption if the new_transcript is too short
             return False
+
+        # Check interruption filter - if it's a backchannel, skip generating a reply
+        opt = self._session.options
+        if (
+            opt.interruption_filter is not None
+            and self._current_speech is not None
+            and self._current_speech.allow_interruptions
+            and not self._current_speech.interrupted
+        ):
+            word_count = len(split_words(info.new_transcript, split_character=True))
+            ctx = InterruptionContext(
+                transcript=info.new_transcript,
+                is_final=True,
+                agent_speaking=True,
+                speech_duration=0.0,  # Not tracked here
+                word_count=word_count,
+            )
+            decision = opt.interruption_filter.should_interrupt(ctx)
+
+            if decision == InterruptDecision.IGNORE:
+                self._cancel_preemptive_generation()
+                opt.interruption_filter.on_interruption_suppressed(ctx)
+                # Backchannel detected - don't generate a new reply
+                return False
 
         old_task = self._user_turn_completed_atask
         self._user_turn_completed_atask = self._create_speech_task(

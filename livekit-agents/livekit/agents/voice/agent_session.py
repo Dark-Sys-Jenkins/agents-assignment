@@ -39,6 +39,7 @@ from . import io, room_io
 from ._utils import _set_participant_attributes
 from .agent import Agent
 from .agent_activity import AgentActivity
+from .interruption_filter import InterruptionFilter
 from .audio_recognition import TurnDetectionMode
 from .events import (
     AgentEvent,
@@ -89,6 +90,7 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    interruption_filter: InterruptionFilter | None
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +161,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        interruption_filter: NotGivenOr[InterruptionFilter | None] = NOT_GIVEN,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -287,6 +290,9 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             ivr_detection=ivr_detection,
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
+            else None,
+            interruption_filter=interruption_filter
+            if is_given(interruption_filter)
             else None,
         )
         self._conn_options = conn_options or SessionConnectOptions()
