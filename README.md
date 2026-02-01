@@ -41,6 +41,7 @@ agents that can see, hear, and understand.
 - **MCP support**: Native support for MCP. Integrate tools provided by MCP servers with one loc.
 - **Builtin test framework**: Write tests and use judges to ensure your agent is performing as expected.
 - **Open-source**: Fully open-source, allowing you to run the entire stack on your own servers, including [LiveKit server](https://github.com/livekit/livekit), one of the most widely used WebRTC media servers.
+- **New feature**: Added a logic layer that is context-aware before interrupting. The agent must distinguish between a "passive acknowledgement" and an "active interruption" based on whether the agent is currently speaking or silent. [docs to new feature](examples/voice_agents/New_Feature_README.md)
 
 ## Installation
 
