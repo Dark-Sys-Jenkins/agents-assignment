@@ -177,3 +177,15 @@ docs/
 
 # Examples for development
 examples/dev/*
+
+# Virtual environments
+scvenv/
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
