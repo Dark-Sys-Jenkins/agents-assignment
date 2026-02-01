@@ -1166,48 +1166,34 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
+    
     def _interrupt_by_audio_activity(self) -> None:
-        opt = self._session.options
-        use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
-
+    # Do not auto-interrupt for realtime LLM turn detection
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
-            # ignore if realtime model has turn detection enabled
             return
 
+    # Nothing to pause
         if (
-            self.stt is not None
-            and opt.min_interruption_words > 0
-            and self._audio_recognition is not None
-        ):
-            text = self._audio_recognition.current_transcript
+            self._current_speech is None
+            or self._current_speech.interrupted
+            or not self._current_speech.allow_interruptions
+    ):
+            return
 
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
-                return
+    # 🔑 IMPORTANT: avoid re-triggering
+        if self._session._pending_interruption:
+            return
 
-        if self._rt_session is not None:
-            self._rt_session.start_user_activity()
+    # Mark possible interruption
+        self._session._pending_interruption = True
 
-        if (
-            self._current_speech is not None
-            and not self._current_speech.interrupted
-            and self._current_speech.allow_interruptions
-        ):
+    # Pause audio ONLY (no interrupt)
+        if self._session.output.audio and self._session.output.audio.can_pause:
             self._paused_speech = self._current_speech
+            self._session.output.audio.pause()
+            self._session._update_agent_state("listening")
 
-            # reset the false interruption timer
-            if self._false_interruption_timer:
-                self._false_interruption_timer.cancel()
-                self._false_interruption_timer = None
 
-            if use_pause and self._session.output.audio and self._session.output.audio.can_pause:
-                self._session.output.audio.pause()
-                self._session._update_agent_state("listening")
-            else:
-                if self._rt_session is not None:
-                    self._rt_session.interrupt()
-
-                self._current_speech.interrupt()
 
     # region recognition hooks
 
@@ -1301,7 +1287,7 @@ class AgentActivity(RecognitionHooks):
             ):
                 # schedule a resume timer if interrupted after end_of_speech
                 self._start_false_interruption_timer(timeout)
-
+        self._interrupt_by_audio_activity()
         self._interrupt_paused_speech_task = asyncio.create_task(
             self._interrupt_paused_speech(old_task=self._interrupt_paused_speech_task)
         )
@@ -2566,6 +2552,8 @@ class AgentActivity(RecognitionHooks):
 
             self._paused_speech = None
             self._false_interruption_timer = None
+            self._session._pending_interruption = False
+
 
         self._false_interruption_timer = self._session._loop.call_later(
             timeout, _on_false_interruption

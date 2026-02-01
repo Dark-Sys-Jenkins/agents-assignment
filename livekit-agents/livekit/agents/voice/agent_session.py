@@ -357,6 +357,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
 
         # ivr activity
         self._ivr_activity: IVRActivity | None = None
+        self._pending_interruption: bool = False
+
 
     def emit(self, event: EventTypes, arg: AgentEvent) -> None:  # type: ignore
         self._recorded_events.append(arg)
@@ -1217,6 +1219,21 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             self._update_user_state("listening")
 
         self.emit("user_input_transcribed", ev)
+        from .interruption_filter import is_filler_only, is_real_interruption
+
+        if self._pending_interruption and ev.is_final:
+            self._pending_interruption = False
+
+            # Case 1: user only said filler → ignore completely
+            if is_filler_only(ev.transcript):
+                return
+
+            # Case 2: real command → interrupt
+            if is_real_interruption(ev.transcript):
+                    self.interrupt()
+
+
+
 
     def _conversation_item_added(self, message: llm.ChatMessage) -> None:
         self._chat_ctx.insert(message)

@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli
 from livekit.plugins import cartesia, deepgram, openai, silero
-
+from livekit.plugins import groq
 logger = logging.getLogger("resume-agent")
 
 load_dotenv()
@@ -22,14 +22,27 @@ server = AgentServer()
 async def entrypoint(ctx: JobContext):
     session = AgentSession(
         vad=silero.VAD.load(),
-        llm=openai.LLM(model="gpt-4o-mini"),
+        llm=groq.LLM(model="llama-3.1-8b-instant"),
         stt=deepgram.STT(),
         tts=cartesia.TTS(),
         false_interruption_timeout=1.0,
         resume_false_interruption=True,
     )
 
-    await session.start(agent=Agent(instructions="You are a helpful assistant."), room=ctx.room)
+    await session.start(agent=Agent(instructions="""
+You are a voice assistant.
+
+IMPORTANT BEHAVIOR RULES:
+- If the user says "stop", "wait", or interrupts while you are speaking:
+  - Immediately stop speaking.
+  - Do NOT explain.
+  - Do NOT comment about pausing or stopping.
+  - Wait silently for the next user query.
+
+- Only respond when the user asks a new factual question.
+- Keep answers short and factual.
+- Do not use meta conversation like "let me know", "it seems", or "I'll wait".
+"""), room=ctx.room)
 
 
 if __name__ == "__main__":
