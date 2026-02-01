@@ -1,3 +1,8 @@
-livekit-agents[openai, cartesia, elevenlabs, deepgram, silero, turn-detector, mcp]>=1.0
+livekit-agents[openai, cartesia, elevenlabs, deepgram, silero, turn-detector, mcp, groq]>=1.0
 python-dotenv>=1.0
 duckduckgo-search>=8.0
+opentelemetry-sdk
+opentelemetry-exporter-otlp
+langchain[openai]
+langgraph
+pydantic>=2.0
