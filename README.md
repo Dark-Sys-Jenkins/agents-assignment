@@ -38,6 +38,7 @@ agents that can see, hear, and understand.
 - **Telephony integration**: Works seamlessly with LiveKit's [telephony stack](https://docs.livekit.io/sip/), allowing your agent to make calls to or receive calls from phones.
 - **Exchange data with clients**: Use [RPCs](https://docs.livekit.io/home/client/data/rpc/) and other [Data APIs](https://docs.livekit.io/home/client/data/) to seamlessly exchange data with clients.
 - **Semantic turn detection**: Uses a transformer model to detect when a user is done with their turn, helps to reduce interruptions.
+- **Intelligent Interruption Handling**: Context-aware filtering that distinguishes between passive acknowledgements ("yeah", "ok") and active interruptions, allowing natural conversation flow.
 - **MCP support**: Native support for MCP. Integrate tools provided by MCP servers with one loc.
 - **Builtin test framework**: Write tests and use judges to ensure your agent is performing as expected.
 - **Open-source**: Fully open-source, allowing you to run the entire stack on your own servers, including [LiveKit server](https://github.com/livekit/livekit), one of the most widely used WebRTC media servers.
@@ -193,6 +194,102 @@ async def entrypoint(ctx: JobContext):
 ### Testing
 
 Automated tests are essential for building reliable agents, especially with the non-deterministic behavior of LLMs. LiveKit Agents include native test integration to help you create dependable agents.
+
+### Intelligent Interruption Handling
+
+---
+
+The Agent Framework includes an intelligent interruption filter that distinguishes between passive acknowledgements (backchanneling) and active interruptions based on the agent's speaking state.
+
+#### The Problem
+
+When an AI agent is explaining something important, standard Voice Activity Detection (VAD) is too sensitive to user feedback. If the user says "yeah," "ok," or "hmm" to indicate they are listening, the agent incorrectly interprets this as an interruption and stops speaking.
+
+#### The Solution
+
+The `InterruptionFilter` provides context-aware interruption handling:
+
+| User Input | Agent State | Behavior |
+|------------|-------------|----------|
+| "Yeah / Ok / Hmm" | Agent is Speaking | **IGNORE**: Agent continues speaking without pausing |
+| "Wait / Stop / No" | Agent is Speaking | **INTERRUPT**: Agent stops immediately |
+| "Yeah / Ok / Hmm" | Agent is Silent | **RESPOND**: Agent treats as valid input |
+| Mixed input (e.g., "Yeah wait") | Agent is Speaking | **INTERRUPT**: Contains command word |
+
+#### Usage
+
+```python
+from livekit.agents import InterruptionFilter, InterruptionFilterConfig
+
+# Create filter with default settings
+filter = InterruptionFilter()
+
+# Check if transcript should interrupt the agent
+should_stop = filter.should_interrupt("yeah", agent_speaking=True)
+print(should_stop)  # False - filler word while speaking, continue
+
+should_stop = filter.should_interrupt("wait", agent_speaking=True)
+print(should_stop)  # True - interrupt command, stop speaking
+
+should_stop = filter.should_interrupt("yeah", agent_speaking=False)
+print(should_stop)  # True - agent is silent, treat as input
+```
+
+#### Custom Configuration
+
+```python
+from livekit.agents import InterruptionFilter, InterruptionFilterConfig
+
+# Create custom filter with additional words
+custom_config = InterruptionFilterConfig(
+    ignore_words=["yeah", "ok", "hmm", "right", "sure", "absolutely", "definitely"],
+    interrupt_words=["stop", "wait", "no", "hold on", "cancel", "emergency"],
+    enabled=True,
+)
+custom_filter = InterruptionFilter(custom_config)
+
+# Use the filter
+should_stop = custom_filter.should_interrupt("absolutely right", agent_speaking=True)
+print(should_stop)  # False - only filler words
+
+should_stop = custom_filter.should_interrupt("yeah emergency", agent_speaking=True)
+print(should_stop)  # True - contains interrupt word
+```
+
+#### Default Word Lists
+
+**Ignore words** (backchanneling - ignored while agent speaks):
+`yeah`, `yes`, `yep`, `ok`, `okay`, `hmm`, `mhm`, `uh-huh`, `mm-hmm`, `right`, `sure`, `alright`, `ah`, `oh`, `i see`, `got it`
+
+**Interrupt words** (always trigger interruption):
+`wait`, `stop`, `no`, `hold on`, `pause`, `actually`, `but`, `excuse me`, `question`, `help`, `repeat`, `cancel`, `skip`
+
+#### Disabling the Filter
+
+```python
+# Disable filtering (all input triggers interruption)
+config = InterruptionFilterConfig(enabled=False)
+filter = InterruptionFilter(config)
+```
+
+#### Testing the Interruption Filter
+
+Run the voice test agent to try the interruption handling with your microphone:
+
+```bash
+# Navigate to examples folder
+cd examples
+
+# Set your API keys in .env file (see .env.example)
+# Required: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, DEEPGRAM_API_KEY, GROQ_API_KEY
+
+# Run the voice test
+python voice_test.py console
+```
+
+During the test:
+- Say **"yeah"**, **"ok"**, **"hmm"** while the agent speaks → Agent **continues** speaking
+- Say **"wait"**, **"stop"**, **"no"** while the agent speaks → Agent **stops** immediately
 
 ```python
 @pytest.mark.asyncio

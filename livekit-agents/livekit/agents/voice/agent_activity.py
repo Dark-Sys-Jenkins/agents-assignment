@@ -74,6 +74,11 @@ from .generation import (
     remove_instructions,
     update_instructions,
 )
+from .interruption_filter import (
+    InterruptionFilter,
+    InterruptionFilterConfig,
+    get_default_filter,
+)
 from .speech_handle import SpeechHandle
 
 if TYPE_CHECKING:
@@ -163,6 +168,9 @@ class AgentActivity(RecognitionHooks):
 
         # speeches that audio playout finished but not done because of tool calls
         self._background_speeches: set[SpeechHandle] = set()
+
+        # Intelligent interruption filter for handling backchanneling vs real interruptions
+        self._interruption_filter = get_default_filter()
 
     def _validate_turn_detection(
         self, turn_detection: TurnDetectionMode | None
@@ -1166,13 +1174,22 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
-    def _interrupt_by_audio_activity(self) -> None:
+    def _interrupt_by_audio_activity(self, transcript: str | None = None) -> bool:
+        """Attempt to interrupt the agent based on audio activity.
+        
+        Args:
+            transcript: Optional transcript text to analyze for interruption decision.
+                       If provided, the intelligent interruption filter will be used.
+        
+        Returns:
+            True if interruption was performed, False if it was filtered out.
+        """
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
             # ignore if realtime model has turn detection enabled
-            return
+            return False
 
         if (
             self.stt is not None
@@ -1183,7 +1200,21 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
-                return
+                return False
+
+        # Use the interruption filter to check if we should ignore backchanneling
+        if transcript and self._interruption_filter.config.enabled:
+            agent_speaking = self._session.agent_state == "speaking"
+            should_interrupt = self._interruption_filter.should_interrupt(
+                transcript, agent_speaking=agent_speaking
+            )
+            
+            if not should_interrupt:
+                logger.debug(
+                    "Ignoring backchannel while speaking",
+                    extra={"transcript": transcript}
+                )
+                return False
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
@@ -1208,6 +1239,8 @@ class AgentActivity(RecognitionHooks):
                     self._rt_session.interrupt()
 
                 self._current_speech.interrupt()
+        
+        return True
 
     # region recognition hooks
 
@@ -1248,23 +1281,27 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=False,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
+        if transcript_text and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # Pass transcript to the interruption filter for intelligent filtering
+            interrupted = self._interrupt_by_audio_activity(transcript=transcript_text)
 
             if (
-                speaking is False
+                interrupted
+                and speaking is False
                 and self._paused_speech
                 and (timeout := self._session.options.false_interruption_timeout) is not None
             ):
@@ -1276,10 +1313,12 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=True,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
@@ -1292,10 +1331,12 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            # Pass transcript to the interruption filter for intelligent filtering
+            interrupted = self._interrupt_by_audio_activity(transcript=transcript_text)
 
             if (
-                speaking is False
+                interrupted
+                and speaking is False
                 and self._paused_speech
                 and (timeout := self._session.options.false_interruption_timeout) is not None
             ):
