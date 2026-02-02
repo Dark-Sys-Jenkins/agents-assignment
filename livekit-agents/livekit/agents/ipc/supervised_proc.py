@@ -39,6 +39,13 @@ def _mask_ctrl_c() -> Generator[None, None, None]:
         finally:
             signal.pthread_sigmask(signal.SIG_UNBLOCK, [signal.SIGINT])
     else:
+        # On Windows, signal.signal() only works in the main thread
+        # Check if we're in the main thread before attempting to mask
+        if threading.current_thread() is not threading.main_thread():
+            # Not in main thread, skip signal masking
+            yield
+            return
+        
         old = signal.signal(signal.SIGINT, signal.SIG_IGN)
         try:
             yield
