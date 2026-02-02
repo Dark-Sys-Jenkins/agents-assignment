@@ -177,3 +177,7 @@ docs/
 
 # Examples for development
 examples/dev/*
+
+*.env
+.env.local
+uv.lock

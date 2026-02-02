@@ -12,7 +12,8 @@ from livekit.agents import (
     RunContext,
     cli,
     metrics,
-    room_io,
+    ro
+    om_io,
 )
 from livekit.agents.llm import function_tool
 from livekit.plugins import silero
