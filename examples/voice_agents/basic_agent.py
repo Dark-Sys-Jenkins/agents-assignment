@@ -18,8 +18,9 @@ from livekit.agents.llm import function_tool
 from livekit.plugins import silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-# uncomment to enable Krisp background voice/noise cancellation
-# from livekit.plugins import noise_cancellation
+# Import our custom interruption handling
+from interruption_handler import InterruptionHandler
+from interruption_config import DEFAULT_CONFIG
 
 logger = logging.getLogger("basic-agent")
 
@@ -27,22 +28,23 @@ load_dotenv()
 
 
 class MyAgent(Agent):
-    def __init__(self) -> None:
+    def __init__(self, interruption_handler: InterruptionHandler) -> None:
         super().__init__(
-            instructions="Your name is Kelly. You would interact with users via voice."
-            "with that in mind keep your responses concise and to the point."
-            "do not use emojis, asterisks, markdown, or other special characters in your responses."
-            "You are curious and friendly, and have a sense of humor."
-            "you will speak english to the user",
+            instructions="Your name is Kelly. You would interact with users via voice. "
+            "With that in mind keep your responses concise and to the point. "
+            "Do not use emojis, asterisks, markdown, or other special characters in your responses. "
+            "You are curious and friendly, and have a sense of humor. "
+            "You will speak english to the user. "
+            "When users say 'yeah', 'ok', or 'hmm' while you're speaking, it means they're listening - "
+            "continue your explanation without stopping.",
         )
+        self.interruption_handler = interruption_handler
 
     async def on_enter(self):
-        # when the agent is added to the session, it'll generate a reply
+        # When the agent is added to the session, it'll generate a reply
         # according to its instructions
         self.session.generate_reply()
 
-    # all functions annotated with @function_tool will be passed to the LLM when this
-    # agent is active
     @function_tool
     async def lookup_weather(
         self, context: RunContext, location: str, latitude: str, longitude: str
@@ -57,9 +59,7 @@ class MyAgent(Agent):
             latitude: The latitude of the location, do not ask user for it
             longitude: The longitude of the location, do not ask user for it
         """
-
         logger.info(f"Looking up weather for {location}")
-
         return "sunny with a temperature of 70 degrees."
 
 
@@ -75,34 +75,73 @@ server.setup_fnc = prewarm
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext):
-    # each log entry will include these fields
+    # Each log entry will include these fields
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
+    
+    # Create interruption handler instance
+    interruption_handler = InterruptionHandler(DEFAULT_CONFIG)
+    
     session = AgentSession(
-        # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
+        # Speech-to-text (STT)
         stt="deepgram/nova-3",
-        # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-        # See all available models at https://docs.livekit.io/agents/models/llm/
-        llm="openai/gpt-4.1-mini",
-        # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-        # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
+        # Large Language Model (LLM)
+        llm="openai/gpt-4o-mini",
+        # Text-to-speech (TTS)
         tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-        # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
-        # See more at https://docs.livekit.io/agents/build/turns
+        # VAD and turn detection
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
-        # allow the LLM to generate a response while waiting for the end of turn
-        # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
+        # Allow LLM to generate response while waiting for end of turn
         preemptive_generation=True,
-        # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
-        # when it's detected, you may resume the agent's speech
-        resume_false_interruption=True,
-        false_interruption_timeout=1.0,
+        # DISABLE the built-in false interruption handling
+        # We'll handle this with our custom logic
+        resume_false_interruption=False,
+        false_interruption_timeout=0.0,
     )
 
-    # log metrics as they are emitted, and total usage after session is over
+    # Track agent state based on TTS events
+    @session.on("agent_speech_started")
+    def _on_agent_speech_started():
+        """Called when agent starts speaking (TTS begins)."""
+        logger.info("🎤 Agent started speaking")
+        interruption_handler.set_agent_speaking(True)
+
+    @session.on("agent_speech_stopped")
+    def _on_agent_speech_stopped():
+        """Called when agent stops speaking (TTS ends)."""
+        logger.info("🔇 Agent stopped speaking")
+        interruption_handler.set_agent_speaking(False)
+
+    # Intercept user speech for intelligent interruption handling
+    @session.on("user_speech_committed")
+    def _on_user_speech_committed(transcript: str):
+        """
+        Called when user speech is finalized (STT provides final transcription).
+        This is where we decide if the interruption should be allowed.
+        """
+        logger.info(f"👤 User said: '{transcript}'")
+        
+        # Analyze the input
+        analysis = interruption_handler.analyze_input(transcript)
+        logger.info(f"📊 Analysis: {analysis}")
+        
+        # Check if interruption should be allowed
+        should_allow = interruption_handler.should_allow_interruption(transcript)
+        
+        if not should_allow:
+            # This is backchanneling while agent is speaking - IGNORE IT
+            logger.warning(f"🚫 IGNORING backchannel: '{transcript}' (agent continues)")
+            # Tell the session to resume the agent's speech if it was paused
+            session.resume_agent_speech()
+            return
+        
+        # This is a valid interruption or agent is silent - process normally
+        logger.info(f"✅ PROCESSING input: '{transcript}'")
+        # The default behavior will handle this
+
+    # Log metrics as they are emitted
     usage_collector = metrics.UsageCollector()
 
     @session.on("metrics_collected")
@@ -114,15 +153,14 @@ async def entrypoint(ctx: JobContext):
         summary = usage_collector.get_summary()
         logger.info(f"Usage: {summary}")
 
-    # shutdown callbacks are triggered when the session is over
     ctx.add_shutdown_callback(log_usage)
 
     await session.start(
-        agent=MyAgent(),
+        agent=MyAgent(interruption_handler),
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
-                # uncomment to enable the Krisp BVC noise cancellation
+                # Uncomment to enable Krisp BVC noise cancellation
                 # noise_cancellation=noise_cancellation.BVC(),
             ),
         ),
