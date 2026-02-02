@@ -1,0 +1,4 @@
+livekit
+livekit-agents[codecs,images,openai,silero,deepgram,google]
+python-dotenv
+aiohttp

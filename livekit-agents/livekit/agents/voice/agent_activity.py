@@ -4,6 +4,7 @@ import asyncio
 import contextvars
 import heapq
 import json
+import os  # ===== INTELLIGENT INTERRUPTION: Added for env var access =====
 import time
 from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
@@ -91,6 +92,87 @@ class _OnEnterData:
 
 
 _OnEnterContextVar = contextvars.ContextVar["_OnEnterData"]("agents_activity_on_enter")
+
+
+# ===== INTELLIGENT INTERRUPTION: Configuration =====
+# Configurable word lists for backchanneling vs interruption detection
+_BACKCHANNELING_WORDS = set(
+    os.getenv(
+        "BACKCHANNELING_WORDS",
+        "yeah,yep,yup,ok,okay,alright,sure,right,mhm,gotcha,understood,correct,exactly,absolutely,definitely,indeed,true,aha,hmm,uh-huh,mm-hmm"
+    ).lower().split(",")
+)
+
+_INTERRUPT_WORDS = set(
+    os.getenv(
+        "INTERRUPT_WORDS",
+        "stop,wait,no,hold,pause,cancel,halt,cease,but"
+    ).lower().split(",")
+)
+
+
+def _should_ignore_backchanneling(transcript: str, agent_is_speaking: bool) -> bool:
+    """
+    ===== INTELLIGENT INTERRUPTION: Core semantic filtering logic =====
+    
+    Determines if a transcript should be ignored as backchanneling based on:
+    1. Agent state (speaking vs silent)
+    2. Semantic content (backchanneling vs interruption vs mixed)
+    
+    Args:
+        transcript: The user's transcribed text
+        agent_is_speaking: Whether the agent is currently speaking/generating audio
+        
+    Returns:
+        True if transcript should be ignored (backchanneling while agent speaks)
+        False if transcript should be processed (interruption, mixed input, or agent silent)
+        
+    Logic Matrix:
+        - Agent speaking + pure backchanneling → IGNORE (return True)
+        - Agent speaking + contains interrupt word → PROCESS (return False)
+        - Agent speaking + mixed/unknown → PROCESS (return False)
+        - Agent silent + any input → PROCESS (return False)
+    """
+    # Don't filter when agent is silent - all inputs are valid responses
+    if not agent_is_speaking:
+        return False
+    
+    # Clean and tokenize the transcript
+    transcript_lower = transcript.lower().strip()
+    if not transcript_lower:
+        return False
+    
+    # Split into individual words, removing punctuation
+    words = [word.strip(".,!?;:") for word in transcript_lower.split()]
+    words = [w for w in words if w]  # Remove empty strings
+    
+    if not words:
+        return False
+    
+    # Check if ANY word is an interrupt word (semantic interruption detection)
+    # If user says "yeah wait" or "okay but stop", treat as interruption
+    if any(word in _INTERRUPT_WORDS for word in words):
+        logger.debug(
+            f"Interrupt word detected in transcript while agent speaking",
+            extra={"transcript": transcript, "words": words}
+        )
+        return False  # Don't ignore - this is a real interruption
+    
+    # Check if ALL words are backchanneling words
+    # Only ignore if it's pure acknowledgment (e.g., "yeah", "okay yeah", "mm-hmm")
+    if all(word in _BACKCHANNELING_WORDS for word in words):
+        logger.debug(
+            f"Pure backchanneling detected while agent speaking - ignoring",
+            extra={"transcript": transcript, "words": words}
+        )
+        return True  # Ignore - pure backchanneling
+    
+    # Mixed input or unknown words - don't ignore, treat as potential interruption
+    logger.debug(
+        f"Mixed or unknown input while agent speaking - processing",
+        extra={"transcript": transcript, "words": words}
+    )
+    return False  # Don't ignore - could be important
 
 
 @dataclass
@@ -1174,6 +1256,27 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
+        # ===== INTELLIGENT INTERRUPTION: Layer 1 - Interruption Gate =====
+        # Apply semantic filtering BEFORE any interruption logic executes
+        # This prevents backchanneling from causing unwanted pauses or stops
+        if (
+            self.stt is not None
+            and self._audio_recognition is not None
+            and self._current_speech is not None
+            and not self._current_speech.interrupted
+        ):
+            text = self._audio_recognition.current_transcript
+            agent_is_speaking = True  # Agent is currently speaking
+            
+            # Check if this is backchanneling that should be ignored
+            if _should_ignore_backchanneling(text, agent_is_speaking):
+                logger.info(
+                    "Ignoring backchanneling during agent speech",
+                    extra={"transcript": text, "agent_speaking": True}
+                )
+                return  # Early return - don't interrupt!
+        # ===== END Layer 1 =====
+
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
@@ -1248,6 +1351,22 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        # ===== INTELLIGENT INTERRUPTION: Layer 2 - LLM Forwarding Prevention =====
+        # Check if this transcript should be ignored before forwarding to LLM
+        transcript_text = ev.alternatives[0].text
+        agent_is_speaking = (
+            self._current_speech is not None 
+            and not self._current_speech.interrupted
+        )
+        
+        if _should_ignore_backchanneling(transcript_text, agent_is_speaking):
+            logger.info(
+                "Skipping interim transcript forwarding - backchanneling detected",
+                extra={"transcript": transcript_text, "agent_speaking": agent_is_speaking}
+            )
+            return  # Don't forward backchanneling to LLM
+        # ===== END Layer 2 =====
+
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
@@ -1275,6 +1394,22 @@ class AgentActivity(RecognitionHooks):
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
+
+        # ===== INTELLIGENT INTERRUPTION: Layer 2 - LLM Forwarding Prevention =====
+        # Check if this transcript should be ignored before forwarding to LLM
+        transcript_text = ev.alternatives[0].text
+        agent_is_speaking = (
+            self._current_speech is not None 
+            and not self._current_speech.interrupted
+        )
+        
+        if _should_ignore_backchanneling(transcript_text, agent_is_speaking):
+            logger.info(
+                "Skipping final transcript forwarding - backchanneling detected",
+                extra={"transcript": transcript_text, "agent_speaking": agent_is_speaking}
+            )
+            return  # Don't forward backchanneling to LLM or add to chat context
+        # ===== END Layer 2 =====
 
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
@@ -1385,6 +1520,42 @@ class AgentActivity(RecognitionHooks):
             name="AgentActivity._user_turn_completed_task",
         )
         return True
+
+    # ===== INTELLIGENT INTERRUPTION: Layer 3 - Conversation Context Hook Implementation =====
+    def should_ignore_transcript(self, transcript: str, is_final: bool) -> bool:
+        """
+        Hook implementation for Layer 3 filtering.
+        Determines if a transcript should be prevented from being added to conversation context.
+        
+        This is called from audio_recognition._on_stt_event() before adding to chat context.
+        
+        Args:
+            transcript: The transcribed text
+            is_final: Whether this is a final or interim transcript
+            
+        Returns:
+            True if transcript should be ignored (not added to context)
+            False if transcript should be processed normally
+        """
+        agent_is_speaking = (
+            self._current_speech is not None 
+            and not self._current_speech.interrupted
+        )
+        
+        should_ignore = _should_ignore_backchanneling(transcript, agent_is_speaking)
+        
+        if should_ignore:
+            logger.info(
+                f"Layer 3: Preventing transcript from conversation context",
+                extra={
+                    "transcript": transcript,
+                    "is_final": is_final,
+                    "agent_speaking": agent_is_speaking
+                }
+            )
+        
+        return should_ignore
+    # ===== END Layer 3 Implementation =====
 
     @utils.log_exceptions(logger=logger)
     async def _user_turn_completed_task(

@@ -90,6 +90,9 @@ class RecognitionHooks(Protocol):
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None: ...
 
     def retrieve_chat_ctx(self) -> llm.ChatContext: ...
+    
+    # ===== INTELLIGENT INTERRUPTION: Layer 3 - Conversation Context Hook =====
+    def should_ignore_transcript(self, transcript: str, is_final: bool) -> bool: ...
 
 
 class AudioRecognition:
@@ -356,6 +359,18 @@ class AudioRecognition:
             if not transcript:
                 return
 
+            # ===== INTELLIGENT INTERRUPTION: Layer 3 - Conversation Context Prevention =====
+            # Check if this transcript should be ignored before adding to context
+            # This prevents backchanneling from being added to chat history or triggering EOU
+            if hasattr(self._hooks, 'should_ignore_transcript'):
+                if self._hooks.should_ignore_transcript(transcript, is_final=True):
+                    logger.info(
+                        "Layer 3: Skipping transcript - not adding to conversation context",
+                        extra={"transcript": transcript, "is_final": True}
+                    )
+                    return  # Don't add to transcript or trigger any further processing
+            # ===== END Layer 3 =====
+
             self._hooks.on_final_transcript(
                 ev,
                 speaking=self._speaking if self._vad else None,
@@ -441,6 +456,17 @@ class AudioRecognition:
                 )
 
         elif ev.type == stt.SpeechEventType.INTERIM_TRANSCRIPT:
+            # ===== INTELLIGENT INTERRUPTION: Layer 3 - Interim Transcript Filtering =====
+            transcript_text = ev.alternatives[0].text
+            if hasattr(self._hooks, 'should_ignore_transcript'):
+                if self._hooks.should_ignore_transcript(transcript_text, is_final=False):
+                    logger.debug(
+                        "Layer 3: Skipping interim transcript",
+                        extra={"transcript": transcript_text, "is_final": False}
+                    )
+                    return  # Don't process interim backchanneling
+            # ===== END Layer 3 =====
+            
             self._hooks.on_interim_transcript(ev, speaking=self._speaking if self._vad else None)
             self._audio_interim_transcript = ev.alternatives[0].text
 
