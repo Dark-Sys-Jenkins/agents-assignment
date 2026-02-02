@@ -75,6 +75,7 @@ from .generation import (
     update_instructions,
 )
 from .speech_handle import SpeechHandle
+from .interruption_handler import InterruptionHandler, InterruptionHandlerConfig
 
 if TYPE_CHECKING:
     from ..llm import mcp
@@ -163,6 +164,11 @@ class AgentActivity(RecognitionHooks):
 
         # speeches that audio playout finished but not done because of tool calls
         self._background_speeches: set[SpeechHandle] = set()
+
+        # Initialize intelligent interruption handler
+        self._interruption_handler = InterruptionHandler()
+        self._last_empty_interrupt_time: float | None = None
+        self._empty_interrupt_throttle_seconds = 0.1  # Throttle empty transcript interruptions to max once per 100ms
 
     def _validate_turn_detection(
         self, turn_detection: TurnDetectionMode | None
@@ -1167,6 +1173,62 @@ class AgentActivity(RecognitionHooks):
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
     def _interrupt_by_audio_activity(self) -> None:
+        # CRITICAL: Check if agent is speaking FIRST, before any other processing
+        # If agent is speaking and we have no transcript OR filler words, return immediately
+        # This prevents ANY processing that might cause audio breaks
+        agent_is_speaking = (
+            self._current_speech is not None
+            and not self._current_speech.interrupted
+            and self._current_speech.allow_interruptions
+        )
+        
+        # Get current transcript IMMEDIATELY - before ANY other operations
+        current_transcript = None
+        if self._audio_recognition is not None:
+            current_transcript = self._audio_recognition.current_transcript
+        
+        # ULTRA-EARLY CHECK: If agent is speaking, check transcript IMMEDIATELY
+        # This must happen before ANY other processing to prevent audio breaks
+        if agent_is_speaking:
+            # If transcript is empty, return immediately
+            if not current_transcript or not current_transcript.strip():
+                # Rate limit empty transcript checks - skip if too soon
+                current_time = time.time()
+                if (
+                    self._last_empty_interrupt_time is not None
+                    and current_time - self._last_empty_interrupt_time < self._empty_interrupt_throttle_seconds
+                ):
+                    # Too soon - skip completely without any logging to minimize overhead
+                    return
+                self._last_empty_interrupt_time = current_time
+                # Minimal logging only on first empty transcript per throttle period
+                return
+            
+            # If we have a transcript, check if it's filler words IMMEDIATELY
+            # This check happens BEFORE any logging or state changes
+            if current_transcript and current_transcript.strip():
+                # Quick debounce check - fastest possible
+                if hasattr(self, '_last_ignored_transcript') and self._last_ignored_transcript == current_transcript:
+                    # Already processed this filler word - skip completely, no logging
+                    return
+                
+                # Check if it's filler words - this is the CRITICAL check
+                # Do this BEFORE any other operations to minimize latency
+                should_ignore, _ = self._interruption_handler.should_ignore_interruption(
+                    agent_is_speaking=True,
+                    transcript=current_transcript,
+                    wait_for_transcript=False,
+                )
+                
+                if should_ignore:
+                    # Mark as processed to prevent duplicate checks
+                    # Do this assignment AFTER the check to minimize time before return
+                    self._last_ignored_transcript = current_transcript
+                    # Return IMMEDIATELY - do NOT proceed with any interruption logic
+                    # This prevents ANY audio state changes
+                    # NO LOGGING HERE - minimize overhead
+                    return
+        
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
@@ -1174,6 +1236,135 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
+        logger.debug(
+            f"Interruption triggered - agent_speaking: {agent_is_speaking}",
+            extra={
+                "has_speech": self._current_speech is not None,
+                "speech_interrupted": self._current_speech.interrupted if self._current_speech else None,
+                "allow_interruptions": self._current_speech.allow_interruptions if self._current_speech else None,
+                "transcript": current_transcript,
+            }
+        )
+
+        # If agent is not speaking, proceed with normal interruption logic
+        if not agent_is_speaking:
+            # Agent is not speaking, so user input is always valid
+            logger.debug("Agent not speaking - allowing interruption")
+        else:
+            # Agent IS speaking - check if we should ignore this interruption
+            # Use the transcript we already got (for debouncing)
+            transcript = current_transcript
+
+            logger.debug(
+                f"Agent speaking - checking transcript",
+                extra={"has_transcript": transcript is not None, "transcript": transcript}
+            )
+
+            # Early debounce check: Skip if we just processed this same transcript
+            # This prevents repeated processing of the same filler word
+            if transcript and hasattr(self, '_last_ignored_transcript') and self._last_ignored_transcript == transcript:
+                logger.debug(
+                    f"Skipping duplicate interruption for same transcript: {transcript}",
+                    extra={"transcript": transcript}
+                )
+                return
+
+            # If transcript is empty string, don't schedule async check - just return
+            # Empty transcripts shouldn't trigger interruptions when agent is speaking
+            # (This is a redundant check since we already checked above, but keeping for safety)
+            if transcript == "" or (transcript is None or not transcript.strip()):
+                logger.debug(
+                    "Empty transcript while agent speaking - ignoring interruption (redundant check)",
+                    extra={"agent_speaking": True}
+                )
+                return
+
+            # If we have a transcript, check it immediately
+            if transcript and transcript.strip():
+                # Reset rate limiter since we have a valid transcript
+                self._last_empty_interrupt_time = None
+                
+                should_ignore, reason = self._interruption_handler.should_ignore_interruption(
+                    agent_is_speaking=agent_is_speaking,
+                    transcript=transcript,
+                    wait_for_transcript=False,
+                )
+                
+                logger.debug(
+                    f"Interruption check result",
+                    extra={"should_ignore": should_ignore, "reason": reason, "transcript": transcript}
+                )
+                
+                if should_ignore:
+                    # Only mark as processed AFTER we've confirmed it's filler words
+                    if transcript.strip():
+                        self._last_ignored_transcript = transcript
+                    logger.info(
+                        f"Ignoring interruption due to filler words: {reason}",
+                        extra={"transcript": transcript, "agent_speaking": True}
+                    )
+                    return
+                else:
+                    # Reset debounce if it's not filler words (allow future checks)
+                    if hasattr(self, '_last_ignored_transcript'):
+                        self._last_ignored_transcript = None
+
+            # If no transcript available yet and agent is speaking, 
+            # do a few very quick non-blocking checks
+            # CRITICAL: We MUST NOT pause audio when we don't have a transcript yet!
+            # The transcript will arrive via on_interim_transcript or on_final_transcript,
+            # which already have checks in place. If we pause here, we'll cause audio breaks.
+            if (not transcript or not transcript.strip()) and self._audio_recognition is not None:
+                # Do a few very quick tight-loop checks (completely non-blocking)
+                # Most transcripts arrive very quickly, so we check a few times instantly
+                # NO time.sleep() calls - they block the event loop and cause audio stutter!
+                quick_checks = 30  # Increased to 30 for better chance of catching transcript
+                for _ in range(quick_checks):
+                    transcript = self._audio_recognition.current_transcript
+                    if transcript and transcript.strip():  # Only process non-empty transcripts
+                        # Found transcript! Check it immediately
+                        should_ignore, reason = self._interruption_handler.should_ignore_interruption(
+                            agent_is_speaking=agent_is_speaking,
+                            transcript=transcript,
+                            wait_for_transcript=False,
+                        )
+                        
+                        logger.debug(
+                            f"Quick check result",
+                            extra={"should_ignore": should_ignore, "reason": reason, "transcript": transcript}
+                        )
+                        
+                        if should_ignore:
+                            # Mark as processed AFTER confirming it's filler words
+                            if transcript.strip():
+                                self._last_ignored_transcript = transcript
+                            logger.info(
+                                f"Quick check: Ignoring interruption due to filler words: {reason}",
+                                extra={"transcript": transcript}
+                            )
+                            return
+                        else:
+                            # Reset debounce if it's not filler words
+                            if hasattr(self, '_last_ignored_transcript'):
+                                self._last_ignored_transcript = None
+                            # Not filler words, break and proceed with interruption
+                            break
+                
+                # CRITICAL FIX: If we still don't have transcript after quick checks,
+                # we MUST return early WITHOUT pausing audio or scheduling async checks.
+                # The transcript will arrive via on_interim_transcript or on_final_transcript,
+                # which already have early checks that will prevent interruption if it's filler words.
+                # If we pause here or schedule async checks, we'll cause audio breaks.
+                if not transcript or not transcript.strip():
+                    logger.debug(
+                        "No transcript after quick checks - returning early to prevent audio break. "
+                        "Transcript will arrive via on_interim_transcript/on_final_transcript which have checks.",
+                        extra={"agent_speaking": True}
+                    )
+                    return
+                # If we got a transcript but it's not filler words, continue to interruption below
+
+        # Original word count check (for backward compatibility)
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
@@ -1188,11 +1379,202 @@ class AgentActivity(RecognitionHooks):
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
 
+        if agent_is_speaking:
+            # CRITICAL FINAL CHECK: Before pausing audio, we MUST have a transcript
+            # If we don't have a transcript, we CANNOT pause audio - it will cause breaks
+            # The transcript will arrive via on_interim_transcript or on_final_transcript callbacks
+            if self._audio_recognition is not None:
+                final_transcript = self._audio_recognition.current_transcript
+                
+                # If no transcript available, return immediately - DO NOT pause audio
+                if not final_transcript or not final_transcript.strip():
+                    logger.debug(
+                        "Final check: No transcript available - returning to prevent audio break. "
+                        "Transcript will arrive via callbacks.",
+                        extra={"agent_speaking": True}
+                    )
+                    return
+                
+                # We have a transcript - check if it's filler words
+                should_ignore, reason = self._interruption_handler.should_ignore_interruption(
+                    agent_is_speaking=agent_is_speaking,
+                    transcript=final_transcript,
+                    wait_for_transcript=False,
+                )
+                if should_ignore:
+                    # Mark as processed and return WITHOUT pausing
+                    self._last_ignored_transcript = final_transcript
+                    logger.info(
+                        f"Final safety check: Ignoring interruption due to filler words: {reason}",
+                        extra={"transcript": final_transcript}
+                    )
+                    return
+            else:
+                # No audio recognition available - cannot check transcript
+                # Return to prevent audio break
+                logger.debug(
+                    "Final check: No audio recognition available - returning to prevent audio break",
+                    extra={"agent_speaking": True}
+                )
+                return
+            
+            # ABSOLUTE FINAL CHECK: One more check right before we actually pause/interrupt audio
+            # This is the last line of defense - we MUST have a valid non-filler transcript
+            # Check the transcript one more time to catch any race conditions
+            if self._audio_recognition is not None:
+                absolute_final_transcript = self._audio_recognition.current_transcript
+                
+                # If no transcript or empty, abort immediately - DO NOT pause audio
+                if not absolute_final_transcript or not absolute_final_transcript.strip():
+                    logger.debug(
+                        "ABSOLUTE FINAL CHECK: No transcript - aborting audio pause to prevent break",
+                        extra={"agent_speaking": True}
+                    )
+                    return
+                
+                # Check if it's filler words one more time
+                should_ignore_final, reason_final = self._interruption_handler.should_ignore_interruption(
+                    agent_is_speaking=agent_is_speaking,
+                    transcript=absolute_final_transcript,
+                    wait_for_transcript=False,
+                )
+                if should_ignore_final:
+                    logger.info(
+                        f"ABSOLUTE FINAL CHECK: Ignoring interruption due to filler words: {reason_final}",
+                        extra={"transcript": absolute_final_transcript, "agent_speaking": True}
+                    )
+                    # Mark as processed
+                    self._last_ignored_transcript = absolute_final_transcript
+                    return
+            
+            # Only if we pass ALL checks do we proceed to pause/interrupt
+            self._paused_speech = self._current_speech
+
+            # reset the false interruption timer
+            if self._false_interruption_timer:
+                self._false_interruption_timer.cancel()
+                self._false_interruption_timer = None
+
+            if use_pause and self._session.output.audio and self._session.output.audio.can_pause:
+                self._session.output.audio.pause()
+                self._session._update_agent_state("listening")
+            else:
+                if self._rt_session is not None:
+                    self._rt_session.interrupt()
+
+                self._current_speech.interrupt()
+
+    async def _check_interruption_async(self) -> None:
+        """
+        Async method to wait for STT transcript and then decide on interruption.
+        This handles the VAD/STT timing mismatch where VAD fires before STT confirms.
+        """
+        if self._audio_recognition is None:
+            # Reset pending flag if audio recognition is not available
+            if hasattr(self, '_pending_async_check'):
+                self._pending_async_check = False
+            return
+
+        # Wait for transcript with timeout
+        start_time = time.time()
+        timeout = self._interruption_handler.config.stt_wait_timeout
+        
+        while time.time() - start_time < timeout:
+                await asyncio.sleep(0.05)  # Check every 50ms
+                
+                transcript = self._audio_recognition.current_transcript
+                agent_is_speaking = (
+                    self._current_speech is not None
+                    and not self._current_speech.interrupted
+                    and self._current_speech.allow_interruptions
+                )
+                
+                # If agent is no longer speaking, we don't need to check
+                if not agent_is_speaking:
+                    if hasattr(self, '_pending_async_check'):
+                        self._pending_async_check = False
+                    return
+                
+                # Skip empty transcripts
+                if not transcript or not transcript.strip():
+                    continue
+                
+                # We have a non-empty transcript, process it
+                # Debounce: Skip if we just processed this same transcript
+                if hasattr(self, '_last_ignored_transcript') and self._last_ignored_transcript == transcript:
+                    logger.debug(
+                        f"Async check: Skipping duplicate interruption for same transcript: {transcript}",
+                        extra={"transcript": transcript}
+                    )
+                    # Reset pending flag
+                    if hasattr(self, '_pending_async_check'):
+                        self._pending_async_check = False
+                    return
+                
+                should_ignore, reason = self._interruption_handler.should_ignore_interruption(
+                    agent_is_speaking=agent_is_speaking,
+                    transcript=transcript,
+                    wait_for_transcript=False,
+                )
+                
+                logger.debug(
+                    f"Async check result",
+                    extra={"should_ignore": should_ignore, "reason": reason, "transcript": transcript}
+                )
+                
+                if should_ignore:
+                    # Mark as processed AFTER confirming it's filler words
+                    if transcript.strip():
+                        self._last_ignored_transcript = transcript
+                    logger.info(
+                        f"Async check: Ignoring interruption due to filler words: {reason}",
+                        extra={"transcript": transcript}
+                    )
+                    # Reset pending flag
+                    if hasattr(self, '_pending_async_check'):
+                        self._pending_async_check = False
+                    return
+                else:
+                    # Reset debounce if it's not filler words
+                    if hasattr(self, '_last_ignored_transcript'):
+                        self._last_ignored_transcript = None
+                    # Not a filler word, proceed with interruption
+                    logger.debug("Async check: Transcript contains commands, proceeding with interruption")
+                    break
+        
+        # Reset pending flag before proceeding
+        if hasattr(self, '_pending_async_check'):
+            self._pending_async_check = False
+        
+        # If we get here, either timeout or transcript contains commands
+        # Proceed with interruption
         if (
             self._current_speech is not None
             and not self._current_speech.interrupted
             and self._current_speech.allow_interruptions
         ):
+            # FINAL SAFETY CHECK: One more check before pausing audio
+            # This prevents audio breaks if transcript became available after our checks
+            if self._audio_recognition is not None:
+                final_transcript = self._audio_recognition.current_transcript
+                if final_transcript and final_transcript.strip():
+                    should_ignore, reason = self._interruption_handler.should_ignore_interruption(
+                        agent_is_speaking=True,
+                        transcript=final_transcript,
+                        wait_for_transcript=False,
+                    )
+                    if should_ignore:
+                        # Mark as processed and return WITHOUT pausing
+                        self._last_ignored_transcript = final_transcript
+                        logger.info(
+                            f"Async final check: Ignoring interruption due to filler words: {reason}",
+                            extra={"transcript": final_transcript}
+                        )
+                        return
+            
+            opt = self._session.options
+            use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
+            
             self._paused_speech = self._current_speech
 
             # reset the false interruption timer
@@ -1218,6 +1600,15 @@ class AgentActivity(RecognitionHooks):
             # cancel the timer when user starts speaking but leave the paused state unchanged
             self._false_interruption_timer.cancel()
             self._false_interruption_timer = None
+        
+        # Reset the last ignored transcript when user starts speaking
+        # This ensures a new user turn doesn't inherit old debounce states
+        if hasattr(self, '_last_ignored_transcript'):
+            self._last_ignored_transcript = None
+        if hasattr(self, '_pending_async_check'):
+            self._pending_async_check = False
+        # Reset rate limiter for new user turn
+        self._last_empty_interrupt_time = None
 
     def on_end_of_speech(self, ev: vad.VADEvent | None) -> None:
         speech_end_time = time.time()
@@ -1241,6 +1632,59 @@ class AgentActivity(RecognitionHooks):
             return
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
+            # Early check: If agent is speaking, check transcript immediately before interrupting
+            # This prevents audio breaks when user says filler words
+            agent_is_speaking = (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            )
+            
+            if agent_is_speaking:
+                # CRITICAL: When agent is speaking, we MUST have a transcript before calling _interrupt_by_audio_activity
+                # If we don't have a transcript, DO NOT call it at all - it will cause audio breaks
+                # The transcript will arrive via on_interim_transcript or on_final_transcript callbacks
+                if self._audio_recognition is None:
+                    # No audio recognition - cannot check transcript, so don't interrupt
+                    return
+                
+                transcript = self._audio_recognition.current_transcript
+                
+                # If transcript is empty or not available, DO NOT call _interrupt_by_audio_activity
+                # This prevents any side effects that might cause audio breaks
+                if not transcript or not transcript.strip():
+                    # Transcript not ready yet - it will arrive via callbacks
+                    # Do NOT call _interrupt_by_audio_activity to prevent audio breaks
+                    return
+                
+                # We have a transcript - check if we've already processed it (debounce)
+                if hasattr(self, '_last_ignored_transcript') and self._last_ignored_transcript == transcript:
+                    logger.debug(
+                        f"VAD: Skipping duplicate interruption for same transcript: {transcript}",
+                        extra={"transcript": transcript}
+                    )
+                    return
+                
+                # Check if it's filler words
+                should_ignore, reason = self._interruption_handler.should_ignore_interruption(
+                    agent_is_speaking=agent_is_speaking,
+                    transcript=transcript,
+                    wait_for_transcript=False,
+                )
+                
+                if should_ignore:
+                    # Mark as processed
+                    self._last_ignored_transcript = transcript
+                    logger.info(
+                        f"VAD: Ignoring interruption due to filler words: {reason}",
+                        extra={"transcript": transcript}
+                    )
+                    return
+                # If we get here, transcript exists and is NOT filler words - proceed to interrupt
+            
+            # Only call _interrupt_by_audio_activity if:
+            # 1. Agent is not speaking, OR
+            # 2. Agent is speaking AND we have a non-empty, non-filler transcript
             self._interrupt_by_audio_activity()
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
@@ -1261,6 +1705,48 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # Early check: If agent is speaking, check if transcript is filler words before interrupting
+            agent_is_speaking = (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            )
+            
+            if agent_is_speaking:
+                transcript = ev.alternatives[0].text
+                
+                # CRITICAL: If transcript is empty, return immediately - do not call _interrupt_by_audio_activity
+                if not transcript or not transcript.strip():
+                    logger.debug(
+                        "Interim: Empty transcript while agent speaking - skipping interruption",
+                        extra={"agent_speaking": True}
+                    )
+                    return
+                
+                # Check if we've already processed this transcript (debounce)
+                if hasattr(self, '_last_ignored_transcript') and self._last_ignored_transcript == transcript:
+                    logger.debug(
+                        f"Interim: Skipping duplicate interruption for same transcript: {transcript}",
+                        extra={"transcript": transcript}
+                    )
+                    return
+                
+                # Check if it's filler words
+                should_ignore, reason = self._interruption_handler.should_ignore_interruption(
+                    agent_is_speaking=agent_is_speaking,
+                    transcript=transcript,
+                    wait_for_transcript=False,
+                )
+                
+                if should_ignore:
+                    # Mark as processed
+                    self._last_ignored_transcript = transcript
+                    logger.info(
+                        f"Interim: Ignoring interruption due to filler words: {reason}",
+                        extra={"transcript": transcript}
+                    )
+                    return
+            
             self._interrupt_by_audio_activity()
 
             if (
@@ -1292,6 +1778,48 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # Early check: If agent is speaking, check if transcript is filler words before interrupting
+            agent_is_speaking = (
+                self._current_speech is not None
+                and not self._current_speech.interrupted
+                and self._current_speech.allow_interruptions
+            )
+            
+            if agent_is_speaking:
+                transcript = ev.alternatives[0].text
+                
+                # CRITICAL: If transcript is empty, return immediately - do not call _interrupt_by_audio_activity
+                if not transcript or not transcript.strip():
+                    logger.debug(
+                        "Final: Empty transcript while agent speaking - skipping interruption",
+                        extra={"agent_speaking": True}
+                    )
+                    return
+                
+                # Check if we've already processed this transcript (debounce)
+                if hasattr(self, '_last_ignored_transcript') and self._last_ignored_transcript == transcript:
+                    logger.debug(
+                        f"Final: Skipping duplicate interruption for same transcript: {transcript}",
+                        extra={"transcript": transcript}
+                    )
+                    return
+                
+                # Check if it's filler words
+                should_ignore, reason = self._interruption_handler.should_ignore_interruption(
+                    agent_is_speaking=agent_is_speaking,
+                    transcript=transcript,
+                    wait_for_transcript=False,
+                )
+                
+                if should_ignore:
+                    # Mark as processed
+                    self._last_ignored_transcript = transcript
+                    logger.info(
+                        f"Final: Ignoring interruption due to filler words: {reason}",
+                        extra={"transcript": transcript}
+                    )
+                    return
+            
             self._interrupt_by_audio_activity()
 
             if (
