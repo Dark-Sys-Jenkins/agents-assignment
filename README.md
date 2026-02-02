@@ -373,3 +373,90 @@ The Agents framework is under active development in a rapidly evolving field. We
 </tbody>
 </table>
 <!--END_REPO_NAV-->
+
+
+
+
+---
+
+## Context-Aware Interruption Handling (Assignment Solution)
+
+This section documents the solution implemented for the **LiveKit Intelligent Interruption Handling** assignment.
+
+### Overview
+
+The goal of this implementation is to improve conversational flow by distinguishing between:
+
+- **Passive acknowledgements** such as “yeah”, “ok”, “hmm”
+- **Active interruptions** such as “stop”, “wait”, “no”
+
+based on whether the agent is **currently speaking or silent**, without modifying the low-level Voice Activity Detection (VAD) system.
+
+---
+
+### How to Run the Agent
+
+1. Set environment variables:
+
+```bash
+setx OPENAI_API_KEY "<your_openai_key>"
+setx DEEPGRAM_API_KEY "<your_deepgram_key>"
+
+(On macOS/Linux, use export instead of setx.)
+2.Run the agent:
+python examples/voice_agents/interrupt_agent.py dev
+
+3.Connect using the LiveKit Agents Playground or any LiveKit client.
+
+Configurable Ignore List
+
+Passive acknowledgement words are defined in a configurable set:
+IGNORE_WORDS = {
+    "okay", "ok", "yeah", "hmm", "uh", "uhh", "uh-huh", "right", "aha"
+}
+These words are treated as soft inputs when the agent is speaking.
+
+State-Based Filtering
+
+The agent tracks whether it is currently speaking using audio lifecycle hooks:
+async def on_audio_start(self):
+    self.speaking = True
+
+async def on_audio_end(self):
+    self.speaking = False
+
+| Agent State | User Input    | Behavior               |
+| ----------- | ------------- | ---------------------- |
+| Speaking    | “yeah / ok”   | Ignored                |
+| Silent      | “yeah / ok”   | Responded to           |
+| Speaking    | “stop / wait” | Immediate interruption |
+
+
+Semantic Interruption Detection
+
+User input is classified semantically:
+
+If an interruption keyword is present, the agent stops immediately
+
+Mixed inputs such as “yeah okay but wait” correctly trigger an interruption
+
+Handling False Interruptions (No VAD Modification)
+
+Voice Activity Detection (VAD) operates faster than speech-to-text and may briefly interrupt agent audio before transcription is available.
+
+Instead of modifying VAD (which is explicitly disallowed), this implementation:
+
+Allows VAD to trigger normally
+
+Identifies passive acknowledgements after transcription
+
+Treats them as false interruptions
+
+Automatically resumes the agent’s speech
+
+Suppresses unintended responses
+
+This behavior is enabled using LiveKit’s built-in recovery mechanism:
+resume_false_interruption=True
+false_interruption_timeout=1.5
+
