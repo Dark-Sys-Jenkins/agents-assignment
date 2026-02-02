@@ -38,6 +38,12 @@ agents that can see, hear, and understand.
 - **Telephony integration**: Works seamlessly with LiveKit's [telephony stack](https://docs.livekit.io/sip/), allowing your agent to make calls to or receive calls from phones.
 - **Exchange data with clients**: Use [RPCs](https://docs.livekit.io/home/client/data/rpc/) and other [Data APIs](https://docs.livekit.io/home/client/data/) to seamlessly exchange data with clients.
 - **Semantic turn detection**: Uses a transformer model to detect when a user is done with their turn, helps to reduce interruptions.
+- **Intelligent interruption handling**: Context-aware filtering with configurable fuzzy matching (default 80% similarity, customizable 0-100%) that distinguishes between passive acknowledgements ("yeah", "ok", "hmm") and intentional interruptions ("stop", "wait"), preventing the agent from stopping when users are just acknowledging they're listening. Features include:
+  - Handles typos and STT variations automatically ("yeahh" → "yeah")
+  - Configurable similarity threshold for different use cases
+  - Robust error handling with automatic fallback
+  - Performance-optimized fuzzy matching
+  - Comprehensive test coverage (24 tests)
 - **MCP support**: Native support for MCP. Integrate tools provided by MCP servers with one loc.
 - **Builtin test framework**: Write tests and use judges to ensure your agent is performing as expected.
 - **Open-source**: Fully open-source, allowing you to run the entire stack on your own servers, including [LiveKit server](https://github.com/livekit/livekit), one of the most widely used WebRTC media servers.
@@ -277,15 +283,22 @@ async def test_no_availability() -> None:
 </p>
 </td>
 <td width="50%">
+<h3>🎤 Intelligent interruption handling</h3>
+<p>Agent that ignores backchannel words ("yeah", "ok") while speaking but responds to commands ("stop", "wait")</p>
+<p>
+<a href="examples/voice_agents/intelligent_interruption_demo.py">Code</a>
+</p>
+</td>
+</tr>
+
+<tr>
+<td width="50%">
 <h3>💬 Text-only agent</h3>
 <p>Skip voice altogether and use the same code for text-only integrations</p>
 <p>
 <a href="examples/other/text_only.py">Code</a>
 </p>
 </td>
-</tr>
-
-<tr>
 <td width="50%">
 <h3>📝 Multi-user transcriber</h3>
 <p>Produce transcriptions from all users in the room</p>

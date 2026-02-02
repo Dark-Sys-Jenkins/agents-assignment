@@ -1,0 +1,50 @@
+feat: implement intelligent interruption handling with configurable fuzzy matching
+
+Add context-aware interruption detection to distinguish between backchannel
+responses ("yeah", "okay", "hmm") and genuine interruptions ("stop", "wait").
+This enables natural conversation flow where users can acknowledge they're
+listening without disrupting the agent.
+
+Key Features:
+- Configurable fuzzy string matching using rapidfuzz (default 80% threshold)
+- Handles STT typos and variations automatically ("yeahh" → "yeah" @ 88%)
+- Sub-millisecond performance with process.extractOne optimization
+- State-aware: only filters interruptions when agent is speaking
+- Robust error handling with safe fallback behavior
+- 16 default backchannel words (configurable via param or env var)
+- Comprehensive debug logging for production troubleshooting
+
+Technical Implementation:
+- agent_activity.py: Add _is_soft_input() and _should_ignore_interruption()
+  with fuzzy matching, error handling, and performance optimizations
+- agent_session.py: Add DEFAULT_IGNORED_WORDS, fuzzy_match_threshold param,
+  and environment variable support (LIVEKIT_AGENT_IGNORED_WORDS)
+- Chose fuzzy matching over semantic embeddings due to latency (<1ms vs 50-200ms)
+
+Testing & Documentation:
+- 24 comprehensive tests covering exact/fuzzy matching, edge cases, thresholds
+- Demo application with usage examples and configuration display
+- Complete technical specification in PLAN.md with 8-minute video script
+- Interactive demonstration_walkthrough.py script with mock scenarios
+- Enhanced README.md with detailed feature description
+- PR_MESSAGE.md with comprehensive implementation details
+- Token generation utility (generate_token.py) for LiveKit playground
+
+Behavior Matrix:
+- "yeah/okay/hmm" while speaking → agent continues (backchannel)
+- "yeahh/okayy" while speaking → agent continues (fuzzy match)
+- "wait/stop/no" while speaking → agent stops (real interruption)
+- "yeah but wait" while speaking → agent stops (mixed input)
+- Any input when silent → processed normally
+
+Configuration:
+- Default: fuzzy_match_threshold=80 (balanced)
+- Lenient: fuzzy_match_threshold=70 (noisy/accents)
+- Strict: fuzzy_match_threshold=90 (formal/clear audio)
+- Exact: fuzzy_match_threshold=100 (testing/debugging)
+
+Breaking Changes: None (backward compatible)
+
+Dependencies: Added rapidfuzz>=3.0.0 for fuzzy string matching
+
+Closes: Intelligent interruption handling implementation
