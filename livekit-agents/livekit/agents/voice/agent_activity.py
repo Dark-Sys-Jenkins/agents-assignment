@@ -1332,7 +1332,6 @@ class AgentActivity(RecognitionHooks):
         # Reset all flags when user stops speaking
         # Note: _utterance_filtered_as_backchannel is checked by audio_recognition
         # BEFORE calling on_end_of_speech, so we reset it here after use
-        was_filtered = self._utterance_filtered_as_backchannel
         self._agent_was_speaking_at_utterance_start = False
         self._agent_state_captured_for_utterance = False
         self._utterance_filtered_as_backchannel = False

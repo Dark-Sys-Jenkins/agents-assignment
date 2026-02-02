@@ -130,9 +130,7 @@ async def entrypoint(ctx: JobContext):
         preemptive_generation=True,
         
         # Enable false interruption resumption
-        # DISABLED FOR TESTING - this might be causing the pause
-        resume_false_interruption=False,
-        # false_interruption_timeout=1.5,
+        resume_false_interruption=True,
         
         # =================================================================
         # INTELLIGENT INTERRUPTION HANDLING - The feature being demonstrated

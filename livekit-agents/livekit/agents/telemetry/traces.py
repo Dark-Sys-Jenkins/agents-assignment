@@ -33,7 +33,6 @@ except ImportError:
     )
     # Create a LogData-like class for compatibility
     from dataclasses import dataclass
-    from typing import Any
     @dataclass
     class LogData:
         log_record: Any
