@@ -89,6 +89,7 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    interruption_resume_words: Sequence[str] | None
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +160,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        interruption_resume_words: NotGivenOr[Sequence[str] | None] = NOT_GIVEN,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -259,6 +261,17 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             )
             false_interruption_timeout = agent_false_interruption_timeout
 
+        # Validate false_interruption_timeout
+        if is_given(false_interruption_timeout) and false_interruption_timeout is not None:
+            if false_interruption_timeout <= 0:
+                raise ValueError(
+                    f"false_interruption_timeout must be positive, got {false_interruption_timeout}"
+                )
+            logger.debug(
+                "false_interruption_timeout is set to %.1f seconds",
+                false_interruption_timeout,
+            )
+
         if not is_given(video_sampler):
             video_sampler = VoiceActivityVideoSampler(speaking_fps=1.0, silent_fps=0.3)
 
@@ -285,6 +298,9 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             ),
             preemptive_generation=preemptive_generation,
             ivr_detection=ivr_detection,
+            interruption_resume_words=(
+                interruption_resume_words if is_given(interruption_resume_words) else None
+            ),
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
@@ -877,6 +893,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             raise RuntimeError("AgentSession is closing, cannot use say()")
 
         # attach to the session span if called outside of the AgentSession
+        logger.debug("trying to say - %s",text)
         use_span: AbstractContextManager[trace.Span | None] = nullcontext()
         if trace.get_current_span() is trace.INVALID_SPAN and self._session_span is not None:
             use_span = trace.use_span(self._session_span, end_on_exit=False)
