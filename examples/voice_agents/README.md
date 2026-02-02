@@ -6,7 +6,11 @@ This directory contains a comprehensive collection of voice-based agent examples
 
 ### 🚀 Getting Started
 
-- [`basic_agent.py`](./basic_agent.py) - A fundamental voice agent with metrics collection
+- [`basic_agent.py`](./basic_agent.py) - A fundamental voice agent with context-aware interruption handling, Mistral AI support, and metrics collection
+  - **Context-Aware Interruptions**: Passive acknowledgements ("yeah", "ok", "hmm") don't interrupt agent speech
+  - **Active Commands**: Interrupt words ("stop", "wait", "hold on") immediately stop the agent
+  - **Multi-LLM Support**: Switch between OpenAI and Mistral AI via `LLM_PROVIDER` environment variable
+  - **Manual Turn Detection**: Full control over when user input reaches the LLM
 
 ### 🛠️ Tool Integration & Function Calling
 

@@ -32,11 +32,13 @@ agents that can see, hear, and understand.
 
 ## Features
 
-- **Flexible integrations**: A comprehensive ecosystem to mix and match the right STT, LLM, TTS, and Realtime API to suit your use case.
+- **Context-aware interruption handling**: Smart interruption logic that distinguishes between passive acknowledgements ("yeah", "ok", "hmm") and active commands ("stop", "wait"), allowing agents to continue speaking when users are simply listening.
+- **Flexible integrations**: A comprehensive ecosystem to mix and match the right STT, LLM, TTS, and Realtime API to suit your use case. Now includes support for Mistral AI in addition to OpenAI.
 - **Integrated job scheduling**: Built-in task scheduling and distribution with [dispatch APIs](https://docs.livekit.io/agents/build/dispatch/) to connect end users to agents.
 - **Extensive WebRTC clients**: Build client applications using LiveKit's open-source SDK ecosystem, supporting all major platforms.
 - **Telephony integration**: Works seamlessly with LiveKit's [telephony stack](https://docs.livekit.io/sip/), allowing your agent to make calls to or receive calls from phones.
 - **Exchange data with clients**: Use [RPCs](https://docs.livekit.io/home/client/data/rpc/) and other [Data APIs](https://docs.livekit.io/home/client/data/) to seamlessly exchange data with clients.
+- **Manual turn detection**: Full control over when user input reaches the LLM, enabling sophisticated conversation flow management.
 - **Semantic turn detection**: Uses a transformer model to detect when a user is done with their turn, helps to reduce interruptions.
 - **MCP support**: Native support for MCP. Integrate tools provided by MCP servers with one loc.
 - **Builtin test framework**: Write tests and use judges to ensure your agent is performing as expected.
@@ -48,6 +50,7 @@ To install the core Agents library, along with plugins for popular model provide
 
 ```bash
 pip install "livekit-agents[openai,silero,deepgram,cartesia,turn-detector]~=1.0"
+pip install "livekit-plugins-mistralai>=0.1.0"  # For Mistral AI support
 ```
 
 ## Docs and guides
