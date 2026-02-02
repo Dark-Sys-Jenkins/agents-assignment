@@ -1,3 +1,49 @@
+<!--Keshav Agrawal
+    Semantic Interruption Handling
+
+    Implementation
+
+    Logic is implemented in this file:
+
+    examples/voice_agents/basic_agent.py
+
+    [Using a SemanticInterruptManager to ensure zero pause, zero hiccup behavior while maintaining real-time responsiveness.]
+
+    This implementation adds a semantic, state-aware interruption layer on top of LiveKit’s VAD to correctly handle passive backchanneling (e.g., “yeah”, “ok”, “hmm”) without interrupting agent speech.
+
+    PROBLEM
+
+    LiveKit’s default VAD triggers an interruption on any detected user audio. This causes the agent to stop speaking even when the user is only providing passive acknowledgements.
+
+    SOLUTION
+
+    Automatic VAD-based interruptions are disabled:
+    [ allow_interruptions=False ]
+    A custom semantic interruption manager is implemented that:
+
+    Tracks whether the agent is currently speaking using agent_state_changed
+
+    Inspects user STT transcripts via conversation_item_added
+
+    Classifies user input as:
+
+    Soft input (e.g., “yeah”, “ok”, “hmm”) → ignored while agent is speaking
+
+    Hard interruption (e.g., “stop”, “wait”, mixed commands) → immediately interrupts agent audio
+
+    Key Behavior
+    Agent State	  User Input	    Result
+    Speaking	  "yeah", "ok"	    Ignored
+    Speaking	  "stop", "wait"	Interrupted
+    Speaking	  "yeah wait"	    Interrupted
+    Silent	      "yeah"	        Normal response
+
+    Configuration
+
+    Soft words can be configured by environment variable: [SOFT_WORDS=yeah,ok,hmm,uh-huh,right]
+
+>
+
 # Voice Agents Examples
 
 This directory contains a comprehensive collection of voice-based agent examples demonstrating various capabilities and integrations with the LiveKit Agents framework.
