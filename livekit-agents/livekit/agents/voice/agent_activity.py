@@ -14,6 +14,9 @@ from opentelemetry import context as otel_context, trace
 from livekit import rtc
 from livekit.agents.llm.realtime import MessageGeneration
 from livekit.agents.metrics.base import Metadata
+import asyncio
+import string
+import os
 
 from .. import llm, stt, tts, utils, vad
 from ..llm.tool_context import (
@@ -107,6 +110,11 @@ class _PreemptiveGeneration:
 # NOTE: AgentActivity isn't exposed to the public API
 class AgentActivity(RecognitionHooks):
     def __init__(self, agent: Agent, sess: AgentSession) -> None:
+        # Get the string from the environment
+        raw_words = os.getenv("IGNORE_WORDS", "")
+        # Convert string to a set of lowercase words
+        self._ignore_words = {word.strip().lower() for word in raw_words.split(",") if word}
+        self._agent_is_speaking = False
         self._agent, self._session = agent, sess
         self._rt_session: llm.RealtimeSession | None = None
         self._realtime_spans: utils.BoundedDict[str, trace.Span] | None = None
@@ -344,6 +352,26 @@ class AgentActivity(RecognitionHooks):
             update_instructions(
                 chat_ctx, instructions=self._agent.instructions, add_if_missing=True
             )
+
+    @staticmethod
+    def is_filler_speech(text: str, ignore_words: set[str] | list[str]) -> bool:
+        """
+        Checks if the transcript consists only of filler words/backchannels.
+        """
+        if not text:
+            return True
+            
+        # Clean the text: lowercase and remove punctuation
+        clean_text = text.lower().translate(str.maketrans('', '', string.punctuation)).strip()
+        words = clean_text.split()
+        
+        if not words:
+            return True
+            
+        ignore_set = {w.lower() for w in ignore_words}
+        
+        # If every word in the sentence is in the ignore list, it's a filler speech
+        return all(word in ignore_set for word in words)
 
     def update_options(
         self,
@@ -1167,13 +1195,34 @@ class AgentActivity(RecognitionHooks):
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
     def _interrupt_by_audio_activity(self) -> None:
+        """
+        Gated Interruption Logic: Prevents the agent from stopping for filler words
+        (backchannels) while allowing meaningful user interruptions.
+        """
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
+        # Bypass local interruption logic if the model handles turn detection autonomously
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
-            # ignore if realtime model has turn detection enabled
             return
 
+        # Logic: Only evaluate interruptions if the agent is currently speaking
+        if self.stt and self._audio_recognition and self._session.agent_state == "speaking":
+            transcript = self._audio_recognition.current_transcript
+            
+            # 1. Ignore noise or VAD triggers that haven't produced text yet
+            if not transcript.strip():
+                return 
+
+            # 2. Filler word Filtering: Check if words are just acknowledgments (e.g., 'Okay', 'Cool')
+            ignore_list = getattr(opt, 'ignore_words', self._ignore_words)
+            if self.is_filler_speech(transcript, ignore_list):
+                logger.info(f"Interruption blocked (filler speech): '{transcript}'")
+                return 
+
+            logger.info(f"Valid interruption detected: '{transcript}'")
+
+        # 3. Word Count Threshold: Ensure the user has said enough to justify a stop
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
@@ -1209,7 +1258,6 @@ class AgentActivity(RecognitionHooks):
 
                 self._current_speech.interrupt()
 
-    # region recognition hooks
 
     def on_start_of_speech(self, ev: vad.VADEvent | None) -> None:
         self._session._update_user_state("speaking")
@@ -1344,7 +1392,19 @@ class AgentActivity(RecognitionHooks):
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool:
         # IMPORTANT: This method is sync to avoid it being cancelled by the AudioRecognition
         # We explicitly create a new task here
-
+      
+        # --- FILLER PROTECTION ---
+        # If the user only said 'OK' or 'Yeah' while the agent was speaking, 
+        # we treat it as a backchannel and prevent a new reply from being generated.
+        if self._session._agent_state == "speaking":
+            ignore_list = getattr(self._session.options, 'ignore_words', self._ignore_words)
+            if self.is_filler_speech(info.new_transcript, ignore_list):
+                logger.info(f"End-of-turn ignored (filler speech): '{info.new_transcript}'")
+                # Return True to acknowledge turn processed, but skip creating a new reply task
+                return True
+        
+        # ... proceed to generate reply for valid inputs ...
+        
         if self._scheduling_paused:
             self._cancel_preemptive_generation()
             logger.warning(
