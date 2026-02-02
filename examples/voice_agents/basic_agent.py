@@ -233,7 +233,7 @@ async def entrypoint(ctx: JobContext):
         if kelly.is_speaking:
             
             if contains_command(clean_text):
-                logger.info(f"🛑 COMMAND while speaking: '{clean_text}' - forcing interrupt NOW")
+                logger.info(f"🛑 STOP COMMAND while speaking: '{clean_text}' - forcing interrupt NOW")
                 session.interrupt()
                 return
             
