@@ -1166,6 +1166,47 @@ class AgentActivity(RecognitionHooks):
         )
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
+
+    def _is_backchannel_only(self, transcript: str) -> bool:
+        """Check if transcript contains only backchannel words (ignore when agent speaking)"""
+        if not transcript:
+            return False
+        
+        import string
+        
+        # Clean transcript: lowercase, strip whitespace, remove punctuation
+        cleaned = transcript.lower().strip()
+        # Remove all punctuation
+        cleaned = cleaned.translate(str.maketrans('', '', string.punctuation))
+        
+        # Normalize whitespace
+        cleaned = " ".join(cleaned.split())
+        if not cleaned:
+            return False
+
+        # Get backchannel words/phrases from session options
+        backchannel_set = set(self._session.options.backchannel_words)
+        logger.info(f"BACKCHANNEL CHECK - Input: '{transcript}' | Cleaned: '{cleaned}' | Backchannel list: {backchannel_set}")
+
+        # Exact phrase match first (e.g., "go on", "got it", "uh huh")
+        if cleaned in backchannel_set:
+            logger.info(f"✓ BACKCHANNEL MATCH (phrase): '{transcript}' -> '{cleaned}'")
+            return True
+
+        # Otherwise, split into words and ensure all are backchannel words
+        words = cleaned.split()
+        if not words:
+            return False
+
+        is_backchannel = all(word in backchannel_set for word in words)
+
+        if is_backchannel:
+            logger.info(f"✓ BACKCHANNEL MATCH (words): '{transcript}' -> words: {words}")
+        else:
+            logger.info(f"✗ NOT BACKCHANNEL: '{transcript}' -> words: {words}")
+
+        return is_backchannel
+    
     def _interrupt_by_audio_activity(self) -> None:
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
@@ -1240,8 +1281,12 @@ class AgentActivity(RecognitionHooks):
             # ignore vad inference done event if turn_detection is manual or realtime_llm
             return
 
-        if ev.speech_duration >= self._session.options.min_interruption_duration:
-            self._interrupt_by_audio_activity()
+        # Don't interrupt based on VAD alone - wait for STT to check if it's backchannel
+        # STT-based interruption will handle this in on_interim_transcript and on_final_transcript
+        # where we can check if the speech is backchannel-only
+        # This prevents ANY pause when user speaks - only STT-confirmed interruptions allowed
+        logger.debug(f"VAD detected speech ({ev.speech_duration:.2f}s) - waiting for STT to check backchannel")
+        # Note: We intentionally do NOT call _pause_speech() here to avoid any pause in audio output
 
     def on_interim_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None) -> None:
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.user_transcription:
@@ -1261,7 +1306,14 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            is_backchannel = self._current_speech is not None and self._is_backchannel_only(ev.alternatives[0].text)
+            logger.debug(f"Interim transcript: '{ev.alternatives[0].text}' | Agent speaking: {self._current_speech is not None} | Is backchannel: {is_backchannel}")
+            
+            if not is_backchannel:
+                logger.debug(f"NOT backchannel, interrupting: '{ev.alternatives[0].text}'")
+                self._interrupt_by_audio_activity()
+            else:
+                logger.debug(f"✓ Backchannel detected, NO interruption for: '{ev.alternatives[0].text}'")
 
             if (
                 speaking is False
@@ -1292,7 +1344,13 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
-            self._interrupt_by_audio_activity()
+            is_backchannel = self._current_speech is not None and self._is_backchannel_only(ev.alternatives[0].text)
+            logger.debug(f"Final transcript: '{ev.alternatives[0].text}' | Agent speaking: {self._current_speech is not None} | Is backchannel: {is_backchannel}")
+            
+            if not is_backchannel:
+                self._interrupt_by_audio_activity()
+            else:
+                logger.debug(f"Skipping interruption for backchannel word: '{ev.alternatives[0].text}'")
 
             if (
                 speaking is False

@@ -1,0 +1,44 @@
+# LiveKit Agents - Intelligent Interruption Handling
+# Python 3.10+
+
+# Core LiveKit Agents Framework
+livekit-agents>=0.18.0
+
+# LLM Providers
+livekit-plugins-openai>=0.18.0
+
+# Speech-to-Text (STT)
+livekit-plugins-deepgram>=0.18.0
+
+# Text-to-Speech (TTS)
+livekit-plugins-cartesia>=0.18.0
+
+# Voice Activity Detection (VAD)
+livekit-plugins-silero>=0.18.0
+
+# Turn Detection
+livekit-plugins-turn-detector>=0.18.0
+
+# Utilities
+python-dotenv>=1.0.0
+
+# Optional: For development and testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+ruff>=0.1.0
+
+# Optional: Additional LLM providers (uncomment as needed)
+# livekit-plugins-anthropic>=0.18.0
+# livekit-plugins-mistralai>=0.18.0
+# livekit-plugins-google>=0.18.0
+# livekit-plugins-groq>=0.18.0
+
+# Optional: Additional STT providers (uncomment as needed)
+# livekit-plugins-assemblyai>=0.18.0
+# livekit-plugins-aws>=0.18.0
+# livekit-plugins-azure>=0.18.0
+
+# Optional: Additional TTS providers (uncomment as needed)
+# livekit-plugins-elevenlabs>=0.18.0
+# livekit-plugins-google>=0.18.0

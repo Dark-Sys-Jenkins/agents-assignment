@@ -15,13 +15,44 @@ from opentelemetry._logs.severity import SeverityNumber
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk._logs import (
-    LogData,
-    LoggerProvider,
-    LoggingHandler,
-    LogRecord,
-    LogRecordProcessor,
-)
+
+# Handle OpenTelemetry SDK version compatibility
+try:
+    from opentelemetry.sdk._logs import (
+        LogData,
+        LoggerProvider,
+        LoggingHandler,
+        LogRecord,
+        LogRecordProcessor,
+    )
+except ImportError:
+    # Fallback for different SDK versions
+    try:
+        from opentelemetry.sdk.logs import (
+            LogData,
+            LoggerProvider,
+            LoggingHandler,
+            LogRecord,
+            LogRecordProcessor,
+        )
+    except ImportError:
+        # If imports still fail, create placeholder base classes
+        class LogRecordProcessor:
+            """Placeholder for OpenTelemetry SDK compatibility"""
+            pass
+        class LogData:
+            """Placeholder for OpenTelemetry SDK compatibility"""
+            pass
+        class LoggerProvider:
+            """Placeholder for OpenTelemetry SDK compatibility"""
+            pass
+        class LoggingHandler:
+            """Placeholder for OpenTelemetry SDK compatibility"""
+            pass
+        class LogRecord:
+            """Placeholder for OpenTelemetry SDK compatibility"""
+            pass
+
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider

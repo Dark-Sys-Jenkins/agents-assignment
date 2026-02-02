@@ -1,6 +1,18 @@
 import logging
+import os
+import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+# Force use of local workspace code, not installed packages
+REPO_ROOT = Path(__file__).parent.parent.parent
+LOCAL_LIVEKIT = REPO_ROOT / "livekit-agents"
+sys.path.insert(0, str(LOCAL_LIVEKIT))
+sys.path.insert(0, str(REPO_ROOT))
+
+# Set PYTHONPATH so child processes also use local code
+os.environ["PYTHONPATH"] = f"{LOCAL_LIVEKIT}:{REPO_ROOT}"
 
 from livekit.agents import (
     Agent,
@@ -100,6 +112,8 @@ async def entrypoint(ctx: JobContext):
         # when it's detected, you may resume the agent's speech
         resume_false_interruption=True,
         false_interruption_timeout=1.0,
+        # Backchannel words - don't interrupt on these acknowledgments
+        backchannel_words=["yes", "yeah", "yep", "ok", "okay", "sure", "right", "aha", "hmm", "mhm", "mm-hmm", "uh", "huh", "uh-huh", "uh huh"],
     )
 
     # log metrics as they are emitted, and total usage after session is over
