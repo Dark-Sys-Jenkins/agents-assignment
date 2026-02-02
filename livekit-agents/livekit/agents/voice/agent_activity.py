@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 import re
+from rapidfuzz import fuzz, process
 
 from opentelemetry import context as otel_context, trace
 
@@ -242,7 +243,12 @@ class AgentActivity(RecognitionHooks):
         """
         Check if the given text consists only of ignored/backchannel words.
 
-        Returns True if all words in the text are in the ignored_words list,
+        Uses fuzzy matching with a similarity threshold of 80% to handle:
+        - Typos and misspellings ("yeahh", "okayy", "yea")
+        - STT transcription variations ("yah" vs "yeah")
+        - Common phonetic variations
+
+        Returns True if all words in the text match ignored_words (exactly or fuzzily),
         meaning this is likely a passive acknowledgement rather than an
         intentional interruption.
         """
@@ -261,8 +267,40 @@ class AgentActivity(RecognitionHooks):
         if not words:
             return True  # No actual words found
 
-        # Check if ALL words are in the ignored list
-        return all(word in ignored_words for word in words)
+        # Use configurable fuzzy matching threshold from session options
+        SIMILARITY_THRESHOLD = self._session.options.fuzzy_match_threshold
+
+        # Check if ALL words are in the ignored list (exact or fuzzy match)
+        for word in words:
+            # Try exact match first (faster)
+            if word in ignored_words:
+                continue
+            
+            # Try fuzzy match with threshold using extractOne for efficiency
+            try:
+                best_match = process.extractOne(
+                    word, 
+                    ignored_words, 
+                    scorer=fuzz.ratio,
+                    score_cutoff=SIMILARITY_THRESHOLD
+                )
+                
+                if not best_match:
+                    return False  # Found a word that doesn't match any ignored word
+            except Exception as e:
+                # If fuzzy matching fails, log error and fall back to allowing interruption
+                logger.error(
+                    "fuzzy matching failed, allowing interruption",
+                    exc_info=e,
+                    extra={"word": word, "transcript": text}
+                )
+                return False  # Safely allow interruption on error
+        
+        logger.debug(
+            "soft input detected, ignoring interruption",
+            extra={"transcript": text, "words": words}
+        )
+        return True  # All words matched (exactly or fuzzily)
 
     def _should_ignore_interruption(self, transcript: str | None = None) -> bool:
         """

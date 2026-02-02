@@ -112,6 +112,8 @@ class AgentSessionOptions:
     tts_text_transforms: Sequence[TextTransforms] | None
     ignored_words: Sequence[str]
     """Words that are ignored when the agent is speaking (backchannel words)."""
+    fuzzy_match_threshold: int
+    """Similarity threshold (0-100) for fuzzy matching ignored words. Default 80."""
     ivr_detection: bool
 
 
@@ -182,6 +184,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         use_tts_aligned_transcript: NotGivenOr[bool] = NOT_GIVEN,
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         ignored_words: NotGivenOr[Sequence[str]] = NOT_GIVEN,
+        fuzzy_match_threshold: int = 80,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
@@ -261,6 +264,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             tts_text_transforms (Sequence[TextTransforms], optional): The transforms to apply
                 to the tts input text, available built-in transforms: ``"filter_markdown"``, ``"filter_emoji"``.
                 Set to ``None`` to disable. When NOT_GIVEN, all filters will be applied.
+            fuzzy_match_threshold (int): Similarity threshold (0-100) for fuzzy matching
+                ignored words. Higher values require closer matches. Default ``80``.
             preemptive_generation (bool):
                 Whether to speculatively begin LLM and TTS requests before an end-of-turn is
                 detected. When True, the agent sends inference calls as soon as a user
@@ -310,6 +315,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             ),
             preemptive_generation=preemptive_generation,
             ignored_words=self._resolve_ignored_words(ignored_words),
+            fuzzy_match_threshold=fuzzy_match_threshold,
             ivr_detection=ivr_detection,
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
