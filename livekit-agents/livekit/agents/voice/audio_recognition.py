@@ -88,6 +88,7 @@ class RecognitionHooks(Protocol):
     def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> None: ...
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool: ...
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None: ...
+    def should_skip_transcript(self, transcript: str) -> bool: ...
 
     def retrieve_chat_ctx(self) -> llm.ChatContext: ...
 
@@ -364,6 +365,14 @@ class AudioRecognition:
             if self._last_speaking_time:
                 extra["transcript_delay"] = time.time() - self._last_speaking_time
             logger.debug("received user transcript", extra=extra)
+
+            # Check if this transcript should be skipped
+            if self._hooks.should_skip_transcript(transcript):
+                logger.debug(
+                    "skipping transcript accumulation (FillerWords detected)",
+                    extra={"transcript": transcript},
+                )
+                return
 
             self._last_final_transcript_time = time.time()
             self._audio_transcript += f" {transcript}"

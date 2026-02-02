@@ -61,6 +61,14 @@ Documentation on the framework and how to use it can be found [here](https://doc
 - entrypoint: The starting point for an interactive session, similar to a request handler in a web server.
 - Worker: The main process that coordinates job scheduling and launches agents for user sessions.
 
+**Backchannel Handling**: The voice agent backchannel logic has been refactored into a dedicated handler to improve clarity and maintain behavior.
+
+- **What changed**: Backchannel detection and state are now implemented in `livekit.agents.voice.backchannel.BackchannelHandler`.
+- **Why**: Extracting the logic isolates short-utterance detection (e.g., "okay", "yeah") so these affirmations don't trigger full turn commits or LLM replies and so resume/interrupt timers are easier to reason about.
+- **Exit commands**: Built-in support for exit command detection (e.g., "exit", "quit", "goodbye", "bye", "stop", "end") within the backchannel handler for easier identification of session-termination intents.
+- **Behavior notes**: The refactor preserves existing behavior: fast detection of backchannels, a small false-interruption timer to avoid spurious interrupts, and skipping backchannel transcripts from the session transcript buffer.
+
+
 ## Usage
 
 ### Simple voice agent
