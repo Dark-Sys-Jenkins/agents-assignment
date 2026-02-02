@@ -152,7 +152,7 @@ We skip long sentences (over 3 words) to avoid false positives like "I have no i
 
 ## Demo
 
-**[https://drive.google.com/file/d/1IHqKgqxAG2ZHRwWsDxhksyp3En5qv5iM/view?usp=sharing]**
+**[https://drive.google.com/file/d/1IHqKgqxAG2ZHRwWsDxhksyp3En5qv5iM/view?usp=drive_link]**
 
 The demo shows:
 - Agent continuing to talk when hearing "yeah", "okay", "uh-huh"
