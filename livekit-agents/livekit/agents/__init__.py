@@ -68,6 +68,9 @@ from .voice import (
     ConversationItemAddedEvent,
     ErrorEvent,
     FunctionToolsExecutedEvent,
+    InterruptionDecision,
+    InterruptionFilter,
+    InterruptionFilterConfig,
     MetricsCollectedEvent,
     ModelSettings,
     RunContext,
@@ -75,8 +78,10 @@ from .voice import (
     UserInputTranscribedEvent,
     UserStateChangedEvent,
     avatar,
+    get_default_filter,
     io,
     room_io,
+    set_default_filter,
 )
 from .voice.background_audio import AudioConfig, BackgroundAudioPlayer, BuiltinAudioClip, PlayHandle
 from .voice.room_io import RoomInputOptions, RoomIO, RoomOutputOptions
