@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import os
 import time
 from collections.abc import AsyncIterable, Sequence
 from contextlib import AbstractContextManager, nullcontext
@@ -52,6 +53,7 @@ from .events import (
     UserState,
     UserStateChangedEvent,
 )
+from .backchannel_filter import BackchannelFilter, BackchannelFilterOptions
 from .ivr import IVRActivity
 from .recorder_io import RecorderIO
 from .run_result import RunResult
@@ -89,6 +91,7 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    backchannel_filter: BackchannelFilterOptions
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +162,9 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        backchannel_filter_enabled: bool = True,
+        backchannel_words: frozenset[str] | None = None,
+        interrupt_words: frozenset[str] | None = None,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -245,6 +251,16 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                 Defaults to ``False``.
             ivr_detection (bool): Whether to detect if the agent is interacting with an IVR system.
                 Default ``False``.
+            backchannel_filter_enabled (bool): Whether to filter out backchannel words
+                (like "yeah", "ok", "hmm") when the agent is speaking. Enabled by
+                default so the agent keeps talking through passive acknowledgements.
+            backchannel_words (frozenset[str], optional): Custom set of words to treat as
+                backchannels. When ``None``, uses default list including "yeah", "ok", "hmm", etc.
+            interrupt_words (frozenset[str], optional): Custom set of words that force
+                interruption even if mixed with backchannels (e.g., "yeah but wait").
+                When ``None``, uses default list including "stop", "wait", "no", etc.
+                You can also override both lists via the ``LIVEKIT_BACKCHANNEL_WORDS`` and
+                ``LIVEKIT_INTERRUPT_WORDS`` environment variables (comma separated).
             conn_options (SessionConnectOptions, optional): Connection options for
                 stt, llm, and tts.
             loop (asyncio.AbstractEventLoop, optional): Event loop to bind the
@@ -263,6 +279,21 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             video_sampler = VoiceActivityVideoSampler(speaking_fps=1.0, silent_fps=0.3)
 
         self._video_sampler = video_sampler
+
+        # Allow env vars to tweak backchannel/interrupt vocab without code edits
+        if backchannel_words is None:
+            env_words = os.getenv("LIVEKIT_BACKCHANNEL_WORDS")
+            if env_words:
+                backchannel_words = frozenset(
+                    w.strip().lower() for w in env_words.split(",") if w.strip()
+                )
+
+        if interrupt_words is None:
+            env_words = os.getenv("LIVEKIT_INTERRUPT_WORDS")
+            if env_words:
+                interrupt_words = frozenset(
+                    w.strip().lower() for w in env_words.split(",") if w.strip()
+                )
 
         # This is the "global" chat_context, it holds the entire conversation history
         self._chat_ctx = ChatContext.empty()
@@ -288,6 +319,11 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            backchannel_filter=BackchannelFilterOptions(
+                enabled=backchannel_filter_enabled,
+                backchannel_words=backchannel_words,
+                interrupt_words=interrupt_words,
+            ),
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False
