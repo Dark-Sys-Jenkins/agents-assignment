@@ -1,0 +1,157 @@
+PS C:\Users\riddh\Desktop\agents-assignment> cd examples/voice_agents     
+PS C:\Users\riddh\Desktop\agents-assignment\examples\voice_agents> python basic_agent.py console
+    Agents   Starting console mode 🚀
+
+    19:53:10.327 DEBUG  asyncio            Using proactor: IocpProactor  
+    19:53:10.333 INFO   livekit.agents     starting worker {"version": "1.3.12", "rtc-version": "1.0.23"}
+    19:53:10.335 INFO   livekit.agents     starting inference executor  
+    19:53:10.383 INFO   livekit.agents     initializing process {"pid": 24660, "inference": true}
+    19:53:30.649 INFO   livekit.agents     process initialized {"pid": 24660, "inference": true, "elapsed_time": 20.26}
+    19:53:30.655 INFO   livekit.agents     HTTP server listening on :57067  
+    19:53:30.692 INFO   livekit.agents     initializing job runner {"tid": 13084}
+    19:53:30.942 DEBUG  asyncio            Using proactor: IocpProactor  
+    19:53:30.945 INFO   livekit.agents     job runner initialized {"tid": 13084, "elapsed_time": 0.25}
+    19:53:31.974 INFO   intelligent-kelly  ================================================================================  
+    19:53:31.977 INFO   intelligent-kelly  🚀 HYBRID INTELLIGENT INTERRUPTION HANDLER  
+    19:53:31.979 INFO   intelligent-kelly  ⚙️  Strategy:  
+    19:53:31.981 INFO   intelligent-kelly     - Medium VAD thresholds (0.6s, 2 words)  
+    19:53:31.992 INFO   intelligent-kelly     - Auto-resume on false interruptions  
+    19:53:31.999 INFO   intelligent-kelly     - Manual interrupt on commands that slip through  
+    19:53:32.010 INFO   intelligent-kelly     - Transcript suppression for fillers  
+    19:53:32.025 INFO   intelligent-kelly  ================================================================================  
+    19:53:32.064 DEBUG  livekit.agents     http_session(): creating a new httpclient ctx  
+    19:53:32.220 INFO   intelligent-kelly  🎤 KELLY STARTED SPEAKING  
+    19:53:32.677 INFO   intelligent-kelly  🎭 AGENT STATE: initializing → listening  
+    19:53:32.682 DEBUG  livekit.agents     using audio io: `Console` -> `AgentSession` -> `TranscriptSynchronizer` -> `Console`  
+    19:53:32.687 DEBUG  livekit.agents     using transcript io: `AgentSession` -> `TranscriptSynchronizer`  
+    19:53:32.723 INFO   intelligent-kelly  🎭 AGENT STATE: listening → thinking  
+    19:53:35.010 INFO   intelligent-kelly  🎭 AGENT STATE: thinking → speaking  
+    19:53:39.969 INFO   intelligent-kelly  🎭 AGENT STATE: speaking → listening  
+    19:53:41.662 INFO   intelligent-kelly  👤 USER STATE: listening → speaking  
+    19:53:44.565 INFO   intelligent-kelly  📝 TRANSCRIPT: 'tell me about retrieval augmented generation' | Kelly speaking: False | Just interrupted: False  
+    19:53:44.570 INFO   intelligent-kelly  ✅ VALID INPUT while idle: 'tell me about retrieval augmented generation'  
+    19:53:44.574 DEBUG  livekit.agents     received user transcript {"user_transcript": "Tell me about retrieval augmented generation.", "language": "en", "transcript_delay": 0.5072145462036133}
+    19:53:44.662 INFO   intelligent-kelly  👤 USER STATE: speaking → listening  
+    19:53:44.786 DEBUG  livekit.…_detector eou prediction  
+                                           {"eou_probability": 0.2723883092403412, "duration": 0.111, "input": "<|im_start|>assistant\ngot it ready to sprinkle some wit on your queries whats on your 
+mind<|im_end|>\n<|im_start|>user\ntell me about retrieval augmented generation"}
+    19:53:44.794 INFO   intelligent-kelly  🎤 KELLY STARTED SPEAKING  
+    19:53:44.809 INFO   intelligent-kelly  🎭 AGENT STATE: listening → thinking  
+    19:53:46.667 INFO   intelligent-kelly  🎭 AGENT STATE: thinking → speaking  
+    19:53:52.478 INFO   intelligent-kelly  👤 USER STATE: listening → speaking  
+    19:53:53.334 INFO   intelligent-kelly  📝 TRANSCRIPT: 'okay' | Kelly speaking: True | Just interrupted: False  
+    19:53:53.338 INFO   intelligent-kelly  🔇 FILLER while speaking: 'okay' - completely ignored  
+    19:53:53.342 DEBUG  livekit.agents     received user transcript {"user_transcript": "Okay.", "language": "en", "transcript_delay": 0.4681355953216553}
+    19:53:53.463 INFO   intelligent-kelly  👤 USER STATE: speaking → listening  
+    19:53:53.568 DEBUG  livekit.…_detector eou prediction  
+                                           {"eou_probability": 0.14005683362483978, "duration": 0.089, "input": "<|im_start|>assistant\ngot it ready to sprinkle some wit on your queries whats on your         
+mind<|im_end|>\n<|im_start|>user\ntell me about retrieval augmented generation okay"}
+    19:53:59.666 INFO   intelligent-kelly  👤 USER STATE: listening → speaking  
+    19:54:00.242 INFO   intelligent-kelly  📝 TRANSCRIPT: 'okay' | Kelly speaking: True | Just interrupted: False  
+    19:54:00.247 INFO   intelligent-kelly  🔇 FILLER while speaking: 'okay' - completely ignored  
+    19:54:00.252 DEBUG  livekit.agents     received user transcript {"user_transcript": "Okay.", "language": "en", "transcript_delay": 0.08392596244812012}
+    19:54:00.291 INFO   intelligent-kelly  🎭 AGENT STATE: speaking → listening  
+    19:54:00.301 INFO   intelligent-kelly  ⚠️ KELLY INTERRUPTED - waiting for transcript to decide action...  
+    19:54:01.170 INFO   intelligent-kelly  📝 TRANSCRIPT: 'more' | Kelly speaking: False | Just interrupted: True  
+    19:54:01.174 INFO   intelligent-kelly  ✅ REAL INPUT after interrupt: 'more' - valid interruption  
+    19:54:01.179 DEBUG  livekit.agents     received user transcript {"user_transcript": "More.", "language": "en", "transcript_delay": 0.5154080390930176}                                                      
+    19:54:01.282 INFO   intelligent-kelly  👤 USER STATE: speaking → listening  
+    19:54:01.522 DEBUG  livekit.…_detector eou prediction  
+                                           {"eou_probability": 0.04437876120209694, "duration": 0.228, "input": "<|im_start|>assistant\ngot it ready to sprinkle some wit on your queries whats on your         
+mind<|im_end|>\n<|im_start|>user\ntell me about retrieval augmented generation<|im_end|>\n<|im_start|>assistant\nretrieval augmented generation rag is like having your cake and eating it toocombining the best
+of retrieval systems with generative models it pulls relevant information from a database or documents to enhance response quality generating answers<|im_end|>\n<|im_start|>user\nokay okay more"}
+    19:54:01.529 INFO   intelligent-kelly  🎤 KELLY STARTED SPEAKING                                                                                                                                            
+    19:54:01.541 INFO   intelligent-kelly  🎭 AGENT STATE: listening → thinking  
+    19:54:02.441 INFO   intelligent-kelly  🎭 AGENT STATE: thinking → speaking  
+    19:54:13.964 INFO   intelligent-kelly  👤 USER STATE: listening → speaking  
+    19:54:14.665 INFO   intelligent-kelly  👤 USER STATE: speaking → listening  
+    19:54:15.043 INFO   intelligent-kelly  📝 TRANSCRIPT: 'stop' | Kelly speaking: True | Just interrupted: False  
+    19:54:15.047 INFO   intelligent-kelly  🛑 STOP COMMAND while speaking: 'stop' - forcing interrupt NOW  
+    19:54:15.054 DEBUG  livekit.agents     received user transcript {"user_transcript": "Stop.", "language": "en", "transcript_delay": 0.8940985202789307}
+    19:54:15.070 INFO   intelligent-kelly  🎭 AGENT STATE: speaking → listening  
+    19:54:15.076 INFO   intelligent-kelly  ⚠️ KELLY INTERRUPTED - waiting for transcript to decide action...  
+    19:54:15.318 DEBUG  livekit.…_detector eou prediction  
+                                           {"eou_probability": 0.03504103049635887, "duration": 0.252, "input": "<|im_start|>assistant\ngot it ready to sprinkle some wit on your queries whats on your         
+mind<|im_end|>\n<|im_start|>user\ntell me about retrieval augmented generation<|im_end|>\n<|im_start|>assistant\nretrieval augmented generation rag is like having your cake and eating it toocombining the best
+of retrieval systems with generative models it pulls relevant information from a database or documents to enhance response quality generating answers<|im_end|>\n<|im_start|>user\nokay okay more stop"}        
+    19:54:15.326 INFO   intelligent-kelly  🎤 KELLY STARTED SPEAKING                                                                                                                                            
+    19:54:15.339 INFO   intelligent-kelly  🎭 AGENT STATE: listening → thinking  
+    19:54:16.760 INFO   intelligent-kelly  🎭 AGENT STATE: thinking → speaking  
+    19:54:16.940 DEBUG  livekit.agents     flush audio emitter due to slow audio generation  
+    19:54:17.206 DEBUG  livekit.agents     flush audio emitter due to slow audio generation  
+    19:54:19.765 INFO   intelligent-kelly  🎭 AGENT STATE: speaking → listening  
+    19:54:19.770 INFO   intelligent-kelly  ⚠️ KELLY INTERRUPTED - waiting for transcript to decide action...  
+    19:54:20.959 INFO   intelligent-kelly  👤 USER STATE: listening → speaking  
+    19:54:24.253 INFO   intelligent-kelly  📝 TRANSCRIPT: 'tell me about graph retrieval augmented generation' | Kelly speaking: False | Just interrupted: True  
+    19:54:24.258 INFO   intelligent-kelly  ✅ REAL INPUT after interrupt: 'tell me about graph retrieval augmented generation' - valid interruption  
+    19:54:24.262 DEBUG  livekit.agents     received user transcript {"user_transcript": "Tell me about graph retrieval augmented generation.", "language": "en", "transcript_delay": 0.3029599189758301}        
+    19:54:24.556 INFO   intelligent-kelly  👤 USER STATE: speaking → listening  
+    19:54:24.912 DEBUG  livekit.…_detector eou prediction  
+                                           {"eou_probability": 0.24526239931583405, "duration": 0.341, "input": "<|im_start|>assistant\nretrieval augmented generation rag is like having your cake and eating  
+it toocombining the best of retrieval systems with generative models it pulls relevant information from a database or documents to enhance response quality generating answers<|im_end|>\n<|im_start|>user\nokay
+okay more<|im_end|>\n<|im_start|>assistant\nin rag the model first retrieves relevant snippets based on the input query then it uses those snippets to generate a more informed contextual response think of it 
+as a smart assistant that checks its notes before giving you an answerno more vague<|im_end|>\n<|im_start|>user\nstop<|im_end|>\n<|im_start|>assistant\nalright just let me know when you want to dive back     
+in<|im_end|>\n<|im_start|>user\ntell me about graph retrieval augmented generation"}
+    19:54:24.921 INFO   intelligent-kelly  🎤 KELLY STARTED SPEAKING                                                                                                                                            
+    19:54:24.934 INFO   intelligent-kelly  🎭 AGENT STATE: listening → thinking  
+    19:54:25.850 INFO   intelligent-kelly  🎭 AGENT STATE: thinking → speaking  
+    19:54:32.261 INFO   intelligent-kelly  👤 USER STATE: listening → speaking  
+    19:54:33.063 INFO   intelligent-kelly  👤 USER STATE: speaking → listening  
+    19:54:33.122 INFO   intelligent-kelly  📝 TRANSCRIPT: 'uhhuh' | Kelly speaking: True | Just interrupted: False  
+    19:54:33.128 INFO   intelligent-kelly  🔇 FILLER while speaking: 'uhhuh' - completely ignored  
+    19:54:33.132 DEBUG  livekit.agents     received user transcript {"user_transcript": "Uh-huh.", "language": "en", "transcript_delay": 0.661771297454834}
+    19:54:33.473 DEBUG  livekit.…_detector eou prediction  
+                                           {"eou_probability": 0.46071529388427734, "duration": 0.331, "input": "<|im_start|>user\nokay okay more<|im_end|>\n<|im_start|>assistant\nin rag the model first      
+retrieves relevant snippets based on the input query then it uses those snippets to generate a more informed contextual response think of it as a smart assistant that checks its notes before giving you an    
+answerno more vague<|im_end|>\n<|im_start|>user\nstop<|im_end|>\n<|im_start|>assistant\nalright just let me know when you want to dive back in<|im_end|>\n<|im_start|>user\ntell me about graph retrieval       
+augmented generation uh-huh"}
+    19:54:39.264 INFO   intelligent-kelly  👤 USER STATE: listening → speaking  
+    19:54:39.770 INFO   intelligent-kelly  🎭 AGENT STATE: speaking → listening  
+    19:54:39.775 INFO   intelligent-kelly  ⚠️ KELLY INTERRUPTED - waiting for transcript to decide action...  
+    19:54:40.260 INFO   intelligent-kelly  📝 TRANSCRIPT: 'yeah' | Kelly speaking: False | Just interrupted: True  
+    19:54:40.264 INFO   intelligent-kelly  🔄 FALSE INTERRUPT: 'yeah' was just a filler - should resume  
+    19:54:40.268 DEBUG  livekit.agents     received user transcript {"user_transcript": "Yeah,", "language": "en", "transcript_delay": 0.38580894470214844}
+    19:54:40.466 INFO   intelligent-kelly  👤 USER STATE: speaking → listening  
+    19:54:40.792 DEBUG  livekit.…_detector eou prediction  
+                                           {"eou_probability": 0.023591401055455208, "duration": 0.314, "input": "<|im_start|>assistant\nin rag the model first retrieves relevant snippets based on the input  
+query then it uses those snippets to generate a more informed contextual response think of it as a smart assistant that checks its notes before giving you an answerno more 
+vague<|im_end|>\n<|im_start|>user\nstop<|im_end|>\n<|im_start|>assistant\nalright just let me know when you want to dive back in<|im_end|>\n<|im_start|>user\ntell me about graph retrieval augmented 
+generation<|im_end|>\n<|im_start|>assistant\ngraph retrieval augmented generation graph rag takes the rag concept and gives it a social network makeover it involves using graph structureswhere data points are
+nodes linked by relationshipsallowing for more nuanced context retrieval this means the model can understand complex relationships<|im_end|>\n<|im_start|>user\nuh-huh yeah"}
+    19:54:40.801 INFO   intelligent-kelly  🎤 KELLY STARTED SPEAKING  
+    19:54:40.817 INFO   intelligent-kelly  🎭 AGENT STATE: listening → thinking  
+    19:54:41.808 INFO   intelligent-kelly  🎭 AGENT STATE: thinking → speaking  
+    19:54:48.169 INFO   intelligent-kelly  👤 USER STATE: listening → speaking  
+    19:54:49.045 INFO   intelligent-kelly  📝 TRANSCRIPT: 'wait' | Kelly speaking: True | Just interrupted: False  
+    19:54:49.048 INFO   intelligent-kelly  🛑 STOP COMMAND while speaking: 'wait' - forcing interrupt NOW  
+    19:54:49.056 DEBUG  livekit.agents     received user transcript {"user_transcript": "Wait.", "language": "en", "transcript_delay": 0.5885117053985596}
+    19:54:49.071 INFO   intelligent-kelly  🎭 AGENT STATE: speaking → listening  
+    19:54:49.080 INFO   intelligent-kelly  ⚠️ KELLY INTERRUPTED - waiting for transcript to decide action...  
+    19:54:49.089 INFO   intelligent-kelly  👤 USER STATE: speaking → listening  
+    19:54:49.423 DEBUG  livekit.…_detector eou prediction  
+                                           {"eou_probability": 0.042842086404561996, "duration": 0.323, "input": "<|im_start|>assistant\nalright just let me know when you want to dive back 
+in<|im_end|>\n<|im_start|>user\ntell me about graph retrieval augmented generation<|im_end|>\n<|im_start|>assistant\ngraph retrieval augmented generation graph rag takes the rag concept and gives it a social 
+network makeover it involves using graph structureswhere data points are nodes linked by relationshipsallowing for more nuanced context retrieval this means the model can understand complex 
+relationships<|im_end|>\n<|im_start|>user\nuh-huh yeah<|im_end|>\n<|im_start|>assistant\nwith graph rag the system can pull not just relevant info but also grasp context from interconnected data its like     
+having a super-smart friend who<|im_end|>\n<|im_start|>user\nwait"}
+    19:54:49.431 INFO   intelligent-kelly  🎤 KELLY STARTED SPEAKING                                                                                                                                            
+    19:54:49.448 INFO   intelligent-kelly  🎭 AGENT STATE: listening → thinking  
+    19:54:50.287 INFO   intelligent-kelly  🎭 AGENT STATE: thinking → speaking  
+    19:54:53.471 INFO   intelligent-kelly  🎭 AGENT STATE: speaking → listening  
+    19:54:53.475 INFO   intelligent-kelly  ⚠️ KELLY INTERRUPTED - waiting for transcript to decide action...  
+    19:55:08.472 INFO   intelligent-kelly  👤 USER STATE: listening → away  
+    20:00:52.988 INFO   intelligent-kelly  👤 USER STATE: away → speaking  
+    20:00:56.464 INFO   intelligent-kelly  📝 TRANSCRIPT: 'hello so videos we do' | Kelly speaking: False | Just interrupted: True  
+    20:00:56.469 INFO   intelligent-kelly  ✅ REAL INPUT after interrupt: 'hello so videos we do' - valid interruption  
+    20:00:56.473 DEBUG  livekit.agents     received user transcript {"user_transcript": "Hello? So videos we do.", "language": "en", "transcript_delay": 0.3855757713317871}
+    20:00:56.599 INFO   intelligent-kelly  👤 USER STATE: speaking → listening  
+    20:00:56.693 INFO   intelligent-kelly  👤 USER STATE: listening → speaking  
+    20:01:02.763 INFO   intelligent-kelly  📝 TRANSCRIPT: 'one minute fifty two seconds' | Kelly speaking: False | Just interrupted: False  
+    20:01:02.769 INFO   intelligent-kelly  ✅ VALID INPUT while idle: 'one minute fifty two seconds'  
+    20:01:02.773 DEBUG  livekit.agents     received user transcript {"user_transcript": "One minute fifty two seconds", "language": "en", "transcript_delay": 0.08300256729125977}                              
+    20:01:05.375 INFO   intelligent-kelly  📝 TRANSCRIPT: 'video' | Kelly speaking: False | Just interrupted: False  
+    20:01:05.380 INFO   intelligent-kelly  ✅ VALID INPUT while idle: 'video'  
+    20:01:05.385 DEBUG  livekit.agents     received user transcript {"user_transcript": "video", "language": "en", "transcript_delay": 0.08710217475891113}
+    20:01:08.090 INFO   intelligent-kelly  👤 USER STATE: speaking → listening  
+   
+   Headset (AirBass Earbuds)   ▁ ▁ ▁ ▁ ▁ ▁ ▁ ▁ ▁ ▁ ▁ ▁ ▁ ▁
