@@ -366,8 +366,17 @@ class AudioRecognition:
             logger.debug("received user transcript", extra=extra)
 
             self._last_final_transcript_time = time.time()
-            self._audio_transcript += f" {transcript}"
-            self._audio_transcript = self._audio_transcript.lstrip()
+            
+            # Check if this transcript is backchannel-only BEFORE adding to history
+            is_backchannel_only = self._is_backchannel_only(transcript)
+            
+            if is_backchannel_only:
+                logger.debug(f"✓ Backchannel word filtered - NOT adding to context: '{transcript}'")
+            else:
+                logger.debug(f"Adding transcript to context: '{transcript}'")
+                self._audio_transcript += f" {transcript}"
+                self._audio_transcript = self._audio_transcript.lstrip()
+            
             self._final_transcript_confidence.append(confidence)
             transcript_changed = self._audio_transcript != self._audio_preflight_transcript
             self._audio_interim_transcript = ""
@@ -499,13 +508,35 @@ class AudioRecognition:
                 chat_ctx = self._hooks.retrieve_chat_ctx().copy()
                 self._run_eou_detection(chat_ctx)
 
+    def _is_backchannel_only(self, transcript: str) -> bool:
+        """Check if transcript contains only backchannel words."""
+        if not transcript or not self._session.options.backchannel_words:
+            return False
+        
+        backchannel_set = set(self._session.options.backchannel_words)
+        # Clean the transcript
+        cleaned = transcript.lower().replace(".", "").replace(",", "").replace("!", "").replace("?", "").strip()
+        
+        if not cleaned:
+            return False
+        
+        # Check if the entire cleaned transcript is a backchannel word
+        if cleaned in backchannel_set:
+            return True
+        
+        # Check if all words are backchannel words
+        words = cleaned.split()
+        return all(word in backchannel_set for word in words)
+
     def _run_eou_detection(self, chat_ctx: llm.ChatContext) -> None:
         if self._stt and not self._audio_transcript and self._turn_detection_mode != "manual":
             # stt enabled but no transcript yet
             return
 
         chat_ctx = chat_ctx.copy()
-        chat_ctx.add_message(role="user", content=self._audio_transcript)
+        # Skip adding backchannel-only transcripts to the conversation context
+        if not self._is_backchannel_only(self._audio_transcript):
+            chat_ctx.add_message(role="user", content=self._audio_transcript)
         turn_detector = (
             self._turn_detector
             if self._audio_transcript and self._turn_detection_mode != "manual"
