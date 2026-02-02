@@ -75,10 +75,6 @@ LIVEKIT_API_SECRET="your-api-secret-here"
 LIVEKIT_API_KEY="your-api-key-here"
 LIVEKIT_URL="wss://your-project.livekit.cloud"
 
-# Optional - For model providers
-OPENAI_API_KEY="your-openai-key"
-DEEPGRAM_API_KEY="your-deepgram-key"
-CARTESIA_API_KEY="your-cartesia-key"
 ```
 
 To get LiveKit credentials:
