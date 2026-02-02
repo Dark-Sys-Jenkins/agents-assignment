@@ -76,3 +76,16 @@ This directory contains a comprehensive collection of voice-based agent examples
 - [LiveKit Agents Documentation](https://docs.livekit.io/agents/)
 - [Agents Starter Example](https://github.com/livekit-examples/agent-starter-python)
 - [More Agents Examples](https://github.com/livekit-examples/python-agents-examples)
+
+## Intelligent Interrupt Handler (Assignment Addition)
+-The modified basic_agent.py includes:
+  Semantic classification of user speech into:
+
+  IGNORE (e.g. “yeah”, “ok”, “hmm”)
+  INTERRUPT (e.g. “wait”, “stop”)
+  NORMAL input
+
+-Backchannel acknowledgements are ignored only while the agent is speaking
+-Explicit interruption commands immediately stop agent speech
+-No LiveKit core code or framework internals are modified
+-This ensures uninterrupted speech continuity and correct state-aware behavior.
