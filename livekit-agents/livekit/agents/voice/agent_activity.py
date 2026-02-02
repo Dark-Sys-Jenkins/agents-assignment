@@ -125,6 +125,16 @@ class AgentActivity(RecognitionHooks):
         self._paused_speech: SpeechHandle | None = None
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
+        
+        # Track agent state at the START of user utterance for filtering
+        # This is needed because VAD fires before STT returns the transcript,
+        # and the agent state may have changed by the time we can analyze the words
+        self._agent_was_speaking_at_utterance_start: bool = False
+        # Flag to ensure we only capture state once per utterance (on first speech detection)
+        self._agent_state_captured_for_utterance: bool = False
+        # Flag to track if the current utterance was filtered as backchannel
+        # When True, EOU detection should be skipped to prevent new response generation
+        self._utterance_filtered_as_backchannel: bool = False
 
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
@@ -163,6 +173,28 @@ class AgentActivity(RecognitionHooks):
 
         # speeches that audio playout finished but not done because of tool calls
         self._background_speeches: set[SpeechHandle] = set()
+
+        # Initialize interruption filter for intelligent backchanneling detection
+        from .interruption_filter import InterruptionFilter, InterruptionFilterConfig
+
+        self._interruption_filter = InterruptionFilter(
+            InterruptionFilterConfig(
+                backchannel_words=(
+                    sess.options.backchannel_words
+                    if sess.options.backchannel_words is not None
+                    else None  # Use defaults
+                ),
+                interrupt_words=(
+                    sess.options.interrupt_words
+                    if sess.options.interrupt_words is not None
+                    else None  # Use defaults
+                ),
+                enabled=sess.options.interruption_filter_enabled,
+            )
+            if sess.options.backchannel_words is not None
+            or sess.options.interrupt_words is not None
+            else InterruptionFilterConfig(enabled=sess.options.interruption_filter_enabled)
+        )
 
     def _validate_turn_detection(
         self, turn_detection: TurnDetectionMode | None
@@ -1167,6 +1199,31 @@ class AgentActivity(RecognitionHooks):
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
     def _interrupt_by_audio_activity(self) -> None:
+        """Handle interruption triggered by audio activity (VAD or STT).
+        
+        This method can be called from multiple sources:
+        - on_vad_inference_done() when VAD detects sufficient speech duration
+        - on_interim_transcript() when STT returns interim results
+        - on_final_transcript() when STT returns final results
+        
+        We capture the agent state on the FIRST call for each utterance, before
+        any early returns, to correctly filter backchanneling.
+        """
+        # Capture agent state on the FIRST call to this method for this utterance.
+        # This MUST happen before any early returns to ensure we capture state
+        # regardless of which code path triggered this call (VAD or STT).
+        if not self._agent_state_captured_for_utterance:
+            current_state = self._session.agent_state
+            self._agent_was_speaking_at_utterance_start = (current_state == "speaking")
+            self._agent_state_captured_for_utterance = True
+            logger.info(
+                "[FILTER] Captured agent state for utterance",
+                extra={
+                    "captured_state": current_state,
+                    "was_speaking_flag": self._agent_was_speaking_at_utterance_start,
+                },
+            )
+        
         opt = self._session.options
         use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
 
@@ -1184,6 +1241,40 @@ class AgentActivity(RecognitionHooks):
             # TODO(long): better word splitting for multi-language
             if len(split_words(text, split_character=True)) < opt.min_interruption_words:
                 return
+
+        # Intelligent interruption filter: ignore backchanneling when agent is speaking
+        # Use the saved state from when the utterance started, not the current state
+        # (because state may have changed while waiting for STT)
+        if self._interruption_filter.config.enabled and self._audio_recognition is not None:
+            transcript = self._audio_recognition.current_transcript
+            # Use the captured state from when user started speaking
+            effective_agent_state = (
+                "speaking" if self._agent_was_speaking_at_utterance_start 
+                else self._session.agent_state
+            )
+            
+            if not self._interruption_filter.should_interrupt(
+                transcript=transcript,
+                agent_state=effective_agent_state,
+            ):
+                # Mark this utterance as filtered so EOU detection is skipped
+                self._utterance_filtered_as_backchannel = True
+                logger.info(
+                    "[FILTER] >>> BLOCKED: Ignoring backchannel input",
+                    extra={
+                        "transcript": transcript,
+                        "effective_state": effective_agent_state,
+                    },
+                )
+                return
+            else:
+                logger.info(
+                    "[FILTER] >>> ALLOWED: Proceeding with interruption",
+                    extra={
+                        "transcript": transcript,
+                        "effective_state": effective_agent_state,
+                    },
+                )
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
@@ -1212,6 +1303,16 @@ class AgentActivity(RecognitionHooks):
     # region recognition hooks
 
     def on_start_of_speech(self, ev: vad.VADEvent | None) -> None:
+        # State capture now happens earlier in on_vad_inference_done()
+        # to ensure it's captured before _interrupt_by_audio_activity() runs
+        logger.debug(
+            "on_start_of_speech",
+            extra={
+                "was_speaking_flag": self._agent_was_speaking_at_utterance_start,
+                "state_already_captured": self._agent_state_captured_for_utterance,
+            },
+        )
+        
         self._session._update_user_state("speaking")
 
         if self._false_interruption_timer:
@@ -1227,6 +1328,13 @@ class AgentActivity(RecognitionHooks):
             "listening",
             last_speaking_time=speech_end_time,
         )
+        
+        # Reset all flags when user stops speaking
+        # Note: _utterance_filtered_as_backchannel is checked by audio_recognition
+        # BEFORE calling on_end_of_speech, so we reset it here after use
+        self._agent_was_speaking_at_utterance_start = False
+        self._agent_state_captured_for_utterance = False
+        self._utterance_filtered_as_backchannel = False
 
         if (
             self._paused_speech
@@ -1239,6 +1347,9 @@ class AgentActivity(RecognitionHooks):
         if self._turn_detection in ("manual", "realtime_llm"):
             # ignore vad inference done event if turn_detection is manual or realtime_llm
             return
+
+        # State capture is now handled centrally in _interrupt_by_audio_activity()
+        # to ensure it works regardless of whether VAD or STT triggers first
 
         if ev.speech_duration >= self._session.options.min_interruption_duration:
             self._interrupt_by_audio_activity()
@@ -1556,6 +1667,14 @@ class AgentActivity(RecognitionHooks):
             metadata=metadata,
         )
         self._session.emit("metrics_collected", MetricsCollectedEvent(metrics=eou_metrics))
+
+    def should_skip_turn_detection(self) -> bool:
+        """Return True if the current utterance was filtered (e.g., backchannel while agent was speaking).
+        
+        When True, audio_recognition should skip EOU detection to prevent
+        new response generation for filtered backchannel words.
+        """
+        return self._utterance_filtered_as_backchannel
 
     # AudioRecognition is calling this method to retrieve the chat context before running the TurnDetector model  # noqa: E501
     def retrieve_chat_ctx(self) -> llm.ChatContext:

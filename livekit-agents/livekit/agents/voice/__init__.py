@@ -1,6 +1,12 @@
 from . import io, run_result
 from .agent import Agent, AgentTask, ModelSettings
 from .agent_session import AgentSession, VoiceActivityVideoSampler
+from .interruption_filter import (
+    InterruptionFilter,
+    InterruptionFilterConfig,
+    DEFAULT_BACKCHANNEL_WORDS,
+    DEFAULT_INTERRUPT_WORDS,
+)
 from .events import (
     AgentEvent,
     AgentFalseInterruptionEvent,
@@ -45,6 +51,10 @@ __all__ = [
     "FunctionToolsExecutedEvent",
     "AgentFalseInterruptionEvent",
     "TranscriptSynchronizer",
+    "InterruptionFilter",
+    "InterruptionFilterConfig",
+    "DEFAULT_BACKCHANNEL_WORDS",
+    "DEFAULT_INTERRUPT_WORDS",
     "io",
     "room_io",
     "run_result",
