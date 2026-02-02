@@ -1,4 +1,28 @@
 import logging
+import os
+import sys
+
+# CRITICAL: Ensure workspace livekit-agents is prioritized BEFORE any imports
+# This must happen before dotenv or any other imports that might trigger livekit imports
+_workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_livekit_agents_path = os.path.join(_workspace_root, "livekit-agents")
+# Remove from path if already there, then insert at position 0
+if _livekit_agents_path in sys.path:
+    sys.path.remove(_livekit_agents_path)
+sys.path.insert(0, _livekit_agents_path)
+
+# Add all plugin paths BEFORE any imports
+_plugin_paths = [
+    os.path.join(_workspace_root, "livekit-plugins", "livekit-plugins-groq"),
+    os.path.join(_workspace_root, "livekit-plugins", "livekit-plugins-openai"),
+    os.path.join(_workspace_root, "livekit-plugins", "livekit-plugins-silero"),
+    os.path.join(_workspace_root, "livekit-plugins", "livekit-plugins-turn-detector"),
+    os.path.join(_workspace_root, "livekit-plugins", "livekit-plugins-cartesia"),
+]
+for _plugin_path in _plugin_paths:
+    if _plugin_path in sys.path:
+        sys.path.remove(_plugin_path)
+    sys.path.insert(0, _plugin_path)
 
 from dotenv import load_dotenv
 
@@ -15,8 +39,30 @@ from livekit.agents import (
     room_io,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import silero
+from livekit.plugins import cartesia, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
+
+# Import Groq plugin
+try:
+    from livekit.plugins import groq
+except ImportError:
+    # Try direct import
+    try:
+        from livekit.plugins.groq import LLM, STT, TTS
+
+        class GroqNamespace:
+            LLM = LLM
+            STT = STT
+            TTS = TTS
+
+        groq = GroqNamespace()
+    except ImportError as e:
+        raise ImportError(
+            f"Groq plugin not found. Please install it:\n"
+            f"  uv pip install -e livekit-plugins/livekit-plugins-groq\n"
+            f"Or: pip install livekit-plugins-groq\n"
+            f"Original error: {e}"
+        ) from e
 
 # uncomment to enable Krisp background voice/noise cancellation
 # from livekit.plugins import noise_cancellation
@@ -81,14 +127,15 @@ async def entrypoint(ctx: JobContext):
     }
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt="deepgram/nova-3",
+        # Using Groq STT (whisper-large-v3-turbo) - fast and accurate
+        stt=groq.STT(model="whisper-large-v3-turbo"),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-        # See all available models at https://docs.livekit.io/agents/models/llm/
-        llm="openai/gpt-4.1-mini",
+        # Using Groq LLM (llama-3.3-70b-versatile) - fast inference with high quality
+        llm=groq.LLM(model="llama-3.3-70b-versatile"),
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-        # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
-        tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
+        # Using Cartesia TTS (Groq TTS playai-tts has been decommissioned)
+        # Cartesia provides high-quality, fast TTS with natural voices
+        tts=cartesia.TTS(),
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
         # See more at https://docs.livekit.io/agents/build/turns
         turn_detection=MultilingualModel(),

@@ -74,6 +74,7 @@ from .generation import (
     remove_instructions,
     update_instructions,
 )
+from .interruption_logic import classify_interruption
 from .speech_handle import SpeechHandle
 
 if TYPE_CHECKING:
@@ -1174,6 +1175,44 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
+        # Get current transcript for interruption decision logic
+        transcript = ""
+        if self._audio_recognition is not None:
+            transcript = self._audio_recognition.current_transcript
+
+        agent_state = self._session.agent_state
+        
+        # If agent is speaking and we don't have a transcript yet, wait for it
+        # This prevents false pauses from VAD firing before STT provides transcript
+        if agent_state == "speaking" and not transcript:
+            # Don't interrupt yet - wait for transcript to make an informed decision
+            # The transcript handlers (on_interim_transcript, on_final_transcript) will
+            # call this method again with the transcript available
+            return
+
+        # Apply interruption decision logic if we have a transcript
+        if transcript:
+            # Map agent state to interruption logic format
+            if agent_state == "speaking":
+                interruption_state = "SPEAKING"
+            else:
+                interruption_state = "SILENT"
+
+            # Classify the interruption
+            decision = classify_interruption(interruption_state, transcript)
+
+            # If decision is IGNORE, don't interrupt (agent continues speaking)
+            if decision == "IGNORE":
+                return
+
+            # If decision is RESPOND but agent is speaking, treat as interrupt
+            # (RESPOND is only valid when agent is SILENT)
+            if decision == "RESPOND" and agent_state == "speaking":
+                # This shouldn't happen, but handle gracefully
+                decision = "INTERRUPT"
+        else:
+            # No transcript available yet - apply legacy word count check
+            # (This case should rarely happen now since we return early above when speaking)
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
@@ -1261,6 +1300,36 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # Check if this is a passive acknowledgement that should be ignored
+            transcript = ev.alternatives[0].text
+            agent_state = self._session.agent_state
+            if agent_state == "speaking":
+                interruption_state = "SPEAKING"
+            else:
+                interruption_state = "SILENT"
+            
+            decision = classify_interruption(interruption_state, transcript)
+            
+            # If it's a passive acknowledgement and agent is speaking, don't interrupt
+            # and resume if already paused
+            if decision == "IGNORE" and agent_state == "speaking":
+                # Resume if we paused earlier (false interruption)
+                if (
+                    self._paused_speech
+                    and self._session.options.resume_false_interruption
+                    and (audio_output := self._session.output.audio)
+                    and audio_output.can_pause
+                ):
+                    self._session._update_agent_state("speaking")
+                    audio_output.resume()
+                    self._paused_speech = None
+                    if self._false_interruption_timer:
+                        self._false_interruption_timer.cancel()
+                        self._false_interruption_timer = None
+                    logger.debug("Resumed speech after passive acknowledgement", extra={"transcript": transcript})
+                return  # Don't interrupt for passive acknowledgements
+            
+            # Otherwise, proceed with normal interruption logic
             self._interrupt_by_audio_activity()
 
             if (
@@ -1292,6 +1361,36 @@ class AgentActivity(RecognitionHooks):
             "manual",
             "realtime_llm",
         ):
+            # Check if this is a passive acknowledgement that should be ignored
+            transcript = ev.alternatives[0].text
+            agent_state = self._session.agent_state
+            if agent_state == "speaking":
+                interruption_state = "SPEAKING"
+            else:
+                interruption_state = "SILENT"
+            
+            decision = classify_interruption(interruption_state, transcript)
+            
+            # If it's a passive acknowledgement and agent is speaking, don't interrupt
+            # and resume if already paused
+            if decision == "IGNORE" and agent_state == "speaking":
+                # Resume if we paused earlier (false interruption)
+                if (
+                    self._paused_speech
+                    and self._session.options.resume_false_interruption
+                    and (audio_output := self._session.output.audio)
+                    and audio_output.can_pause
+                ):
+                    self._session._update_agent_state("speaking")
+                    audio_output.resume()
+                    self._paused_speech = None
+                    if self._false_interruption_timer:
+                        self._false_interruption_timer.cancel()
+                        self._false_interruption_timer = None
+                    logger.debug("Resumed speech after passive acknowledgement", extra={"transcript": transcript})
+                return  # Don't interrupt for passive acknowledgements
+            
+            # Otherwise, proceed with normal interruption logic
             self._interrupt_by_audio_activity()
 
             if (
@@ -1364,6 +1463,38 @@ class AgentActivity(RecognitionHooks):
 
             # TODO(theomonnom): should we "forward" this new turn to the next agent/activity?
             return True
+
+        # Check if this is a passive acknowledgement that should be ignored
+        # This prevents the agent from processing "yeah", "ok", etc. as new turns
+        agent_state = self._session.agent_state
+        if agent_state == "speaking":
+            interruption_state = "SPEAKING"
+        else:
+            interruption_state = "SILENT"
+        
+        decision = classify_interruption(interruption_state, info.new_transcript)
+        
+        # If it's a passive acknowledgement and agent is speaking, ignore this turn completely
+        if decision == "IGNORE" and agent_state == "speaking":
+            self._cancel_preemptive_generation()
+            logger.debug(
+                "Ignoring passive acknowledgement as new turn",
+                extra={"transcript": info.new_transcript},
+            )
+            # Resume speech if it was paused
+            if (
+                self._paused_speech
+                and self._session.options.resume_false_interruption
+                and (audio_output := self._session.output.audio)
+                and audio_output.can_pause
+            ):
+                self._session._update_agent_state("speaking")
+                audio_output.resume()
+                self._paused_speech = None
+                if self._false_interruption_timer:
+                    self._false_interruption_timer.cancel()
+                    self._false_interruption_timer = None
+            return False  # Don't process this as a new turn
 
         if (
             self.stt is not None
