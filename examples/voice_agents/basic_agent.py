@@ -2,16 +2,19 @@ import logging
 
 from dotenv import load_dotenv
 
+# ensure project root is on sys.path so imports like `interruption_filter` work
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from livekit.agents import (
     Agent,
     AgentServer,
     AgentSession,
     JobContext,
     JobProcess,
-    MetricsCollectedEvent,
     RunContext,
     cli,
-    metrics,
     room_io,
 )
 from livekit.agents.llm import function_tool
@@ -23,7 +26,24 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 logger = logging.getLogger("basic-agent")
 
-load_dotenv()
+load_dotenv(override=True)
+import os
+
+# ===== ENV SANITY CHECK (SAFE: does NOT print secrets) =====
+def _check_env(var_name: str):
+    val = os.getenv(var_name)
+    if not val:
+        logger.error(f"[ENV MISSING] {var_name} is NOT set")
+    else:
+        logger.info(f"[ENV OK] {var_name} loaded")
+
+_check_env("DEEPGRAM_API_KEY")
+_check_env("OPENAI_API_KEY")
+_check_env("CARTESIA_API_KEY")
+_check_env("LIVEKIT_URL")
+_check_env("LIVEKIT_API_KEY")
+_check_env("LIVEKIT_API_SECRET")
+# ==========================================================
 
 
 class MyAgent(Agent):
@@ -35,6 +55,7 @@ class MyAgent(Agent):
             "You are curious and friendly, and have a sense of humor."
             "you will speak english to the user",
         )
+        self.is_speaking = False
 
     async def on_enter(self):
         # when the agent is added to the session, it'll generate a reply
@@ -79,6 +100,10 @@ async def entrypoint(ctx: JobContext):
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
+    
+    # Create agent instance for state tracking
+    agent = MyAgent()
+    
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
@@ -95,30 +120,30 @@ async def entrypoint(ctx: JobContext):
         vad=ctx.proc.userdata["vad"],
         # allow the LLM to generate a response while waiting for the end of turn
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
-        preemptive_generation=True,
+        preemptive_generation=False,
         # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
         # when it's detected, you may resume the agent's speech
         resume_false_interruption=True,
         false_interruption_timeout=1.0,
+        # Cheap built-in filter: ignore short utterances (noise, fillers) before custom logic
+        min_interruption_duration=0.6,
+        min_interruption_words=2,
+        # Enable explicit interruption handling (default, but explicit for clarity)
+        allow_interruptions=True,
     )
 
-    # log metrics as they are emitted, and total usage after session is over
-    usage_collector = metrics.UsageCollector()
+    @session.on("agent_speech_started")
+    def _on_agent_speech_started(ev):
+        agent.is_speaking = True
+        logger.debug("Agent speech started")
 
-    @session.on("metrics_collected")
-    def _on_metrics_collected(ev: MetricsCollectedEvent):
-        metrics.log_metrics(ev.metrics)
-        usage_collector.collect(ev.metrics)
-
-    async def log_usage():
-        summary = usage_collector.get_summary()
-        logger.info(f"Usage: {summary}")
-
-    # shutdown callbacks are triggered when the session is over
-    ctx.add_shutdown_callback(log_usage)
+    @session.on("agent_speech_ended")
+    def _on_agent_speech_ended(ev):
+        agent.is_speaking = False
+        logger.debug("Agent speech ended")
 
     await session.start(
-        agent=MyAgent(),
+        agent=agent,
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
