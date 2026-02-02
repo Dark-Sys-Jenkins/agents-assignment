@@ -89,6 +89,9 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    # Backchannel filtering options
+    backchannel_filtering: bool
+    backchannel_words: frozenset[str] | None
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +162,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        backchannel_filtering: bool = True,
+        backchannel_words: frozenset[str] | None = None,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -288,6 +293,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
             else None,
+            backchannel_filtering=backchannel_filtering,
+            backchannel_words=backchannel_words,
         )
         self._conn_options = conn_options or SessionConnectOptions()
         self._started = False
@@ -490,6 +497,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                 return None
 
             self._started_at = time.time()
+            logger.info("Agent session started at %s", self._started_at)
 
             # configure observability first
             job_ctx: JobContext | None = None

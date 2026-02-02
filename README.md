@@ -41,6 +41,178 @@ agents that can see, hear, and understand.
 - **MCP support**: Native support for MCP. Integrate tools provided by MCP servers with one loc.
 - **Builtin test framework**: Write tests and use judges to ensure your agent is performing as expected.
 - **Open-source**: Fully open-source, allowing you to run the entire stack on your own servers, including [LiveKit server](https://github.com/livekit/livekit), one of the most widely used WebRTC media servers.
+- **Backchannel Filtering**: Context-aware interruption handling that distinguishes between passive acknowledgements ("yeah", "ok") and real commands.
+
+## Backchannel Filtering
+
+This implementation includes a **context-aware backchannel filtering** system that prevents the agent from being interrupted by passive acknowledgement words while speaking.
+
+### How to Run the Agent
+
+**Prerequisites:**
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# Windows:
+.\venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
+
+# Install dependencies
+pip install -e ./livekit-agents
+pip install -r examples/voice_agents/requirements.txt
+```
+
+**Environment Variables (create `.env` file):**
+```bash
+LIVEKIT_URL=wss://your-livekit-server.com
+LIVEKIT_API_KEY=your-api-key
+LIVEKIT_API_SECRET=your-api-secret
+OPENAI_API_KEY=your-openai-key
+DEEPGRAM_API_KEY=your-deepgram-key
+```
+
+**Running the Agent:**
+```bash
+# Console mode (local testing without LiveKit server)
+python examples/voice_agents/basic_agent.py console
+
+# Development mode (connects to LiveKit server with hot reload)
+python examples/voice_agents/basic_agent.py dev
+
+# Production mode
+python examples/voice_agents/basic_agent.py start
+```
+
+**Testing with LiveKit Playground:**
+1. Run agent in dev mode: `python examples/voice_agents/basic_agent.py dev`
+2. Open [Agents Playground](https://agents-playground.livekit.io/)
+3. Connect with your LiveKit credentials
+4. Test backchannel filtering by saying "ok" or "yeah" while agent speaks
+
+---
+
+### How the Interruption Logic Works
+
+The system intercepts voice activity and transcript events **before** they trigger an interruption:
+
+```
+User speaks → VAD detects voice → STT provides transcript
+                                         ↓
+                              Agent currently speaking?
+                             /                         \
+                           NO                          YES
+                           ↓                            ↓
+                    Process normally           Is transcript a backchannel?
+                    (respond to user)         /                          \
+                                            YES                          NO
+                                             ↓                            ↓
+                                      IGNORE completely           INTERRUPT agent
+                                      (agent continues)           (process command)
+```
+
+**Key Implementation Points:**
+
+1. **Transcript-First Approach**: When agent is speaking, interruptions are deferred until STT provides a transcript. This prevents VAD from triggering premature interruptions.
+
+2. **State-Based Filtering**: Backchannel detection ONLY applies when:
+   - Agent has active speech (`_current_speech is not None`)
+   - Speech is not already interrupted
+   - `allow_interruptions` is enabled
+
+3. **Command Word Override**: If transcript contains command words (stop, wait, what, etc.), it is NEVER treated as a backchannel, even if it also contains filler words.
+
+4. **No Audio Modification**: The filter works at the logic layer - VAD and STT are unchanged.
+
+**Code Location:** `livekit/agents/voice/agent_activity.py` → `_interrupt_by_audio_activity()`
+
+---
+
+### How Ignore Words Are Configured
+
+**Option 1: Use Default Configuration (Recommended)**
+```python
+session = AgentSession(
+    backchannel_filtering=True,  # Enabled by default
+)
+```
+
+**Option 2: Custom Ignore Words**
+```python
+session = AgentSession(
+    backchannel_filtering=True,
+    backchannel_words=frozenset({
+        'yeah', 'yep', 'ok', 'okay', 'hmm', 'mhm', 
+        'uh huh', 'right', 'got it', 'sure'
+    }),
+)
+```
+
+**Option 3: Disable Backchannel Filtering**
+```python
+session = AgentSession(
+    backchannel_filtering=False,  # VAD triggers interrupt on any speech
+)
+```
+
+**Default Ignored Words:**
+
+| Category | Words |
+|----------|-------|
+| Affirmations | yeah, yep, ok, okay, right, alright, sure |
+| Listening signals | aha, hmm, mhm, uh-huh, mm-hmm |
+| Understanding | got it, gotcha, i see, oh, cool, nice, great |
+| Hesitations | uh, um, er, ah |
+
+**Command Words (Never Ignored):**
+
+| Category | Words |
+|----------|-------|
+| Stop commands | stop, wait, hold, pause, halt |
+| Questions | what, why, how, when, where, who |
+| Negations | no, not, never |
+| Redirection | actually, instead, however |
+
+**Using BackchannelFilter Class Directly:**
+```python
+from livekit.agents.voice.backchannel_filter import BackchannelFilter
+
+filter = BackchannelFilter(
+    backchannel_words=frozenset({'yeah', 'ok', 'custom'}),
+    command_words=frozenset({'stop', 'wait'}),
+    max_words=5
+)
+
+filter.is_backchannel("yeah")           # True
+filter.is_backchannel("yeah wait")      # False (contains command)
+filter.contains_command_words("stop")   # True
+```
+
+---
+
+### Running Unit Tests
+
+```bash
+# Run all backchannel filter tests (79 tests)
+python -m pytest tests/test_backchannel_filter.py -v
+
+# Run specific scenario tests
+python -m pytest tests/test_backchannel_filter.py -v -k "scenario"
+
+# Run with short output
+python -m pytest tests/test_backchannel_filter.py --tb=short
+```
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `livekit/agents/voice/backchannel_filter.py` | New module with `BackchannelFilter` class |
+| `livekit/agents/voice/agent_activity.py` | Interruption handling with backchannel detection |
+| `livekit/agents/voice/agent_session.py` | Configuration options |
+| `tests/test_backchannel_filter.py` | 79 unit tests |
 
 ## Installation
 
