@@ -88,6 +88,10 @@ class RecognitionHooks(Protocol):
     def on_final_transcript(self, ev: stt.SpeechEvent, *, speaking: bool | None = None) -> None: ...
     def on_end_of_turn(self, info: _EndOfTurnInfo) -> bool: ...
     def on_preemptive_generation(self, info: _PreemptiveGenerationInfo) -> None: ...
+    
+    # Returns True if the current utterance was filtered (e.g., backchannel while agent speaking)
+    # and turn detection should be skipped
+    def should_skip_turn_detection(self) -> bool: ...
 
     def retrieve_chat_ctx(self) -> llm.ChatContext: ...
 
@@ -311,8 +315,14 @@ class AudioRecognition:
                 )
 
             self._audio_interim_transcript = ""
-            chat_ctx = self._hooks.retrieve_chat_ctx().copy()
-            self._run_eou_detection(chat_ctx)
+            
+            # Skip EOU detection if the utterance was filtered as backchannel
+            if not self._hooks.should_skip_turn_detection():
+                chat_ctx = self._hooks.retrieve_chat_ctx().copy()
+                self._run_eou_detection(chat_ctx)
+            else:
+                logger.debug("skipping EOU in commit_user_turn for filtered backchannel")
+            
             self._user_turn_committed = True
 
         if self._commit_user_turn_atask is not None:
@@ -398,8 +408,12 @@ class AudioRecognition:
                     )
 
                 if not self._speaking:
-                    chat_ctx = self._hooks.retrieve_chat_ctx().copy()
-                    self._run_eou_detection(chat_ctx)
+                    # Skip EOU detection if the utterance was filtered as backchannel
+                    if not self._hooks.should_skip_turn_detection():
+                        chat_ctx = self._hooks.retrieve_chat_ctx().copy()
+                        self._run_eou_detection(chat_ctx)
+                    else:
+                        logger.debug("skipping EOU in FINAL_TRANSCRIPT for filtered backchannel")
 
         elif ev.type == stt.SpeechEventType.PREFLIGHT_TRANSCRIPT:
             self._hooks.on_interim_transcript(ev, speaking=self._speaking if self._vad else None)
@@ -445,6 +459,9 @@ class AudioRecognition:
             self._audio_interim_transcript = ev.alternatives[0].text
 
         elif ev.type == stt.SpeechEventType.END_OF_SPEECH and self._turn_detection_mode == "stt":
+            # IMPORTANT: Check the skip flag BEFORE calling on_end_of_speech
+            should_skip_eou = self._hooks.should_skip_turn_detection()
+            
             with trace.use_span(self._ensure_user_turn_span()):
                 self._hooks.on_end_of_speech(None)
 
@@ -452,8 +469,12 @@ class AudioRecognition:
             self._user_turn_committed = True
             self._last_speaking_time = time.time()
 
-            chat_ctx = self._hooks.retrieve_chat_ctx().copy()
-            self._run_eou_detection(chat_ctx)
+            # Skip EOU detection if the utterance was filtered as backchannel
+            if not should_skip_eou:
+                chat_ctx = self._hooks.retrieve_chat_ctx().copy()
+                self._run_eou_detection(chat_ctx)
+            else:
+                logger.debug("skipping EOU in STT END_OF_SPEECH for filtered backchannel")
 
         elif ev.type == stt.SpeechEventType.START_OF_SPEECH and self._turn_detection_mode == "stt":
             with trace.use_span(self._ensure_user_turn_span()):
@@ -488,10 +509,19 @@ class AudioRecognition:
                     self._speech_start_time = time.time()
 
         elif ev.type == vad.VADEventType.END_OF_SPEECH:
+            # IMPORTANT: Check the skip flag BEFORE calling on_end_of_speech,
+            # because on_end_of_speech resets the flag
+            should_skip_eou = self._hooks.should_skip_turn_detection()
+            
             with trace.use_span(self._ensure_user_turn_span()):
                 self._hooks.on_end_of_speech(ev)
 
             self._speaking = False
+
+            # Skip EOU detection if the utterance was filtered as backchannel
+            if should_skip_eou:
+                logger.debug("skipping turn detection for filtered backchannel utterance")
+                return
 
             if self._vad_base_turn_detection or (
                 self._turn_detection_mode == "stt" and self._user_turn_committed
