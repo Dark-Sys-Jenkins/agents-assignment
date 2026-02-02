@@ -119,6 +119,7 @@ class AudioRecognition:
         self._turn_detection_mode = turn_detection if isinstance(turn_detection, str) else None
         self._vad_base_turn_detection = self._turn_detection_mode in ("vad", None)
         self._user_turn_committed = False  # true if user turn ended but EOU task not done
+        self.last_utterance: str | None = None
 
         self._sample_rate: int | None = None
         self._speaking = False
@@ -311,6 +312,24 @@ class AudioRecognition:
                 )
 
             self._audio_interim_transcript = ""
+
+            utterance = (self.last_utterance or "").strip().lower()
+
+            # HARD interrupt → immediately interrupt agent, do NOT run EOU
+            if _contains_interrupt_command(utterance):
+                logger.info(f"Hard interrupt detected: '{utterance}'")
+                self._hooks.interrupt(force=True)
+                self.clear_user_turn()
+                return
+
+            # Passive backchannel → DROP TURN COMPLETELY
+            if _is_passive_acknowledgement(utterance):
+                logger.info(f"Ignoring passive utterance: '{utterance}'")
+                self.clear_user_turn()
+                return
+
+
+
             chat_ctx = self._hooks.retrieve_chat_ctx().copy()
             self._run_eou_detection(chat_ctx)
             self._user_turn_committed = True
@@ -330,6 +349,7 @@ class AudioRecognition:
         return self._audio_transcript
 
     async def _on_stt_event(self, ev: stt.SpeechEvent) -> None:
+        
         if (
             self._turn_detection_mode == "manual"
             and self._user_turn_committed
@@ -344,6 +364,7 @@ class AudioRecognition:
             return
 
         if ev.type == stt.SpeechEventType.FINAL_TRANSCRIPT:
+            self.last_utterance = ev.alternatives[0].text.strip().lower()
             transcript = ev.alternatives[0].text
             language = ev.alternatives[0].language
             confidence = ev.alternatives[0].confidence
@@ -397,10 +418,7 @@ class AudioRecognition:
                         )
                     )
 
-                if not self._speaking:
-                    chat_ctx = self._hooks.retrieve_chat_ctx().copy()
-                    self._run_eou_detection(chat_ctx)
-
+                
         elif ev.type == stt.SpeechEventType.PREFLIGHT_TRANSCRIPT:
             self._hooks.on_interim_transcript(ev, speaking=self._speaking if self._vad else None)
             transcript = ev.alternatives[0].text
@@ -452,9 +470,7 @@ class AudioRecognition:
             self._user_turn_committed = True
             self._last_speaking_time = time.time()
 
-            chat_ctx = self._hooks.retrieve_chat_ctx().copy()
-            self._run_eou_detection(chat_ctx)
-
+            
         elif ev.type == stt.SpeechEventType.START_OF_SPEECH and self._turn_detection_mode == "stt":
             with trace.use_span(self._ensure_user_turn_span()):
                 self._hooks.on_start_of_speech(None)
