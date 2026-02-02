@@ -7,6 +7,98 @@ This directory contains a comprehensive collection of voice-based agent examples
 ### 🚀 Getting Started
 
 - [`basic_agent.py`](./basic_agent.py) - A fundamental voice agent with metrics collection
+- [`intelligent_interrupt_agent.py`](./intelligent_interrupt_agent.py) - **Intelligent Interruption Handling** - Agent that ignores filler words (yeah, ok, hmm) while speaking but responds to commands (stop, wait, no)
+
+---
+
+## 🎯 Intelligent Interruption Handling
+
+### Overview
+
+This implementation provides **context-aware interruption handling** for LiveKit voice agents:
+
+| User Says | Agent Speaking? | Action |
+|-----------|----------------|--------|
+| "yeah", "ok", "hmm" | ✅ Yes | **IGNORE** - Agent continues seamlessly |
+| "stop", "wait", "no" | ✅ Yes | **INTERRUPT** - Agent stops immediately |
+| "yeah", "ok", "hmm" | ❌ No | **RESPOND** - Agent processes as valid input |
+| "yeah but wait" | ✅ Yes | **INTERRUPT** - Contains command word |
+
+### The Problem
+
+LiveKit's VAD is too sensitive to user feedback. When users say "yeah" or "ok" while listening, the agent incorrectly interprets this as an interruption and stops speaking.
+
+### The Solution
+
+The `InterruptionFilter` class in the framework:
+1. **Pauses** (not stops) the agent's speech when VAD detects user voice
+2. **Analyzes** the transcript to determine if it's a filler or command
+3. **Resumes** seamlessly if it was just a filler word
+4. **Interrupts** properly if it contains a command word
+
+### Quick Start
+
+```python
+from livekit.agents import AgentSession
+
+session = AgentSession(
+    stt=deepgram_stt,
+    llm=groq_llm,
+    tts=deepgram_tts,
+    vad=vad,
+    # Enable intelligent interruption handling
+    resume_false_interruption=True,
+    false_interruption_timeout=1.0,
+)
+```
+
+### Custom Word Lists
+
+```python
+from livekit.agents import (
+    InterruptionFilter,
+    set_interruption_filter,
+    DEFAULT_IGNORE_WORDS,
+    DEFAULT_INTERRUPT_WORDS,
+)
+
+# Add custom words
+custom_ignore = DEFAULT_IGNORE_WORDS | {"roger", "copy", "affirmative"}
+custom_interrupt = DEFAULT_INTERRUPT_WORDS | {"emergency", "help"}
+
+set_interruption_filter(InterruptionFilter(
+    ignore_words=custom_ignore,
+    interrupt_words=custom_interrupt,
+))
+```
+
+### Default Word Lists
+
+**Ignore Words (Fillers):**
+```
+yeah, yes, yep, ok, okay, hmm, mm, uh-huh, aha, ah, oh, right, alright, sure, got it, gotcha, i see
+```
+
+**Interrupt Words (Commands):**
+```
+stop, wait, hold on, pause, no, nope, cancel, quit, exit, actually, but, however, what, why, how
+```
+
+### Run Tests
+
+```bash
+pytest tests/test_interruption_filter.py -v
+```
+
+### Files Changed
+
+- `livekit-agents/livekit/agents/voice/agent_activity.py` - InterruptionFilter class
+- `livekit-agents/livekit/agents/voice/__init__.py` - Exports
+- `livekit-agents/livekit/agents/__init__.py` - Exports
+- `examples/voice_agents/intelligent_interrupt_agent.py` - Example agent
+- `tests/test_interruption_filter.py` - 25 unit tests
+
+---
 
 ### 🛠️ Tool Integration & Function Calling
 

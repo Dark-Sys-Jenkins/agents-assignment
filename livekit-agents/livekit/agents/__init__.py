@@ -77,6 +77,12 @@ from .voice import (
     avatar,
     io,
     room_io,
+    # Intelligent Interruption Filter
+    InterruptionFilter,
+    get_interruption_filter,
+    set_interruption_filter,
+    DEFAULT_IGNORE_WORDS,
+    DEFAULT_INTERRUPT_WORDS,
 )
 from .voice.background_audio import AudioConfig, BackgroundAudioPlayer, BuiltinAudioClip, PlayHandle
 from .voice.room_io import RoomInputOptions, RoomIO, RoomOutputOptions
@@ -196,6 +202,12 @@ __all__ = [
     "FunctionCallEvent",
     "FunctionCallOutputEvent",
     "AgentHandoffEvent",
+    # Intelligent Interruption Filter
+    "InterruptionFilter",
+    "get_interruption_filter",
+    "set_interruption_filter",
+    "DEFAULT_IGNORE_WORDS",
+    "DEFAULT_INTERRUPT_WORDS",
 ]
 
 # Cleanup docs of unexported modules

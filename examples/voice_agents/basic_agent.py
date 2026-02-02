@@ -1,4 +1,5 @@
 import logging
+import os
 
 from dotenv import load_dotenv
 
@@ -15,8 +16,7 @@ from livekit.agents import (
     room_io,
 )
 from livekit.agents.llm import function_tool
-from livekit.plugins import silero
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
+from livekit.plugins import silero, deepgram, openai
 
 # uncomment to enable Krisp background voice/noise cancellation
 # from livekit.plugins import noise_cancellation
@@ -29,7 +29,7 @@ load_dotenv()
 class MyAgent(Agent):
     def __init__(self) -> None:
         super().__init__(
-            instructions="Your name is Kelly. You would interact with users via voice."
+            instructions="Your name is Himanshi. You would interact with users via voice."
             "with that in mind keep your responses concise and to the point."
             "do not use emojis, asterisks, markdown, or other special characters in your responses."
             "You are curious and friendly, and have a sense of humor."
@@ -39,7 +39,7 @@ class MyAgent(Agent):
     async def on_enter(self):
         # when the agent is added to the session, it'll generate a reply
         # according to its instructions
-        self.session.generate_reply()
+        await self.session.generate_reply()
 
     # all functions annotated with @function_tool will be passed to the LLM when this
     # agent is active
@@ -79,27 +79,39 @@ async def entrypoint(ctx: JobContext):
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
+
+    groq_llm = openai.LLM(
+        base_url="https://api.groq.com/openai/v1",
+        api_key=os.environ.get("GROQ_API_KEY"),
+        model="llama-3.3-70b-versatile",
+    )
+    
+    deepgram_stt = deepgram.STT()
+    deepgram_tts = deepgram.TTS()
+
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt="deepgram/nova-3",
+        stt=deepgram_stt,
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
-        llm="openai/gpt-4.1-mini",
+        llm=groq_llm,
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
-        tts="cartesia/sonic-2:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
+        tts=deepgram_tts,
         # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
         # See more at https://docs.livekit.io/agents/build/turns
-        turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         # allow the LLM to generate a response while waiting for the end of turn
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
         preemptive_generation=True,
-        # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
-        # when it's detected, you may resume the agent's speech
+        # INTELLIGENT INTERRUPTION HANDLING:
+        # When enabled, the agent will pause (not stop) when interrupted.
+        # The framework's InterruptionFilter will then check if the transcript is
+        # a filler word (yeah, ok, hmm) - if so, the agent resumes speaking.
+        # If it's a command (stop, wait, no), the agent properly interrupts.
         resume_false_interruption=True,
-        false_interruption_timeout=1.0,
+        false_interruption_timeout=1.0,  # Time to wait for transcript before resuming
     )
 
     # log metrics as they are emitted, and total usage after session is over

@@ -1,5 +1,12 @@
 from . import io, run_result
 from .agent import Agent, AgentTask, ModelSettings
+from .agent_activity import (
+    InterruptionFilter,
+    get_interruption_filter,
+    set_interruption_filter,
+    DEFAULT_IGNORE_WORDS,
+    DEFAULT_INTERRUPT_WORDS,
+)
 from .agent_session import AgentSession, VoiceActivityVideoSampler
 from .events import (
     AgentEvent,
@@ -51,6 +58,12 @@ __all__ = [
     "_ParticipantAudioOutput",
     "_ParticipantTranscriptionOutput",
     "_ParticipantStreamTranscriptionOutput",
+    # Intelligent Interruption Filter
+    "InterruptionFilter",
+    "get_interruption_filter",
+    "set_interruption_filter",
+    "DEFAULT_IGNORE_WORDS",
+    "DEFAULT_INTERRUPT_WORDS",
 ]
 
 # Cleanup docs of unexported modules

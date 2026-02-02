@@ -4,10 +4,12 @@ import asyncio
 import contextvars
 import heapq
 import json
+import os
+import re
 import time
 from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Optional, Set, Union, cast
 
 from opentelemetry import context as otel_context, trace
 
@@ -82,6 +84,160 @@ if TYPE_CHECKING:
 
 _AgentActivityContextVar = contextvars.ContextVar["AgentActivity"]("agents_activity")
 _SpeechHandleContextVar = contextvars.ContextVar["SpeechHandle"]("agents_speech_handle")
+
+
+# ============================================================================
+# INTELLIGENT INTERRUPTION FILTER
+# ============================================================================
+# Default words to IGNORE when agent is speaking (backchanneling/acknowledgements)
+DEFAULT_IGNORE_WORDS: Set[str] = {
+    "yeah", "yes", "yep", "yup", "yea",
+    "ok", "okay", "k",
+    "hmm", "hm", "mm", "mmhmm", "mhm", "uh-huh", "uhuh", "uh huh", "uhhuh",
+    "aha", "ah", "oh",
+    "right", "alright", "all right",
+    "sure", "got it", "gotcha", "i see",
+}
+
+# Default words that ALWAYS trigger interruption (commands)
+DEFAULT_INTERRUPT_WORDS: Set[str] = {
+    "stop", "wait", "hold on", "hold", "pause",
+    "no", "nope", "cancel", "quit", "exit",
+    "actually", "but", "however", "hang on",
+    "excuse me", "sorry", "question",
+    "what", "why", "how", "when", "where", "who",
+}
+
+
+class InterruptionFilter:
+    """
+    Filters user speech to determine if it should interrupt the agent.
+    
+    Logic:
+    - If agent is NOT speaking: all input is valid, process normally
+    - If agent IS speaking:
+        - Pure filler words → IGNORE (agent continues seamlessly)
+        - Contains interrupt words → INTERRUPT immediately
+        - Mixed input with commands → INTERRUPT
+    
+    Configurable via environment variables:
+    - IGNORE_WORDS: Comma-separated list of filler words
+    - INTERRUPT_WORDS: Comma-separated list of interrupt trigger words
+    """
+    
+    def __init__(
+        self,
+        ignore_words: Set[str] | None = None,
+        interrupt_words: Set[str] | None = None,
+    ):
+        # Load from environment or use defaults
+        if ignore_words is None:
+            env_ignore = os.environ.get("IGNORE_WORDS", "")
+            if env_ignore:
+                ignore_words = {w.lower().strip() for w in env_ignore.split(",")}
+            else:
+                ignore_words = DEFAULT_IGNORE_WORDS.copy()
+        
+        if interrupt_words is None:
+            env_interrupt = os.environ.get("INTERRUPT_WORDS", "")
+            if env_interrupt:
+                interrupt_words = {w.lower().strip() for w in env_interrupt.split(",")}
+            else:
+                interrupt_words = DEFAULT_INTERRUPT_WORDS.copy()
+        
+        self.ignore_words = {w.lower().strip() for w in ignore_words}
+        self.interrupt_words = {w.lower().strip() for w in interrupt_words}
+    
+    def normalize_text(self, text: str) -> str:
+        """Normalize text for comparison - remove punctuation, lowercase."""
+        text = re.sub(r'[^\w\s]', '', text.lower())
+        return ' '.join(text.split())
+    
+    def is_pure_filler(self, text: str) -> bool:
+        """Check if the text consists only of filler/acknowledgement words."""
+        normalized = self.normalize_text(text)
+        if not normalized:
+            return True
+        
+        # Check if entire phrase is a known filler
+        if normalized in self.ignore_words:
+            return True
+        
+        # Check each word individually
+        words = normalized.split()
+        for word in words:
+            # If any word is not in ignore list and is substantial, not pure filler
+            if word not in self.ignore_words and len(word) > 1:
+                return False
+        
+        return True
+    
+    def contains_interrupt_word(self, text: str) -> bool:
+        """Check if text contains any interrupt trigger words."""
+        normalized = self.normalize_text(text)
+        
+        # Check for exact phrase matches first
+        for phrase in self.interrupt_words:
+            if phrase in normalized:
+                return True
+        
+        # Check individual words
+        words = normalized.split()
+        for word in words:
+            if word in self.interrupt_words:
+                return True
+        
+        return False
+    
+    def should_interrupt(self, transcript: str) -> bool:
+        """
+        Determine if the transcript should trigger an interruption
+        when the agent is speaking.
+        
+        Args:
+            transcript: The user's speech transcript
+            
+        Returns:
+            True if agent should be interrupted, False if input should be ignored
+        """
+        if not transcript or not transcript.strip():
+            return False
+        
+        # Check for explicit interrupt words first (highest priority)
+        if self.contains_interrupt_word(transcript):
+            logger.debug(f"Interrupt filter: INTERRUPT - contains command: '{transcript}'")
+            return True
+        
+        # Check if it's pure filler - should be ignored
+        if self.is_pure_filler(transcript):
+            logger.debug(f"Interrupt filter: IGNORE - pure filler: '{transcript}'")
+            return False
+        
+        # Not pure filler but no interrupt words - check length
+        word_count = len(transcript.split())
+        if word_count <= 2:
+            # Short non-command phrase, likely acknowledgement variant
+            logger.debug(f"Interrupt filter: IGNORE - short phrase: '{transcript}'")
+            return False
+        
+        # Longer substantive input - allow interruption
+        logger.debug(f"Interrupt filter: INTERRUPT - substantive input: '{transcript}'")
+        return True
+
+
+# Global interruption filter instance
+_interruption_filter = InterruptionFilter()
+
+
+def get_interruption_filter() -> InterruptionFilter:
+    """Get the global interruption filter instance."""
+    return _interruption_filter
+
+
+def set_interruption_filter(filter_instance: InterruptionFilter) -> None:
+    """Set a custom interruption filter instance."""
+    global _interruption_filter
+    _interruption_filter = filter_instance
 
 
 @dataclass
@@ -1248,19 +1404,35 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+        
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=False,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
         )
 
-        if ev.alternatives[0].text and self._turn_detection not in (
+        if transcript_text and self._turn_detection not in (
             "manual",
             "realtime_llm",
         ):
+            # INTELLIGENT INTERRUPTION FILTER for interim transcripts:
+            # If agent is speaking (paused_speech exists) and this looks like a filler,
+            # don't trigger interruption yet - wait for final transcript
+            interruption_filter = get_interruption_filter()
+            if (
+                self._paused_speech is not None
+                and not interruption_filter.should_interrupt(transcript_text)
+            ):
+                logger.debug(
+                    f"Interim transcript '{transcript_text}' looks like filler, not interrupting yet"
+                )
+                # Don't call _interrupt_by_audio_activity for filler-like interim transcripts
+                return
+            
             self._interrupt_by_audio_activity()
 
             if (
@@ -1276,10 +1448,12 @@ class AgentActivity(RecognitionHooks):
             # skip stt transcription if user_transcription is enabled on the realtime model
             return
 
+        transcript_text = ev.alternatives[0].text
+        
         self._session._user_input_transcribed(
             UserInputTranscribedEvent(
                 language=ev.alternatives[0].language,
-                transcript=ev.alternatives[0].text,
+                transcript=transcript_text,
                 is_final=True,
                 speaker_id=ev.alternatives[0].speaker_id,
             ),
@@ -1287,6 +1461,26 @@ class AgentActivity(RecognitionHooks):
         # agent speech might not be interrupted if VAD failed and a final transcript is received
         # we call _interrupt_by_audio_activity (idempotent) to pause the speech, if possible
         # which will also be immediately interrupted
+
+        # INTELLIGENT INTERRUPTION FILTER:
+        # If we have a paused speech and the transcript is just a filler word,
+        # don't commit the interruption - let the false_interruption_timer resume
+        interruption_filter = get_interruption_filter()
+        is_filler_while_speaking = (
+            self._paused_speech is not None
+            and transcript_text
+            and not interruption_filter.should_interrupt(transcript_text)
+        )
+        
+        if is_filler_while_speaking:
+            logger.debug(
+                f"Ignoring filler word '{transcript_text}' - agent will resume speaking"
+            )
+            # Don't call _interrupt_by_audio_activity or _interrupt_paused_speech
+            # The false_interruption_timer will handle resuming
+            if (timeout := self._session.options.false_interruption_timeout) is not None:
+                self._start_false_interruption_timer(timeout)
+            return
 
         if self._audio_recognition and self._turn_detection not in (
             "manual",
