@@ -1,0 +1,18 @@
+# Core LiveKit packages
+livekit
+livekit-agents
+livekit-plugins-silero
+
+# STT
+livekit-plugins-deepgram
+# OR
+livekit-plugins-assemblyai
+
+# LLM
+livekit-plugins-openai
+
+# TTS
+livekit-plugins-cartesia
+
+# Other
+python-dotenv

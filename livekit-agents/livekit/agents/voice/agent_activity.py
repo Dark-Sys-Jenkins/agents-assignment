@@ -1174,6 +1174,36 @@ class AgentActivity(RecognitionHooks):
             # ignore if realtime model has turn detection enabled
             return
 
+        # --- Intelligent interruption handling ---
+        # CRITICAL: Block interrupt if we're waiting for STT validation
+        if self._session._pending_interrupt and self._session._agent_state == "speaking":
+            # Check if we've been waiting too long (fallback safety)
+            if self._session._pending_interrupt_time:
+                wait_time = time.time() - self._session._pending_interrupt_time
+                
+                # If we've waited more than 1 second without STT, something's wrong
+                # Go ahead and interrupt as fallback
+                if wait_time > 1.0:
+                    logger.warning(
+                        "[INTERRUPT_TIMEOUT] STT validation timeout after %.2fs, interrupting anyway",
+                        wait_time
+                    )
+                    self._session._pending_interrupt = False
+                    self._session._pending_interrupt_text = None
+                    # Fall through to normal interrupt logic
+                else:
+                    # Still waiting for STT validation - BLOCK the interrupt
+                    logger.debug(
+                        "[INTERRUPT_BLOCKED] Blocking audio interrupt, waiting for STT (%.2fs elapsed)",
+                        wait_time
+                    )
+                    return
+            else:
+                # No timestamp set, block anyway
+                logger.debug("[INTERRUPT_BLOCKED] Blocking audio interrupt, waiting for STT")
+                return
+        # -----------------------------------------------------------------------
+
         if (
             self.stt is not None
             and opt.min_interruption_words > 0
@@ -1208,8 +1238,6 @@ class AgentActivity(RecognitionHooks):
                     self._rt_session.interrupt()
 
                 self._current_speech.interrupt()
-
-    # region recognition hooks
 
     def on_start_of_speech(self, ev: vad.VADEvent | None) -> None:
         self._session._update_user_state("speaking")

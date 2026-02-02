@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import os
 import time
 from collections.abc import AsyncIterable, Sequence
 from contextlib import AbstractContextManager, nullcontext
@@ -56,6 +57,52 @@ from .ivr import IVRActivity
 from .recorder_io import RecorderIO
 from .run_result import RunResult
 from .speech_handle import SpeechHandle
+
+# --- Intelligent interruption handling ---
+# Configurable soft words (backchanneling) that should be ignored when agent is speaking
+# Can be overridden via environment variable SOFT_WORDS (comma-separated)
+_DEFAULT_SOFT_WORDS = {
+    "yeah",
+    "ok",
+    "okay",
+    "hmm",
+    "uh-huh",
+    "aha",
+    "right",
+    "uh-huh",
+    "mhm",
+    "yep",
+    "sure",
+}
+
+# Configurable hard interrupt words that should always interrupt the agent
+# Can be overridden via environment variable HARD_INTERRUPT_WORDS (comma-separated)
+_DEFAULT_HARD_INTERRUPT_WORDS = {
+    "stop",
+    "wait",
+    "cancel",
+    "hold",
+    "hold on",
+    "no",
+    "don't",
+    "dont",
+}
+
+# Load from environment variables if available
+_soft_words_env = os.getenv("SOFT_WORDS", "").strip()
+SOFT_WORDS = (
+    set(word.strip().lower() for word in _soft_words_env.split(",") if word.strip())
+    if _soft_words_env
+    else _DEFAULT_SOFT_WORDS
+)
+
+_hard_interrupt_words_env = os.getenv("HARD_INTERRUPT_WORDS", "").strip()
+HARD_INTERRUPT_WORDS = (
+    set(word.strip().lower() for word in _hard_interrupt_words_env.split(",") if word.strip())
+    if _hard_interrupt_words_env
+    else _DEFAULT_HARD_INTERRUPT_WORDS
+)
+
 
 if TYPE_CHECKING:
     from ..inference import LLMModels, STTModels, TTSModels
@@ -144,16 +191,16 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         mcp_servers: NotGivenOr[list[mcp.MCPServer]] = NOT_GIVEN,
         userdata: NotGivenOr[Userdata_T] = NOT_GIVEN,
         allow_interruptions: bool = True,
-        discard_audio_if_uninterruptible: bool = True,
-        min_interruption_duration: float = 0.5,
-        min_interruption_words: int = 0,
+        discard_audio_if_uninterruptible: bool = True, #NEW CHANGEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE earlier True
+        min_interruption_duration: float = 0.0,
+        min_interruption_words: int = 1,
         min_endpointing_delay: float = 0.5,
         max_endpointing_delay: float = 3.0,
         max_tool_steps: int = 3,
         video_sampler: NotGivenOr[_VideoSampler | None] = NOT_GIVEN,
         user_away_timeout: float | None = 15.0,
-        false_interruption_timeout: float | None = 2.0,
-        resume_false_interruption: bool = True,
+        false_interruption_timeout: float | None = None, #NEW CHANGEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE earlier 2.0
+        resume_false_interruption: bool = False, #NEW CHANGEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE  earlier True
         min_consecutive_speech_delay: float = 0.0,
         use_tts_aligned_transcript: NotGivenOr[bool] = NOT_GIVEN,
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
@@ -337,6 +384,16 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         self._user_state: UserState = "listening"
         self._agent_state: AgentState = "initializing"
         self._user_away_timer: asyncio.TimerHandle | None = None
+        
+        # --- Intelligent interruption handling ---
+        # Track pending interruptions that need STT validation before executing
+        self._pending_interrupt: bool = False
+        self._pending_interrupt_time: float | None = None
+        self._pending_interrupt_text: str | None = None  # Track the transcript for validation
+        
+        # ADD THESE NEW LINES:
+        self._last_soft_word_time: float = 0.0  # Track when we last ignored a soft word
+        self._soft_word_cooldown: float = 0.5   # Cooldown period to ignore repeated soft words
 
         self._userdata: Userdata_T | None = userdata if is_given(userdata) else None
         self._closing_task: asyncio.Task[None] | None = None
@@ -1187,6 +1244,29 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         if self._user_state == state:
             return
 
+        # --- Intelligent interruption handling ---
+        # Strategy: Mark as pending but DON'T prevent state updates
+        # The actual interrupt blocking happens in agent_activity.py based on STT
+        if state == "speaking" and self._agent_state == "speaking":
+            current_time = time.time()
+            
+            # Check if we're in soft word cooldown (recently ignored a soft word)
+            if current_time - self._last_soft_word_time < self._soft_word_cooldown:
+                logger.debug(
+                    "[INTERRUPT_COOLDOWN] Ignoring speech within cooldown period"
+                )
+                # Don't even set pending interrupt, just ignore
+               
+            
+            if not self._pending_interrupt:
+                self._pending_interrupt = True
+                self._pending_interrupt_time = current_time
+                self._pending_interrupt_text = None
+                logger.debug(
+                    "[INTERRUPT_PENDING] User started speaking, waiting for STT validation"
+                )
+        # -----------------------------------------------------------------------
+
         if state == "speaking" and self._user_speaking_span is None:
             self._user_speaking_span = tracer.start_span("user_speaking")
 
@@ -1195,10 +1275,7 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                     self._user_speaking_span, self._room_io.linked_participant
                 )
 
-            # self._user_speaking_span.set_attribute(trace_types.ATTR_START_TIME, time.time())
         elif self._user_speaking_span is not None:
-            # end_time = last_speaking_time or time.time()
-            # self._user_speaking_span.set_attribute(trace_types.ATTR_END_TIME, end_time)
             self._user_speaking_span.end()
             self._user_speaking_span = None
 
@@ -1210,13 +1287,96 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         old_state = self._user_state
         self._user_state = state
         self.emit("user_state_changed", UserStateChangedEvent(old_state=old_state, new_state=state))
-
+        
     def _user_input_transcribed(self, ev: UserInputTranscribedEvent) -> None:
+        # --- Intelligent interruption handling ---
+        # Process transcripts to decide if we should interrupt or ignore
+        if self._pending_interrupt and self._agent_state == "speaking":
+            # Accumulate transcript text (works for both interim and final)
+            if ev.text:
+                if self._pending_interrupt_text:
+                    # Append new text, handling duplicates
+                    existing_words = set(self._pending_interrupt_text.lower().split())
+                    new_words = ev.text.lower().strip()
+                    
+                    # Only append if not duplicate
+                    if new_words not in self._pending_interrupt_text.lower():
+                        self._pending_interrupt_text = f"{self._pending_interrupt_text} {ev.text}".strip()
+                else:
+                    self._pending_interrupt_text = ev.text
+
+                text = self._pending_interrupt_text.lower().strip()
+                words = set(text.split())
+
+                # Check IMMEDIATELY on every transcript update (interim or final)
+                # This gives us near-instant decisions
+                
+                # Is it ONLY soft words?
+                is_soft_only = len(words) > 0 and words.issubset(SOFT_WORDS)
+                
+                # Does it contain ANY hard interrupt words?
+                has_hard_interrupt = any(
+                    hard_word in text for hard_word in HARD_INTERRUPT_WORDS
+                )
+                
+                # Does it contain words that are NOT in the soft list?
+                has_other_words = len(words) > 0 and not words.issubset(SOFT_WORDS)
+
+                logger.debug(
+                    "[INTERRUPT_EVAL] text='%s' | soft_only=%s | hard=%s | other=%s | final=%s",
+                    text, is_soft_only, has_hard_interrupt, has_other_words, ev.is_final
+                )
+
+                # DECISION LOGIC (works on interim AND final transcripts)
+                if is_soft_only and not has_hard_interrupt:
+                    # Pure backchanneling - IGNORE immediately
+                    logger.info(
+                        "[INTERRUPT_IGNORED] ✓ Soft words only: '%s' - agent continues",
+                        text
+                    )
+                    
+                    # Clear pending state
+                    self._pending_interrupt = False
+                    self._pending_interrupt_text = None
+                    self._last_soft_word_time = time.time()  # Set cooldown
+                    
+                    # DON'T emit this transcript - it's backchanneling
+                    return
+                    
+                elif has_hard_interrupt or (has_other_words and ev.is_final):
+                    # Hard interrupt OR unknown words (on final only) - INTERRUPT
+                    logger.info(
+                        "[INTERRUPT_EXECUTING] ✗ Interrupting for: '%s' (hard=%s, other=%s)",
+                        text, has_hard_interrupt, has_other_words
+                    )
+                    
+                    self._pending_interrupt = False
+                    self._pending_interrupt_text = None
+                    
+                    # Execute the interrupt
+                    self.interrupt(force=True)
+                    # Fall through to emit the event normally
+                
+                elif has_other_words and not ev.is_final:
+                    # Has non-soft words but not final yet - keep waiting
+                    # Don't make a decision yet, could be "yeah wait" being transcribed
+                    logger.debug(
+                        "[INTERRUPT_WAITING] Non-soft words detected, waiting for final: '%s'",
+                        text
+                    )
+                    return  # Don't emit interim with unknown words
+                
+                # If we get here with interim transcript of just soft words, don't emit yet
+                if not ev.is_final and is_soft_only:
+                    return
+
+        # Normal handling for when agent is not speaking or no pending interrupt
         if self.user_state == "away" and ev.is_final:
             # reset user state from away to listening in case VAD has a miss detection
             self._update_user_state("listening")
 
         self.emit("user_input_transcribed", ev)
+        # -------------------------------------------------------------------------------------
 
     def _conversation_item_added(self, message: llm.ChatMessage) -> None:
         self._chat_ctx.insert(message)
