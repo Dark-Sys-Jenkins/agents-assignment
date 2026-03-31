@@ -1,0 +1,32 @@
+Starting agent session..., Category.UNKNOWN, False
+You know,, Category.MIXED, True
+Stop and check, Category.INTERRUPT, True
+Okay., Category.BACKCHANNEL, False
+Yep., Category.BACKCHANNEL, False
+Yeah., Category.BACKCHANNEL, False
+K., Category.MIXED, TrueStarting agent session..., Category.UNKNOWN, False
+Stop., Category.INTERRUPT, True
+Okay., Category.BACKCHANNEL, False
+Mhmm., Category.BACKCHANNEL, False
+Mhmm., Category.BACKCHANNEL, False
+Yeah., Category.BACKCHANNEL, False
+Okay., Category.BACKCHANNEL, False
+Starting agent session..., Category.UNKNOWN, False
+Starting agent session..., Category.UNKNOWN, False
+Starting agent session..., Category.UNKNOWN, False
+Count the numbers from one to fifty., Category.MIXED, True
+Yes., Category.BACKCHANNEL, False
+Yes., Category.BACKCHANNEL, False
+Okay., Category.BACKCHANNEL, False
+Starting agent session..., Category.UNKNOWN, False
+Starting agent session..., Category.UNKNOWN, False
+Yeah., Category.BACKCHANNEL, False
+Okay., Category.BACKCHANNEL, False
+Stop, Category.INTERRUPT, True
+Okay. Continue., Category.BACKCHANNEL, False
+Okay. Continue., Category.BACKCHANNEL, False
+Okay., Category.BACKCHANNEL, False
+Okay. Mhmm., Category.BACKCHANNEL, False
+Okay. Mhmm., Category.BACKCHANNEL, False
+Okay. Mhmm., Category.BACKCHANNEL, False
+Yeah., Category.BACKCHANNEL, False
