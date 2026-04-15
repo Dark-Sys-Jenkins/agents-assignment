@@ -373,3 +373,37 @@ The Agents framework is under active development in a rapidly evolving field. We
 </tbody>
 </table>
 <!--END_REPO_NAV-->
+
+---
+
+# 🎓 LiveKit Intelligent Interruption Handling (Assignment Submission)
+
+This repository implements a **context-aware interruption handler** for LiveKit Voice Agents. In simple terms: we fixed a common Voice AI bug where the AI awkwardly stops talking entirely just because the user coughed, said "yeah", or made a short sound of agreement.
+
+## 🚀 Features Implemented
+1. **Configurable Ignore List**: Built a list of filler words (like `"yeah", "ok", "hmm"`) directly into the agent's configuration settings (`AgentSessionOptions.backchannel_ignore_words`). This means developers can easily customize exactly which words shouldn't interrupt the AI!
+2. **State-Aware Filtering**: The filter only activates when the agent is *currently speaking*. If the agent is patiently listening, "yeah" is treated as a totally normal conversational response.
+3. **Semantic Interruption**: Mixed sentences like `"Yeah, wait"` successfully bypass the filter because "wait" is a commanding word. The agent stops immediately.
+4. **No Core Hacks**: We didn't break or rewrite the low-level Voice Activity Detection (VAD) models. Instead, we injected clean, modular logic into the `AgentActivity` event loop to catch and evaluate transcripts in real-time.
+
+## 🧠 How the Logic Works (Simply Explained)
+
+When humans talk to Voice AI, two distinct systems are listening:
+* **VAD (Voice Activity Detection)**: Very fast. It only knows *if* you made a sound.
+* **STT (Speech-To-Text)**: Slightly slower. It actually decodes *what* you said.
+
+**The Problem:** By default, VAD acts instantly. The exact millisecond you say "yeah" to agree with the AI, the VAD panics and pauses the AI's audio, assuming you are interrupting. Then, ~300 milliseconds later, STT realizes you only said "yeah", but the AI has already stopped talking! This creates awkward stuttering.
+
+**The Solution:**
+1. **Patience over Panic (`_interrupt_by_audio_activity`):** I modified a function inside `agent_activity.py` hook. Now, when VAD detects sound while the agent is talking, we intentionally **wait** instead of pausing the speaker right away.
+2. **The Verification Check (`_is_backchanneling`):** As the slower STT starts dripping text in, we pass the text to a new, smart helper function. This function cleans the transcript and checks if *all* the words spoken are purely filler words (like "yeah", "hmm"). 
+3. **Seamless Continuation:** If it is purely a filler word, we `return` out of the function early. The audio stream never breaks! However, if they say something commanding (like "Stop"), we immediately let LiveKit halt the AI.
+4. **The End-of-Turn Cleanup (`on_end_of_turn`):** When the user completely stops talking, LiveKit evaluates the final sentence. I added the exact same safety check here: if the sentence was exclusively filler words, we dismiss the turn rather than letting it confuse the agent's memory.
+
+## 🧪 Evaluation Criteria Handled Correctly
+- ✅ **Agent Speaking + User says "Yeah/Ok"**: Code detects it's backchanneling. Bypasses interruption. Audio continues seamlessly.
+- ✅ **Agent Speaking + User says "Stop"**: Code detects "stop" isn't a filler word. Instantly cuts audio playback.
+- ✅ **Agent Silent + User says "Yeah/Ok"**: Code detects the agent isn't talking, disables our custom filter completely, and lets the LLM naturally respond to "Yeah".
+
+## 📹 Proof of Execution
+[Proof of Execution](https://drive.google.com/drive/folders/1moI4OLYw8EQcUVkNbTYlkjQ7B8m1nKMB?usp=drive_link)
