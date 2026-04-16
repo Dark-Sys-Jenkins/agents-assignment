@@ -1,0 +1,331 @@
+C:\Users\krish\AppData\Roaming\Python\Python313\site-packages\pydantic\_internal\_fields.py:132: UserWarning: Field "model_name" in Metadata has conflict with protected namespace "model_".
+
+You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+  warnings.warn(
+C:\Users\krish\AppData\Roaming\Python\Python313\site-packages\pydantic\_internal\_fields.py:132: UserWarning: Field "model_provider" in Metadata has conflict with protected namespace "model_".
+
+You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+  warnings.warn(
+    00:30:24 DEBUG  asyncio          Using proactor: IocpProactor  
+             DEV    livekit.agents   Watching                                  
+                                     C:\Users\krish\OneDrive\Desktop\salescod  
+                                     eai\agents-assignment                     
+             DEV    livekit.agents   Watching                                  
+                                     C:\Users\krish\OneDrive\Desktop\salescod  
+                                     eai\agents-assignment\livekit-agents      
+             DEV    livekit.agents   Watching                                  
+                                     C:\Users\krish\OneDrive\Desktop\salescod  
+                                     eai\agents-assignment\livekit-plugins\li  
+                                     vekit-plugins-silero                      
+             DEV    livekit.agents   Watching                                  
+                                     C:\Users\krish\OneDrive\Desktop\salescod  
+                                     eai\agents-assignment\livekit-plugins\li  
+                                     vekit-plugins-deepgram                    
+             DEV    livekit.agents   Watching                                  
+                                     C:\Users\krish\OneDrive\Desktop\salescod  
+                                     eai\agents-assignment\livekit-plugins\li  
+                                     vekit-plugins-openai                      
+             DEV    livekit.agents   Watching                                  
+                                     C:\Users\krish\OneDrive\Desktop\salescod  
+                                     eai\agents-assignment\livekit-plugins\li  
+                                     vekit-plugins-groq                        
+             DEV    livekit.agents   Watching                                  
+                                     C:\Users\krish\OneDrive\Desktop\salescod  
+                                     eai\agents-assignment\livekit-plugins\li  
+                                     vekit-plugins-cartesia                    
+C:\Users\krish\AppData\Roaming\Python\Python313\site-packages\pydantic\_internal\_fields.py:132: UserWarning: Field "model_name" in Metadata has conflict with protected namespace "model_".
+
+You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+  warnings.warn(
+C:\Users\krish\AppData\Roaming\Python\Python313\site-packages\pydantic\_internal\_fields.py:132: UserWarning: Field "model_provider" in Metadata has conflict with protected namespace "model_".
+
+You may be able to resolve this warning by setting `model_config['protected_namespaces'] = ()`.
+  warnings.warn(
+    00:30:27 DEBUG  asyncio          Using proactor: IocpProactor  
+             INFO   livekit.agents   starting worker {"version": "1.3.3",      
+                                                     "rtc-version": "1.1.5"}   
+    00:30:28 INFO   livekit.agents   registered worker {"agent_name": "", "id":
+                                                       "AW_Bvzy7W2pLvjB",      
+                                                       "url":                  
+                                                       "wss://projectvoice-i4o…
+                                                       "region": "India South",
+                                                       "protocol": 17}         
+    00:31:57 INFO   livekit.agents   received job request {"job_id":           
+                                                          "AJ_rhbhqVnexstD",   
+                                                          "dispatch_id":       
+                                                          "AD_yZTuXNYYdBLg",   
+                                                          "room":              
+                                                          "playground-jfhs-4cY…
+                                                          "room_id":           
+                                                          "RM_W8stbbJWr7sS",   
+                                                          "agent_name": "",    
+                                                          "resuming": false,   
+                                                          "enable_recording":  
+                                                          false}               
+             DEBUG  livekit.agents   received assignment {"agent_name": "",    
+                                                         "room_id":            
+                                                         "RM_W8stbbJWr7sS",    
+                                                         "room":               
+                                                         "playground-jfhs-4cYB…
+                                                         "job_id":             
+                                                         "AJ_rhbhqVnexstD",    
+                                                         "dispatch_id":        
+                                                         "AD_yZTuXNYYdBLg",    
+                                                         "enable_recording":   
+                                                         false}                
+             INFO   livekit.agents   initializing job runner {"tid": 9008}
+             INFO   livekit.agents   job runner           {"tid": 9008,        
+                                     initialized          "elapsed_time": 0.0} 
+             DEBUG  asyncio          Using proactor: IocpProactor  
+             INFO   interrupt-agent  STT: Using Deepgram nova-3  
+             INFO   interrupt-agent  LLM: Using Groq llama-3.3-70b-versatile  
+    00:31:58 INFO   interrupt-agent  TTS: Using Cartesia  
+             DEBUG  livekit.agents   input stream         {"participant": null,
+                                     attached             "source":            
+                                                          "SOURCE_UNKNOWN",    
+                                                          "accepted_sources":  
+                                                          ["SOURCE_MICROPHONE"…
+             DEBUG  livekit.agents   http_session(): creating a new            
+                                     httpclient ctx                            
+             DEBUG  livekit.plugins… Established new      {"cartesia_request_i…
+                                     Cartesia TTS         "ab844c61-c677-459e-…
+                                     WebSocket connection                      
+    00:31:59 DEBUG  livekit.plugins… Established new      {"headers":          
+                                     Deepgram STT         {"dg-project-id":    
+                                     WebSocket            "c6bb50b4-cc59-416d-…
+                                     connection:          "dg-request-id":     
+                                                          "019d97ab-ea0b-75c1-…
+                                                          "Date": "Thu, 16 Apr 
+                                                          2026 19:01:59 GMT"}} 
+    00:32:00 DEBUG  livekit.agents   using audio io: `RoomIO` ->               
+                                     `AgentSession` ->                         
+                                     `TranscriptSynchronizer` -> `RoomIO`      
+             DEBUG  livekit.agents   using transcript io: `AgentSession` ->    
+                                     `TranscriptSynchronizer` -> `RoomIO`      
+             DEBUG  livekit.agents   start reading stream {"participant":      
+                                                          "identity-gK1w",     
+                                                          "source":            
+                                                          "SOURCE_MICROPHONE"} 
+             INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:03 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:07 DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "The history of World
+                                                          War two in detail.", 
+                                                          "language": "en-US", 
+                                                          "transcript_delay":  
+                                                          0.5324900150299072}  
+    00:32:08 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:13 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:17 DEBUG  livekit.agents   backchannel in       {"transcript":       
+                                     interim transcript,  "Okay."}             
+                                     ignoring                                  
+             DEBUG  livekit.agents   backchannel in final {"transcript":       
+                                     transcript, ignoring "Okay."}             
+                                     interruption                              
+             DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Okay.", "language": 
+                                                          "en-US",             
+                                                          "transcript_delay":  
+                                                          0.8926429748535156}  
+    00:32:18 DEBUG  livekit.plugins… Established new      {"cartesia_request_i…
+                                     Cartesia TTS         "e6e236ff-9f4b-4c14-…
+                                     WebSocket connection                      
+             INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:23 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:28 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:30 DEBUG  livekit.agents   backchannel in final {"transcript":       
+                                     transcript, ignoring "Right."}            
+                                     interruption                              
+             DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Right.", "language":
+                                                          "en-US",             
+                                                          "transcript_delay":  
+                                                          0.6656558513641357}  
+    00:32:33 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:38 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:43 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:47 DEBUG  livekit.agents   backchannel in       {"transcript":       
+                                     interim transcript,  "Yeah."}             
+                                     ignoring                                  
+    00:32:48 DEBUG  livekit.agents   backchannel in final {"transcript":       
+                                     transcript, ignoring "Yeah."}             
+                                     interruption                              
+             DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Yeah.", "language": 
+                                                          "en-US",             
+                                                          "transcript_delay":  
+                                                          0.7425458431243896}  
+             INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:53 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:32:58 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:03 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:08 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:13 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:18 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:22 DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Hey.", "language":  
+                                                          "en-US",             
+                                                          "transcript_delay":  
+                                                          0.6443328857421875}  
+    00:33:23 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:28 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:31 DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Stop.", "language": 
+                                                          "en-US",             
+                                                          "transcript_delay":  
+                                                          0.5689189434051514}  
+             WARNI… livekit.agents   _SegmentSynchronizerImpl.resume called    
+                                     after close                               
+    00:33:33 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:38 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:43 DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Ask me before       
+                                                          starting your        
+                                                          countdown.",         
+                                                          "language": "en-US", 
+                                                          "transcript_delay":  
+                                                          0.5404720306396484}  
+             INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:46 DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Why is it",         
+                                                          "language": "en-US"} 
+             WARNI… livekit.agents   _SegmentSynchronizerImpl.resume called    
+                                     after close                               
+             DEBUG  livekit.plugins… Established new      {"cartesia_request_i…
+                                     Cartesia TTS         "224f16e5-8066-4a40-…
+                                     WebSocket connection                      
+    00:33:48 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:53 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:33:58 DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "if I am ready before
+                                                          you begin.",         
+                                                          "language": "en-US", 
+                                                          "transcript_delay":  
+                                                          0.5082473754882812}  
+             INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:03 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:07 DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Yeah.", "language": 
+                                                          "en-US",             
+                                                          "transcript_delay":  
+                                                          0.5147531032562256}  
+    00:34:08 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:13 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:18 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:23 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:24 DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Cut off.",          
+                                                          "language": "en-US", 
+                                                          "transcript_delay":  
+                                                          0.9414539337158203}  
+    00:34:28 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:33 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:38 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:43 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:44 DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Explain recursion in
+                                                          detail.", "language":
+                                                          "en-US",             
+                                                          "transcript_delay":  
+                                                          0.5036284923553467}  
+    00:34:48 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:53 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:34:58 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:35:03 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:35:04 DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Yes.", "language":  
+                                                          "en-US",             
+                                                          "transcript_delay":  
+                                                          1.245689868927002}   
+    00:35:08 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:35:12 DEBUG  livekit.agents   backchannel in       {"transcript":       
+                                     interim transcript,  "Yeah."}             
+                                     ignoring                                  
+             DEBUG  livekit.agents   backchannel detected {"transcript": "     
+                                     while agent          Yeah."}              
+                                     speaking, ignoring                        
+             DEBUG  livekit.agents   received user        {"user_transcript":  
+                                     transcript           "Yeah. But",         
+                                                          "language": "en-US", 
+                                                          "transcript_delay":  
+                                                          1.0423028469085693}  
+    00:35:13 DEBUG  livekit.plugins… Established new      {"cartesia_request_i…
+                                     Cartesia TTS         "279abbf8-ec3a-45c5-…
+                                     WebSocket connection                      
+             INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:35:18 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:35:23 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:35:28 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:35:33 INFO   root             ignoring byte stream with topic           
+                                     'lk.agent.session', no callback attached  
+    00:35:34 INFO   livekit.agents   closing agent        {"participant":      
+                                     session due to       "identity-gK1w",     
+                                     participant          "reason":            
+                                     disconnect (disable  "CLIENT_INITIATED"}  
+                                     via                                       
+                                     `RoomInputOptions.cl                      
+                                     ose_on_disconnect=Fa                      
+                                     lse`)                                     
+             DEBUG  livekit.agents   input stream         {"participant":      
+                                     detached             "identity-gK1w",     
+                                                          "source":            
+                                                          "SOURCE_UNKNOWN",    
+                                                          "accepted_sources":  
+                                                          ["SOURCE_MICROPHONE"…
+             DEBUG  livekit.agents   stream closed {"participant":             
+                                                   "identity-gK1w", "source":  
+                                                   "SOURCE_MICROPHONE"}        
+             DEBUG  livekit.agents   session closed {"reason":                 
+                                                    "participant_disconnected",
+                                                    "error": null}             
+    00:35:56 DEBUG  livekit.agents   shutting down job    {"reason": "",       
+                                     task                 "user_initiated":    
+                                                          false}               
+             DEBUG  livekit.agents   job exiting {"reason": "", "tid": 9008,   
+                                                 "job_id": "AJ_rhbhqVnexstD",  
+                                                 "room_id": "RM_W8stbbJWr7sS"} 
+             DEBUG  livekit.agents   http_session(): closing the httpclient    
+                                     ctx                                       
