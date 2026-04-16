@@ -53,6 +53,9 @@ from .audio_recognition import (
     _EndOfTurnInfo,
     _PreemptiveGenerationInfo,
 )
+from .backchannel import BackchannelConfig, BackchannelFilter
+
+
 from .events import (
     AgentFalseInterruptionEvent,
     ErrorEvent,
@@ -126,6 +129,10 @@ class AgentActivity(RecognitionHooks):
         self._false_interruption_timer: asyncio.TimerHandle | None = None
         self._interrupt_paused_speech_task: asyncio.Task[None] | None = None
 
+        # for backchannel filtering (two-phase interruption)
+        self._backchannel_eval_pending: bool = False
+        self._audio_was_paused_for_backchannel: bool = False
+
         # fired when a speech_task finishes or when a new speech_handle is scheduled
         # this is used to wake up the main task when the scheduling state changes
         self._q_updated = asyncio.Event()
@@ -163,6 +170,11 @@ class AgentActivity(RecognitionHooks):
 
         # speeches that audio playout finished but not done because of tool calls
         self._background_speeches: set[SpeechHandle] = set()
+        self._backchannel_filter = BackchannelFilter(
+        self._session.options.backchannel_config
+        )
+
+        self._pending_interrupt_task: asyncio.Task | None = None
 
     def _validate_turn_detection(
         self, turn_detection: TurnDetectionMode | None
@@ -1167,48 +1179,118 @@ class AgentActivity(RecognitionHooks):
         self._schedule_speech(handle, SpeechHandle.SPEECH_PRIORITY_NORMAL)
 
     def _interrupt_by_audio_activity(self) -> None:
-        opt = self._session.options
-        use_pause = opt.resume_false_interruption and opt.false_interruption_timeout is not None
+        """Handle potential interruption from VAD or audio activity.
 
+        Two-phase approach to handle STT timing (VAD fires before STT completes):
+
+        Phase 1 (immediate):
+          - Mark that backchannel evaluation is pending
+          - Do NOT pause audio yet - this prevents the "hiccup" problem
+          - Start the STT settling timer
+
+        Phase 2 (after delay):
+          - Evaluate transcript with backchannel filter
+          - If backchannel: ignore completely, audio never paused
+          - If real interruption: interrupt now
+
+        This approach ensures:
+          - No audio hiccup on backchannel words (audio continues seamlessly)
+          - Real interruptions still work (just slightly delayed by ~300ms)
+        """
         if isinstance(self.llm, llm.RealtimeModel) and self.llm.capabilities.turn_detection:
-            # ignore if realtime model has turn detection enabled
             return
 
         if (
-            self.stt is not None
-            and opt.min_interruption_words > 0
-            and self._audio_recognition is not None
+            self._current_speech is None
+            or self._current_speech.interrupted
+            or not self._current_speech.allow_interruptions
         ):
-            text = self._audio_recognition.current_transcript
+            return
 
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
+        # Mark evaluation as pending - prevents duplicate tasks
+        self._backchannel_eval_pending = True
+
+        # Cancel any pending check to avoid duplicate evaluations
+        if self._pending_interrupt_task:
+            self._pending_interrupt_task.cancel()
+
+        self._pending_interrupt_task = asyncio.create_task(
+            self._delayed_interrupt_check(),
+            name="backchannel_delayed_check"
+        )
+
+    async def _delayed_interrupt_check(self) -> None:
+        """Phase 2: Evaluate transcript after STT settling delay and make interrupt decision.
+
+        This is the key to handling the VAD-before-STT timing problem:
+        - VAD detects speech immediately → triggers this check
+        - We wait ~300ms for STT to produce a transcript
+        - Then we classify: backchannel (ignore) vs real interruption (interrupt)
+        """
+        try:
+            # Wait for STT transcript to settle
+            # Configurable delay accounts for different STT provider speeds
+            delay_seconds = self._session.options.backchannel_config.stt_settling_delay_ms / 1000.0
+            await asyncio.sleep(delay_seconds)
+
+            # Clear pending flag
+            self._backchannel_eval_pending = False
+
+            # Re-check: speech might have finished naturally during delay
+            if not self._current_speech or self._current_speech.interrupted:
                 return
 
-        if self._rt_session is not None:
-            self._rt_session.start_user_activity()
+            # Get the current transcript from audio recognition
+            transcript = ""
+            if self._audio_recognition:
+                transcript = self._audio_recognition.current_transcript.strip()
 
-        if (
-            self._current_speech is not None
-            and not self._current_speech.interrupted
-            and self._current_speech.allow_interruptions
-        ):
-            self._paused_speech = self._current_speech
+            # Use backchannel filter to classify the user input
+            decision = self._backchannel_filter.should_interrupt(
+                text=transcript,
+                agent_is_speaking=True  # We know agent is speaking at this point
+            )
 
-            # reset the false interruption timer
-            if self._false_interruption_timer:
-                self._false_interruption_timer.cancel()
-                self._false_interruption_timer = None
+            logger.debug(
+                "Backchannel decision",
+                extra={
+                    "transcript": transcript or "(empty)",
+                    "decision": decision,
+                    "agent_state": "speaking",
+                }
+            )
 
-            if use_pause and self._session.output.audio and self._session.output.audio.can_pause:
-                self._session.output.audio.pause()
-                self._session._update_agent_state("listening")
-            else:
-                if self._rt_session is not None:
+            # Apply the decision
+            if decision == "ignore":
+                # Backchannel word (e.g., "yeah", "ok", "hmm")
+                # Do nothing - agent continues speaking seamlessly
+                # Audio was never paused, so no resume needed
+                logger.debug(f"Ignoring backchannel: '{transcript}'")
+                return
+
+            if decision == "interrupt":
+                # Real interruption or command (e.g., "wait", "stop", "no")
+                # Interrupt the current speech
+                if self._rt_session:
                     self._rt_session.interrupt()
-
                 self._current_speech.interrupt()
+                logger.debug(f"Interrupting for: '{transcript}'")
+                return
 
+            # decision == "respond" - shouldn't happen when agent_is_speaking=True
+            # but treat as interrupt for safety
+            if self._rt_session:
+                self._rt_session.interrupt()
+            self._current_speech.interrupt()
+
+        except asyncio.CancelledError:
+            # Task was cancelled because a newer interrupt check superseded it
+            # This is normal - user kept speaking and we got a newer transcript
+            self._backchannel_eval_pending = False
+            logger.debug("Backchannel check cancelled (superseded by newer input)")
+            raise
+        finally:
+            self._pending_interrupt_task = None
     # region recognition hooks
 
     def on_start_of_speech(self, ev: vad.VADEvent | None) -> None:
@@ -1234,6 +1316,12 @@ class AgentActivity(RecognitionHooks):
         ):
             # schedule a resume timer when user stops speaking
             self._start_false_interruption_timer(timeout)
+
+        # Cancel pending backchannel check - user stopped speaking
+        if self._pending_interrupt_task:
+            self._pending_interrupt_task.cancel()
+            self._pending_interrupt_task = None
+        self._backchannel_eval_pending = False
 
     def on_vad_inference_done(self, ev: vad.VADEvent) -> None:
         if self._turn_detection in ("manual", "realtime_llm"):
