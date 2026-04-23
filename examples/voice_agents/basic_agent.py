@@ -100,6 +100,12 @@ async def entrypoint(ctx: JobContext):
         # when it's detected, you may resume the agent's speech
         resume_false_interruption=True,
         false_interruption_timeout=1.0,
+        # Intelligent interruption filtering - prevents backchanneling from stopping the agent
+        # When enabled, the agent will ignore passive acknowledgments like "yeah", "ok", "hmm" while speaking
+        # but will still respond to real interruptions like "wait", "stop"
+        interruption_filter_enabled=True,
+        # You can customize the list of words to ignore (optional)
+        # interruption_ignore_words=['yeah', 'ok', 'hmm', 'right', 'uh-huh', 'mhm', 'aha'],
     )
 
     # log metrics as they are emitted, and total usage after session is over

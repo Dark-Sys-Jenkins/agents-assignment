@@ -22,6 +22,7 @@ from .room_io import (
     _ParticipantTranscriptionOutput,
 )
 from .speech_handle import SpeechHandle
+from .interruption_filter import InterruptionFilter
 from .transcription import TranscriptSynchronizer
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "ModelSettings",
     "AgentTask",
     "SpeechHandle",
+    "InterruptionFilter",
     "RunContext",
     "UserInputTranscribedEvent",
     "AgentEvent",
