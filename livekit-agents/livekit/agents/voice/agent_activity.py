@@ -4,6 +4,7 @@ import asyncio
 import contextvars
 import heapq
 import json
+import re
 import time
 from collections.abc import AsyncIterable, Coroutine, Sequence
 from dataclasses import dataclass
@@ -1176,14 +1177,31 @@ class AgentActivity(RecognitionHooks):
 
         if (
             self.stt is not None
-            and opt.min_interruption_words > 0
             and self._audio_recognition is not None
         ):
             text = self._audio_recognition.current_transcript
+            words = [w[0].lower() for w in split_words(text, split_character=True)]
+            fuzzy_words = [fw for fw in (re.sub(r'[^a-z]', '', w) for w in words) if fw]
+            
+            should_interrupt_immediately = False
+            if opt.stop_interruption_words:
+                fuzzy_stops = [re.sub(r'[^a-z]', '', w.lower()) for w in opt.stop_interruption_words]
+                if any(any(w.startswith(stop) for stop in fuzzy_stops) for w in fuzzy_words if w):
+                    should_interrupt_immediately = True
 
-            # TODO(long): better word splitting for multi-language
-            if len(split_words(text, split_character=True)) < opt.min_interruption_words:
-                return
+            if not should_interrupt_immediately:
+                if opt.ignore_interruption_words:
+                    fuzzy_ignores = [re.sub(r'[^a-z]', '', w.lower()) for w in opt.ignore_interruption_words]
+                    if len(fuzzy_words) == 0:
+                        # Wait for STT to provide the first word
+                        return
+                    if all(any(ignore.startswith(w) or w.startswith(ignore) for ignore in fuzzy_ignores) for w in fuzzy_words if w):
+                        # Only soft inputs spoken so far, do not interrupt yet
+                        return
+
+                if opt.min_interruption_words > 0:
+                    if len(words) < opt.min_interruption_words:
+                        return
 
         if self._rt_session is not None:
             self._rt_session.start_user_activity()
@@ -1414,6 +1432,21 @@ class AgentActivity(RecognitionHooks):
             if self._rt_session is not None:
                 self._rt_session.commit_audio()
 
+        words = [w[0].lower() for w in split_words(info.new_transcript, split_character=True)]
+        fuzzy_words = [fw for fw in (re.sub(r'[^a-z]', '', w) for w in words) if fw]
+        
+        is_only_ignore_words = False
+        if self._session.options.ignore_interruption_words:
+            fuzzy_ignores = [re.sub(r'[^a-z]', '', w.lower()) for w in self._session.options.ignore_interruption_words]
+            if len(fuzzy_words) > 0 and all(any(ignore.startswith(w) or w.startswith(ignore) for ignore in fuzzy_ignores) for w in fuzzy_words if w):
+                is_only_ignore_words = True
+
+        contains_stop_words = False
+        if self._session.options.stop_interruption_words:
+            fuzzy_stops = [re.sub(r'[^a-z]', '', w.lower()) for w in self._session.options.stop_interruption_words]
+            if len(fuzzy_words) > 0 and any(any(w.startswith(stop) for stop in fuzzy_stops) for w in fuzzy_words if w):
+                contains_stop_words = True
+
         if self._current_speech is not None:
             if not self._current_speech.allow_interruptions:
                 logger.warning(
@@ -1421,6 +1454,14 @@ class AgentActivity(RecognitionHooks):
                     extra={"user_input": info.new_transcript},
                 )
                 return
+
+            if is_only_ignore_words:
+                logger.debug(
+                    "skipping user turn, transcript contains only ignored words",
+                    extra={"user_input": info.new_transcript},
+                )
+                return
+
             await self._interrupt_paused_speech(self._interrupt_paused_speech_task)
 
             if self._current_speech:
@@ -1428,6 +1469,13 @@ class AgentActivity(RecognitionHooks):
 
             if self._rt_session is not None:
                 self._rt_session.interrupt()
+
+        if contains_stop_words:
+            logger.debug(
+                "skipping response, transcript contains stop words",
+                extra={"user_input": info.new_transcript},
+            )
+            return
 
         user_message = llm.ChatMessage(
             role="user",

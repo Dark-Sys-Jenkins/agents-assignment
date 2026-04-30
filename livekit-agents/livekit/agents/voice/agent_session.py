@@ -89,6 +89,9 @@ class AgentSessionOptions:
     preemptive_generation: bool
     tts_text_transforms: Sequence[TextTransforms] | None
     ivr_detection: bool
+    ignore_interruption_words: Sequence[str] | None
+    stop_interruption_words: Sequence[str] | None
+
 
 
 Userdata_T = TypeVar("Userdata_T")
@@ -159,6 +162,8 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
         tts_text_transforms: NotGivenOr[Sequence[TextTransforms] | None] = NOT_GIVEN,
         preemptive_generation: bool = False,
         ivr_detection: bool = False,
+        ignore_interruption_words: NotGivenOr[Sequence[str] | None] = NOT_GIVEN,
+        stop_interruption_words: NotGivenOr[Sequence[str] | None] = NOT_GIVEN,
         conn_options: NotGivenOr[SessionConnectOptions] = NOT_GIVEN,
         loop: asyncio.AbstractEventLoop | None = None,
         # deprecated
@@ -245,6 +250,10 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
                 Defaults to ``False``.
             ivr_detection (bool): Whether to detect if the agent is interacting with an IVR system.
                 Default ``False``.
+            ignore_interruption_words (Sequence[str], optional): List of words that
+                are treated as soft inputs and will not interrupt the agent.
+            stop_interruption_words (Sequence[str], optional): List of words that
+                will immediately interrupt the agent if detected.
             conn_options (SessionConnectOptions, optional): Connection options for
                 stt, llm, and tts.
             loop (asyncio.AbstractEventLoop, optional): Event loop to bind the
@@ -287,6 +296,12 @@ class AgentSession(rtc.EventEmitter[EventTypes], Generic[Userdata_T]):
             ivr_detection=ivr_detection,
             use_tts_aligned_transcript=use_tts_aligned_transcript
             if is_given(use_tts_aligned_transcript)
+            else None,
+            ignore_interruption_words=ignore_interruption_words
+            if is_given(ignore_interruption_words)
+            else None,
+            stop_interruption_words=stop_interruption_words
+            if is_given(stop_interruption_words)
             else None,
         )
         self._conn_options = conn_options or SessionConnectOptions()
